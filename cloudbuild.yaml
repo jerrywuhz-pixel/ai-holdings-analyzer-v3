@@ -1,0 +1,78 @@
+# Cloud Build 配置 — OpenClaw Gateway
+# 用法: gcloud builds submit --config cloudbuild.yaml
+
+steps:
+  # 构建 Gateway 镜像
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'openclaw/Dockerfile'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/gateway:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/gateway:latest'
+      - '.'
+
+  # 构建 Data Service 镜像
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'data-service/Dockerfile'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/data-service:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/data-service:latest'
+      - 'data-service/'
+
+  # 推送镜像
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/gateway']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/data-service']
+
+  # 部署 Gateway 到 Cloud Run
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_GATEWAY_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/gateway:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--port=8080'
+      - '--cpu=1'
+      - '--memory=512Mi'
+      - '--min-instances=1'
+      - '--max-instances=10'
+      - '--set-env-vars=DEPLOYMENT_MODE=cloud,OPENCLAW_DEPLOYMENT_MODE=cloud'
+      - '--set-secrets=SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,WECHAT_APP_SECRET=wechat-app-secret:latest,OPENAI_API_KEY=openai-api-key:latest'
+      - '--allow-unauthenticated'
+
+  # 部署 Data Service 到 Cloud Run
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_DATA_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/data-service:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--port=8000'
+      - '--cpu=1'
+      - '--memory=512Mi'
+      - '--min-instances=0'
+      - '--max-instances=5'
+      - '--set-secrets=SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,TUSHARE_TOKEN=tushare-token:latest'
+      - '--no-allow-unauthenticated'
+
+substitutions:
+  _REGION: asia-southeast1
+  _REPO: openclaw
+  _GATEWAY_SERVICE: openclaw-gateway
+  _DATA_SERVICE: data-service
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/gateway:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/data-service:${SHORT_SHA}'

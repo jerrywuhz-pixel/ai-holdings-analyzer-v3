@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <style>
+  .bg { fill: #050606; }
+  .window { fill: #0b0d0e; stroke: #303538; stroke-width: 1.2; }
+  .topbar { fill: #111315; stroke: #252a2e; stroke-width: 1; }
+  .panel { fill: #141619; stroke: #30353a; stroke-width: 1.1; }
+  .panel2 { fill: #101214; stroke: #2a2f34; stroke-width: 1; }
+  .soft { fill: #111315; stroke: #242a2d; stroke-width: 1; }
+  .active { stroke: #ff4357; stroke-width: 1.8; }
+  .title { font: 800 31px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f3f6f6; }
+  .h1 { font: 800 24px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f5f7f7; }
+  .h2 { font: 750 18px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f1f5f3; }
+  .h3 { font: 720 15px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #dce2e0; }
+  .label { font: 650 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #8e9898; }
+  .tiny { font: 520 11px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #788282; }
+  .body { font: 540 14px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #d6ddda; }
+  .body2 { font: 520 13px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #aeb8b5; }
+  .red { fill: #ff4357; }
+  .red2 { fill: #ff7a88; }
+  .amber { fill: #f6c45b; }
+  .green { fill: #50d27a; }
+  .cyan { fill: #60d2ff; }
+  .violet { fill: #a88cff; }
+  .mono { font: 680 14px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #f2f5f2; }
+  .monoRed { font: 850 24px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #ff4357; }
+  .monoSmall { font: 650 12px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #9ba7a3; }
+  .chipText { font: 750 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #fff2f3; }
+  .darkChipText { font: 750 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #18070a; }
+  .lineRed { fill: none; stroke: #ff5263; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .lineAmber { fill: none; stroke: #f6c45b; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 5 6; }
+  .divider { stroke: #252b2e; stroke-width: 1; }
+</style>
+  
+    <rect width="1600" height="1000" class="bg"/>
+    <rect x="40" y="34" width="1520" height="920" rx="28" class="window"/>
+    <rect x="40" y="34" width="1520" height="66" rx="28" class="topbar"/>
+    <circle cx="76" cy="66" r="9" fill="#ff5f57"/><circle cx="104" cy="66" r="9" fill="#ffbd2e"/><circle cx="132" cy="66" r="9" fill="#28c840"/>
+    <rect x="540" y="50" width="520" height="34" rx="17" fill="#1a1d20" stroke="#33383c"/>
+    <text x="800" y="72" class="body2" text-anchor="middle">holdings.ai / webapp</text>
+    <text x="78" y="128" class="label" text-anchor="start">AI HOLDINGS · FUTU PRIMARY · TENCENT CHECK</text>
+    <text x="78" y="164" class="title" text-anchor="start">股票 / ETF 详情</text>
+    <text x="78" y="193" class="body2" text-anchor="start">围绕单个持仓解释收益、风险、交易纪律和下一步动作。</text>
+    <rect x="520" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="559" y="144" class="body2" text-anchor="middle">总览</text><rect x="614" y="124" width="78" height="30" rx="15" fill="#2c1118" stroke="#ff4357"/>
+      <text x="653" y="144" class="red2" text-anchor="middle">持仓</text><rect x="708" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="747" y="144" class="body2" text-anchor="middle">关注</text><rect x="802" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="841" y="144" class="body2" text-anchor="middle">研究</text><rect x="896" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="935" y="144" class="body2" text-anchor="middle">确认</text><rect x="990" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="1029" y="144" class="body2" text-anchor="middle">我的</text>
+    <rect x="1360" y="124" width="150" height="58" rx="5" fill="#111416" stroke="#30353a"/>
+    <circle cx="1380" cy="144" r="4" fill="#ff4357"/>
+    <text x="1394" y="147" class="label" text-anchor="start">ALL_ASSETS</text>
+    <text x="1380" y="173" class="red2" text-anchor="start">fresh 42s</text>
+  
+
+  <rect x="78" y="226" width="380" height="650" rx="6" class="panel"/><text x="94" y="254" class="h3" text-anchor="start">NVDA · NVIDIA · US</text>
+  <text x="104" y="276" class="label" text-anchor="start">持仓占比</text><text x="382" y="276" class="monoRed" text-anchor="end">18.4%</text>
+  <text x="104" y="326" class="label" text-anchor="start">市值</text><text x="382" y="326" class="monoRed" text-anchor="end">¥229,680</text>
+  <text x="104" y="376" class="label" text-anchor="start">成本</text><text x="382" y="376" class="mono" text-anchor="end">$782.40</text>
+  <text x="104" y="426" class="label" text-anchor="start">浮盈亏</text><text x="382" y="426" class="red2" text-anchor="end">+¥8,420</text>
+  <text x="104" y="476" class="label" text-anchor="start">数据源</text><text x="382" y="476" class="red2" text-anchor="end">Futu fresh 42s</text>
+  <text x="104" y="544" class="h3" text-anchor="start">纪律命中</text>
+  <text x="104" y="580" class="body2" text-anchor="start">• 科技仓位集中：NVDA + QQQ 38.4%</text>
+  <text x="104" y="612" class="body2" text-anchor="start">• 财报前不追加高波动仓位</text>
+  <text x="104" y="644" class="body2" text-anchor="start">• 止盈线：+30% 分批减仓提醒</text>
+  <rect x="104" y="788" width="330" height="42" rx="5" fill="#2c1118" stroke="#ff4357"/>
+  <text x="269" y="815" class="red2" text-anchor="middle">生成持仓分析</text>
+
+  <rect x="486" y="226" width="640" height="272" rx="6" class="panel"/><text x="502" y="254" class="h3" text-anchor="start">价格与收益路径</text>
+  <path d="M 550.0 413.1 L 577.8 420.0 L 605.6 406.3 L 633.3 397.7 L 661.1 392.6 L 688.9 399.4 L 716.7 378.9 L 744.4 385.7 L 772.2 368.6 L 800.0 363.4 L 827.8 372.0 L 855.6 354.9 L 883.3 341.1 L 911.1 349.7 L 938.9 330.9 L 966.7 320.6 L 994.4 310.3 L 1022.2 315.4 L 1050.0 300.0 L 1050 420 L 550 420 Z" fill="#351018" opacity=".78"/><path d="M 550.0 413.1 L 577.8 420.0 L 605.6 406.3 L 633.3 397.7 L 661.1 392.6 L 688.9 399.4 L 716.7 378.9 L 744.4 385.7 L 772.2 368.6 L 800.0 363.4 L 827.8 372.0 L 855.6 354.9 L 883.3 341.1 L 911.1 349.7 L 938.9 330.9 L 966.7 320.6 L 994.4 310.3 L 1022.2 315.4 L 1050.0 300.0" class="lineRed"/>
+  <text x="510" y="454" class="tiny" text-anchor="start">买入成本 $782.40</text><text x="1070" y="454" class="red2" text-anchor="end">现价 $914.20</text>
+
+  <rect x="1150" y="226" width="340" height="272" rx="6" class="panel"/><text x="1166" y="254" class="h3" text-anchor="start">止盈 / 止损策略</text>
+  <text x="1176" y="276" class="label" text-anchor="start">止盈区</text><text x="1394" y="276" class="red2" text-anchor="end">$960 / $1020</text>
+  <text x="1176" y="326" class="label" text-anchor="start">止损线</text><text x="1394" y="326" class="amber" text-anchor="end">$820</text>
+  <text x="1176" y="376" class="label" text-anchor="start">加仓条件</text><text x="1394" y="376" class="body2" text-anchor="end">回踩 20MA</text>
+  <text x="1176" y="426" class="label" text-anchor="start">动作上限</text><text x="1394" y="426" class="tiny" text-anchor="end">analysis_only</text>
+
+  <rect x="486" y="526" width="640" height="350" rx="6" class="panel"/><text x="502" y="554" class="h3" text-anchor="start">交易时间线</text>
+  <g><rect x="510" y="578" width="590" height="42" rx="4" fill="#101315" stroke="#252b2e"/><text x="524" y="605" class="tiny" text-anchor="start">2026-03-12</text><text x="644" y="605" class="body2" text-anchor="start">买入</text><text x="760" y="605" class="monoSmall" text-anchor="start">12 股</text><text x="876" y="605" class="red2" text-anchor="start">$782.4</text><text x="992" y="605" class="tiny" text-anchor="start">manual</text></g>
+  <g><rect x="510" y="628" width="590" height="42" rx="4" fill="#101315" stroke="#252b2e"/><text x="524" y="655" class="tiny" text-anchor="start">2026-04-09</text><text x="644" y="655" class="body2" text-anchor="start">加仓</text><text x="760" y="655" class="monoSmall" text-anchor="start">6 股</text><text x="876" y="655" class="red2" text-anchor="start">$835.1</text><text x="992" y="655" class="tiny" text-anchor="start">Futu</text></g>
+  <g><rect x="510" y="678" width="590" height="42" rx="4" fill="#101315" stroke="#252b2e"/><text x="524" y="705" class="tiny" text-anchor="start">2026-05-03</text><text x="644" y="705" class="amber" text-anchor="start">规则提醒</text><text x="760" y="705" class="body2" text-anchor="start">科技仓位</text><text x="876" y="705" class="amber" text-anchor="start">38.4%</text><text x="992" y="705" class="tiny" text-anchor="start">discipline</text></g>
+  <g><rect x="510" y="728" width="590" height="42" rx="4" fill="#101315" stroke="#252b2e"/><text x="524" y="755" class="tiny" text-anchor="start">2026-05-09</text><text x="644" y="755" class="body2" text-anchor="start">分析</text><text x="760" y="755" class="body2" text-anchor="start">止盈区更新</text><text x="876" y="755" class="red2" text-anchor="start">$960</text><text x="992" y="755" class="tiny" text-anchor="start">AI</text></g>
+
+  <rect x="1150" y="526" width="340" height="350" rx="6" class="panel"/><text x="1166" y="554" class="h3" text-anchor="start">页面内 AI</text>
+  <text x="1176" y="574" class="label" text-anchor="start">可执行入口</text>
+  <text x="1176" y="610" class="body2" text-anchor="start">• 解释今日变化</text>
+  <text x="1176" y="642" class="body2" text-anchor="start">• 生成止盈止损建议</text>
+  <text x="1176" y="674" class="body2" text-anchor="start">• 检查交易纪律</text>
+  <text x="1176" y="706" class="body2" text-anchor="start">• 发起个股深研</text>
+  <rect x="1176" y="792" width="286" height="42" rx="5" fill="#2c1118" stroke="#ff4357"/>
+  <text x="1319" y="819" class="red2" text-anchor="middle">发起 Hermes 深研</text>
+</svg>

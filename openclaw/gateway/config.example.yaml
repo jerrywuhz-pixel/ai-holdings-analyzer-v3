@@ -1,0 +1,136 @@
+# ============================================================
+# OpenClaw Gateway - 配置模板
+# 复制此文件为 config.yaml 并填入实际值
+# 支持环境变量占位符 ${VAR_NAME} 或硬编码值
+# ============================================================
+
+gateway:
+  port: 8080
+  log_level: info
+  # 请求体大小限制（用于接收持仓截图等大体积消息）
+  max_body_size_mb: 10
+  # CORS 允许来源（生产环境必须限制）
+  cors_origins:
+    - "http://localhost:3000"
+
+supabase:
+  url: ${SUPABASE_URL}
+  service_role_key: ${SUPABASE_SERVICE_ROLE_KEY}
+  # 连接池配置
+  pool_size: 10
+  # 查询超时（秒）
+  query_timeout: 30
+
+skills:
+  trade-input:
+    enabled: true
+    api_key: ${SKILL_TRADE_INPUT_KEY}
+    webhook: ${WECHAT_CLAW_WEBHOOK_URL}
+    description: "接收用户持仓输入（文本/截图）"
+    timeout_seconds: 30
+
+  broker-parse:
+    enabled: true
+    api_key: ${SKILL_BROKER_PARSE_KEY}
+    description: "解析券商对账单/交割单"
+    timeout_seconds: 60
+
+  position-aggregate:
+    enabled: true
+    api_key: ${SKILL_POSITION_AGGREGATE_KEY}
+    description: "聚合多券商持仓数据"
+    timeout_seconds: 30
+
+  daily-analysis:
+    enabled: true
+    api_key: ${SKILL_DAILY_ANALYSIS_KEY}
+    openai_api_key: ${OPENAI_API_KEY}
+    # 工作日 15:30 自动执行收盘分析（cron 语法）
+    cron: "30 15 * * 1-5"
+    description: "每日收盘后 AI 持仓分析"
+    timeout_seconds: 120
+
+  profit-taking:
+    enabled: true
+    api_key: ${SKILL_PROFIT_TAKING_KEY}
+    # 工作日 09:00 自动执行开盘前止盈行动计划（cron 语法）
+    cron: "0 9 * * 1-5"
+    description: "开盘前止盈行动计划与操作建议"
+    timeout_seconds: 300
+
+channels:
+  wechat_claw:
+    enabled: true
+    webhook_url: ${WECHAT_CLAW_WEBHOOK_URL}
+    context_token: ${WECHAT_CLAW_CONTEXT_TOKEN}
+    # 消息去重窗口（秒）
+    dedup_window_seconds: 30
+    # 自动回复模板
+    auto_reply:
+      welcome: "欢迎使用 AI 持仓分析助手！发送持仓截图或文本即可开始分析。"
+      processing: "收到，正在分析中..."
+      quota_exceeded: "今日额度已用完，请升级套餐或明日再试。"
+
+quota:
+  # 默认套餐配置（可被数据库中 quota_tracking 表覆盖）
+  free:
+    daily_writes: 50
+    daily_reads: 200
+    daily_ai_calls: 5
+  basic:
+    daily_writes: 500
+    daily_reads: 2000
+    daily_ai_calls: 50
+  pro:
+    daily_writes: 5000
+    daily_reads: 20000
+    daily_ai_calls: 500
+
+# 告警阈值（触发时写入日志或发送通知）
+alerts:
+  # 错误率超过阈值
+  error_rate_threshold_pct: 10
+  # 单个 Skill 延迟阈值（毫秒）
+  skill_latency_threshold_ms: 5000
+  # 配额使用告警比例
+  quota_usage_alert_pct: 80
+
+# ============================================================
+# gbrain 记忆存储配置
+# ============================================================
+brain:
+  enabled: true
+  # MCP Adapter 可执行文件路径（本地开发用源码路径，生产用 Docker 服务名）
+  mcp_adapter_path: ${GBRAIN_MCP_ADAPTER_PATH:-./gbrain/src/mcp-adapter.ts}
+  # 运行时：bun | node
+  mcp_runtime: ${GBRAIN_MCP_RUNTIME:-bun}
+  # OpenAI Embedding 配置
+  openai_api_key: ${OPENAI_API_KEY}
+  openai_embedding_model: ${GBRAIN_EMBEDDING_MODEL:-text-embedding-3-small}
+  # 数据库连接（复用 Supabase，但可独立覆盖）
+  database_url: ${GBRAIN_DATABASE_URL:-${SUPABASE_URL}}
+  # 同步队列配置
+  sync_batch_size: 10
+  sync_flush_interval_seconds: 15
+  sync_max_retries: 3
+  # 混合搜索配置
+  search_vector_weight: 0.5
+  search_keyword_weight: 0.3
+  search_recency_weight: 0.2
+
+# ============================================================
+# IMA 参考资料源配置
+# ============================================================
+ima:
+  enabled: ${IMA_REFERENCE_SOURCE_ENABLED:-false}
+  skill_dir: ${IMA_SKILL_DIR:-./openclaw/skills/ima-skill}
+  base_url: ${IMA_BASE_URL:-https://ima.qq.com}
+  client_id: ${IMA_OPENAPI_CLIENTID}
+  api_key: ${IMA_OPENAPI_APIKEY}
+  default_knowledge_base_id: ${IMA_DEFAULT_KNOWLEDGE_BASE_ID:-}
+  skill_version: ${IMA_SKILL_VERSION:-1.1.7}
+  # 读取微信文章/网页/知识库内容时只能作为研究参考源，不能直接写入持仓事实。
+  reference_only: true
+  allowed_domains:
+    - ima.qq.com
+    - "*.myqcloud.com"

@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    @apply bg-[#060708];
+  }
+
+  body {
+    @apply bg-[#060708] text-slate-100;
+  }
+
+  * {
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  }
+
+  ::selection {
+    background: rgba(255, 67, 87, 0.3);
+    color: white;
+  }
+}

@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100">
+  <style>
+  .bg { fill: #050606; }
+  .window { fill: #0b0d0e; stroke: #303538; stroke-width: 1.2; }
+  .topbar { fill: #111315; stroke: #252a2e; stroke-width: 1; }
+  .panel { fill: #141619; stroke: #30353a; stroke-width: 1.1; }
+  .panel2 { fill: #101214; stroke: #2a2f34; stroke-width: 1; }
+  .mutedPanel { fill: #0f1213; stroke: #242a2d; stroke-width: 1; }
+  .active { stroke: #33f24f; stroke-width: 1.8; }
+  .greenFill { fill: #261018; }
+  .title { font: 700 32px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f3f6f6; }
+  .h1 { font: 700 25px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f5f7f7; }
+  .h2 { font: 700 18px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f1f5f3; }
+  .h3 { font: 700 15px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #dce2e0; }
+  .label { font: 650 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #8e9898; }
+  .tiny { font: 500 11px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #788282; }
+  .body { font: 500 14px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #d6ddda; }
+  .body2 { font: 500 13px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #aeb8b5; }
+  .green { fill: #ff4357; }
+  .green2 { fill: #ff7a88; }
+  .amber { fill: #f6c45b; }
+  .red { fill: #ff6666; }
+  .cyan { fill: #60d2ff; }
+  .violet { fill: #a88cff; }
+  .lineGreen { fill: none; stroke: #ff5263; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .lineCyan { fill: none; stroke: #60d2ff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .dash { fill: none; stroke: #8d865c; stroke-width: 1.4; stroke-dasharray: 6 7; opacity: .9; }
+  .divider { stroke: #252b2e; stroke-width: 1; }
+  .mono { font: 650 14px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #f2f5f2; }
+  .monoGreen { font: 800 24px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #ff4357; }
+  .monoSmall { font: 650 12px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #9ba7a3; }
+  .chipText { font: 700 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #071007; }
+  .nodeTitle { font: 800 18px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f2f6f5; }
+  .nodeItem { font: 550 13px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #aeb8b5; }
+  .nodeMeta { font: 700 11px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #ff4357; }
+
+  .active { stroke: #ff4357; stroke-width: 1.8; }
+  .green { fill: #ff4357; }
+  .green2 { fill: #ff7a88; }
+  .lineGreen { fill: none; stroke: #ff5263; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .monoGreen { font: 800 24px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #ff4357; }
+  .nodeMeta { font: 700 11px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #ff4357; }
+</style>
+  <rect width="1800" height="1100" class="bg"/>
+  <rect x="44" y="38" width="1712" height="1024" rx="30" class="window"/>
+  <rect x="44" y="38" width="1712" height="66" rx="30" class="topbar"/>
+  <circle cx="78" cy="70" r="9" fill="#ff5f57"/><circle cx="108" cy="70" r="9" fill="#ffbd2e"/><circle cx="138" cy="70" r="9" fill="#28c840"/>
+  <rect x="190" y="53" width="84" height="34" rx="17" fill="#1b1e21" stroke="#2d3337"/>
+  <text x="232" y="76" class="tiny" text-anchor="middle">◀  ▶</text>
+  <rect x="562" y="51" width="676" height="36" rx="18" fill="#1a1d20" stroke="#33383c"/>
+  <text x="900" y="75" class="body2" text-anchor="middle">holdings.ai / dashboard</text>
+  <rect x="1570" y="51" width="120" height="36" rx="18" fill="#1a1d20" stroke="#33383c"/>
+  <text x="1630" y="75" class="tiny" text-anchor="middle">share  +</text>
+
+  <text x="82" y="132" class="label" text-anchor="start">AI HOLDINGS · FUTU PRIMARY · TENCENT CHECK</text>
+  <text x="82" y="166" class="title" text-anchor="start">AI 持仓系统 3.0</text>
+  <text x="82" y="194" class="body2" text-anchor="start">移动端优先的投资工作台：多 portfolio view、股票/ETF 持仓、期权 sell put 资金占用、确认中心。</text>
+  <rect x="540" y="132" width="86" height="30" rx="15" fill="#2c1118" stroke="#ff4357"/><text x="583" y="152" class="green2" text-anchor="middle">总览</text>
+  <rect x="636" y="132" width="86" height="30" rx="15" fill="#111417" stroke="#2a3033"/><text x="679" y="152" class="body2" text-anchor="middle">持仓</text>
+  <rect x="732" y="132" width="86" height="30" rx="15" fill="#111417" stroke="#2a3033"/><text x="775" y="152" class="body2" text-anchor="middle">关注</text>
+  <rect x="828" y="132" width="86" height="30" rx="15" fill="#111417" stroke="#2a3033"/><text x="871" y="152" class="body2" text-anchor="middle">研究</text>
+  <rect x="924" y="132" width="86" height="30" rx="15" fill="#111417" stroke="#2a3033"/><text x="967" y="152" class="body2" text-anchor="middle">确认</text>
+  <rect x="1020" y="132" width="86" height="30" rx="15" fill="#111417" stroke="#2a3033"/><text x="1063" y="152" class="body2" text-anchor="middle">我的</text>
+  <rect x="1536" y="126" width="170" height="66" rx="4" fill="#111416" stroke="#30353a"/>
+  <circle cx="1558" cy="148" r="4" fill="#ff4357"/>
+  <text x="1570" y="150" class="label" text-anchor="start">LIVE ACCOUNT</text>
+  <text x="1554" y="176" class="monoGreen" text-anchor="start">ALL ASSETS</text>
+
+  <rect x="82" y="226" width="430" height="244" rx="5" class="panel"/><text x="98" y="252" class="h3" text-anchor="start">资产信息</text>
+  <text x="104" y="264" class="label" text-anchor="start">当前视图</text><text x="104" y="292" class="mono" text-anchor="start">全部资产 / ALL_ASSETS</text>
+  <text x="104" y="326" class="label" text-anchor="start">总资产</text><text x="490" y="326" class="monoGreen" text-anchor="end">¥1,248,620</text>
+  <text x="104" y="360" class="label" text-anchor="start">今日盈亏</text><text x="250" y="360" class="green" text-anchor="end">+¥12,840</text><text x="270" y="360" class="tiny" text-anchor="start">equity +9.2k / options +3.6k</text>
+  <text x="104" y="394" class="label" text-anchor="start">现金/保证金</text><text x="250" y="394" class="monoGreen" text-anchor="end">31.8%</text><text x="270" y="394" class="tiny" text-anchor="start">sell put cash secured</text>
+  <text x="104" y="428" class="label" text-anchor="start">待处理</text><text x="250" y="428" class="amber" text-anchor="end">5</text><text x="270" y="428" class="tiny" text-anchor="start">确认 2 · 纪律 3</text>
+
+  <rect x="82" y="486" width="430" height="138" rx="5" class="panel"/><text x="98" y="512" class="h3" text-anchor="start">账户与数据状态</text>
+  <text x="104" y="524" class="label" text-anchor="start">登录</text><text x="160" y="524" class="body2" text-anchor="start">Supabase Auth · jerry@***</text>
+  <text x="104" y="556" class="label" text-anchor="start">微信</text><rect x="160" y="538" width="76" height="24" rx="12" fill="#ff4357"/><text x="198" y="554" class="chipText" text-anchor="middle">BOUND</text><text x="250" y="556" class="body2" text-anchor="start">openclaw-weixin / 主账号</text>
+  <text x="104" y="590" class="label" text-anchor="start">数据</text><text x="160" y="590" class="green" text-anchor="start">Futu fresh 42s · Tencent check ok</text>
+
+  <rect x="82" y="640" width="430" height="114" rx="5" class="panel"/><text x="98" y="666" class="h3" text-anchor="start">快捷操作</text>
+  <rect x="104" y="680" width="178" height="38" rx="4" fill="#101315" stroke="#563039"/><text x="193" y="704" class="body" text-anchor="middle">录入交易</text>
+  <rect x="292" y="680" width="178" height="38" rx="4" fill="#101315" stroke="#563039"/><text x="381" y="704" class="body" text-anchor="middle">发起深研</text>
+  <text x="104" y="738" class="tiny" text-anchor="start">富途同步从数据/账户页进入，主界面只展示 freshness。</text>
+
+  <rect x="82" y="768" width="430" height="250" rx="5" class="panel"/><text x="98" y="794" class="h3" text-anchor="start">交易纪律 / 风险偏好</text>
+  <text x="104" y="807" class="label" text-anchor="start">规则命中</text><text x="190" y="807" class="amber" text-anchor="start">3</text><text x="216" y="807" class="body2" text-anchor="start">条需关注</text>
+  <text x="104" y="841" class="body2" text-anchor="start">· 不买中概股：命中 BABA 关注项</text>
+  <text x="104" y="873" class="body2" text-anchor="start">· 盘前盘后不下单：当前美股盘前</text>
+  <text x="104" y="905" class="body2" text-anchor="start">· Sell Put 现金占用不得超过 12%</text>
+  <rect x="104" y="940" width="386" height="46" rx="4" fill="#101315" stroke="#563039"/>
+  <text x="124" y="968" class="green" text-anchor="start">打开规则管理</text>
+  <text x="472" y="968" class="green" text-anchor="end">→</text>
+
+  <rect x="536" y="226" width="1178" height="154" rx="5" class="panel"/><text x="552" y="252" class="h3" text-anchor="start">今日持仓结论</text>
+  <text x="560" y="270" class="h2" text-anchor="start">组合状态：风险可控，但 NVDA 与 QQQ 暴露合计 38.4%，本周不建议继续放大科技仓位。</text>
+  <text x="560" y="306" class="body" text-anchor="start">• 核心持仓优先检查：科技仓位集中、TSLA 250P 接近纪律阈值、7 天内到期期权 2 张。</text>
+  <text x="560" y="338" class="body" text-anchor="start">• 数据状态仅作为底层信号展示：Futu fresh 42s，Tencent check ok；同步入口移至数据/账户页。</text>
+
+  <rect x="536" y="398" width="574" height="280" rx="5" class="panel"/><text x="552" y="424" class="h3" text-anchor="start">股票 / ETF 持仓</text>
+  <g>
+    <rect x="558" y="440" width="540" height="43" rx="4" fill="#101315" stroke="#252b2e"/>
+    <text x="572" y="467" class="mono" text-anchor="start">NVDA</text>
+    <text x="674" y="467" class="body2" text-anchor="start">NVIDIA · US</text>
+    <text x="842" y="467" class="monoSmall" text-anchor="end">18.4%</text>
+    <text x="948" y="467" class="green" text-anchor="end">+¥8,420</text>
+    <text x="1080" y="467" class="tiny" text-anchor="end">高集中</text>
+  </g>
+  <g>
+    <rect x="558" y="488" width="540" height="43" rx="4" fill="#101315" stroke="#252b2e"/>
+    <text x="572" y="515" class="mono" text-anchor="start">AAPL</text>
+    <text x="674" y="515" class="body2" text-anchor="start">Apple · US</text>
+    <text x="842" y="515" class="monoSmall" text-anchor="end">11.6%</text>
+    <text x="948" y="515" class="green" text-anchor="end">+¥1,230</text>
+    <text x="1080" y="515" class="tiny" text-anchor="end">正常</text>
+  </g>
+  <g>
+    <rect x="558" y="536" width="540" height="43" rx="4" fill="#101315" stroke="#252b2e"/>
+    <text x="572" y="563" class="mono" text-anchor="start">0700.HK</text>
+    <text x="674" y="563" class="body2" text-anchor="start">腾讯控股 · HK</text>
+    <text x="842" y="563" class="monoSmall" text-anchor="end">8.1%</text>
+    <text x="948" y="563" class="amber" text-anchor="end">-¥640</text>
+    <text x="1080" y="563" class="tiny" text-anchor="end">纪律关注</text>
+  </g>
+  <g>
+    <rect x="558" y="584" width="540" height="43" rx="4" fill="#101315" stroke="#252b2e"/>
+    <text x="572" y="611" class="mono" text-anchor="start">510300</text>
+    <text x="674" y="611" class="body2" text-anchor="start">沪深300ETF · A</text>
+    <text x="842" y="611" class="monoSmall" text-anchor="end">7.4%</text>
+    <text x="948" y="611" class="green" text-anchor="end">+¥520</text>
+    <text x="1080" y="611" class="tiny" text-anchor="end">正常</text>
+  </g>
+  <rect x="558" y="632" width="540" height="30" rx="4" fill="#101315" stroke="#252b2e"/>
+  <text x="578" y="652" class="green" text-anchor="start">查看全部持仓和来源明细</text>
+  <text x="1078" y="652" class="green" text-anchor="end">→</text>
+
+  <rect x="1130" y="398" width="584" height="280" rx="5" class="panel"/><text x="1146" y="424" class="h3" text-anchor="start">Sell Put 监控 / 资金占用</text>
+  <g>
+    <rect x="1152" y="440" width="278" height="108" rx="4" class="panel active"/>
+    <text x="1166" y="462" class="green" text-anchor="start">#1</text>
+    <text x="1396" y="462" class="green" text-anchor="end">PUT</text>
+    <text x="1166" y="485" class="mono" text-anchor="start">AAPL260515P00185000</text>
+    <text x="1166" y="506" class="tiny" text-anchor="start">DTE 6 · IV 24.2%</text>
+    <text x="1396" y="506" class="tiny" text-anchor="end">Strike 185</text>
+    <text x="1166" y="532" class="monoGreen" text-anchor="start">0.92 / 0.95</text>
+    <text x="1396" y="532" class="body2" text-anchor="end">低风险</text>
+  </g>
+  <g>
+    <rect x="1440" y="440" width="278" height="108" rx="4" class="panel2"/>
+    <text x="1454" y="462" class="green" text-anchor="start">#2</text>
+    <text x="1684" y="462" class="green" text-anchor="end">PUT</text>
+    <text x="1454" y="485" class="mono" text-anchor="start">NVDA260522P00880000</text>
+    <text x="1454" y="506" class="tiny" text-anchor="start">DTE 13 · IV 42.1%</text>
+    <text x="1684" y="506" class="tiny" text-anchor="end">Strike 880</text>
+    <text x="1454" y="532" class="monoGreen" text-anchor="start">8.10 / 8.35</text>
+    <text x="1684" y="532" class="body2" text-anchor="end">中风险</text>
+  </g>
+  <g>
+    <rect x="1152" y="556" width="278" height="108" rx="4" class="panel2"/>
+    <text x="1166" y="578" class="green" text-anchor="start">#3</text>
+    <text x="1396" y="578" class="green" text-anchor="end">PUT</text>
+    <text x="1166" y="601" class="mono" text-anchor="start">TSLA260515P00250000</text>
+    <text x="1166" y="622" class="tiny" text-anchor="start">DTE 6 · IV 55.8%</text>
+    <text x="1396" y="622" class="tiny" text-anchor="end">Strike 250</text>
+    <text x="1166" y="648" class="monoGreen" text-anchor="start">4.20 / 4.40</text>
+    <text x="1396" y="648" class="amber" text-anchor="end">高注意</text>
+  </g>
+  <g>
+    <rect x="1440" y="556" width="278" height="108" rx="4" class="panel2"/>
+    <text x="1454" y="578" class="green" text-anchor="start">#4</text>
+    <text x="1684" y="578" class="green" text-anchor="end">PUT</text>
+    <text x="1454" y="601" class="mono" text-anchor="start">SPY260529P00570000</text>
+    <text x="1454" y="622" class="tiny" text-anchor="start">DTE 20 · IV 14.7%</text>
+    <text x="1684" y="622" class="tiny" text-anchor="end">Strike 570</text>
+    <text x="1454" y="648" class="monoGreen" text-anchor="start">1.28 / 1.31</text>
+    <text x="1684" y="648" class="body2" text-anchor="end">低风险</text>
+  </g>
+
+  <rect x="536" y="700" width="574" height="226" rx="5" class="panel"/><text x="552" y="726" class="h3" text-anchor="start">组合净值 / 近 60 日</text>
+  <path d="M 610.0 878.0 L 627.5 864.3 L 645.0 869.4 L 662.5 855.8 L 680.0 859.2 L 697.5 850.6 L 715.0 845.5 L 732.5 838.7 L 750.0 847.2 L 767.5 826.7 L 785.0 819.9 L 802.5 825.0 L 820.0 816.4 L 837.5 809.6 L 855.0 806.2 L 872.5 811.3 L 890.0 799.3 L 907.5 792.5 L 925.0 797.6 L 942.5 783.9 L 960.0 778.8 L 977.5 770.3 L 995.0 775.4 L 1012.5 765.1 L 1030.0 760.0 L 1030 878 L 610 878 Z" fill="#351018" opacity=".62"/><path d="M 610.0 878.0 L 627.5 864.3 L 645.0 869.4 L 662.5 855.8 L 680.0 859.2 L 697.5 850.6 L 715.0 845.5 L 732.5 838.7 L 750.0 847.2 L 767.5 826.7 L 785.0 819.9 L 802.5 825.0 L 820.0 816.4 L 837.5 809.6 L 855.0 806.2 L 872.5 811.3 L 890.0 799.3 L 907.5 792.5 L 925.0 797.6 L 942.5 783.9 L 960.0 778.8 L 977.5 770.3 L 995.0 775.4 L 1012.5 765.1 L 1030.0 760.0" class="lineGreen"/>
+  <text x="562" y="900" class="tiny" text-anchor="start">2026-03-10</text><text x="1036" y="900" class="tiny" text-anchor="end">2026-05-09</text>
+  <text x="562" y="738" class="tiny" text-anchor="start">portfolio NAV</text><text x="1036" y="738" class="green" text-anchor="end">+8.7%</text>
+
+  <rect x="1130" y="700" width="584" height="226" rx="5" class="panel"/><text x="1146" y="726" class="h3" text-anchor="start">期权风险 / DTE 与现金占用</text>
+  <path d="M 1200.0 795.9 L 1217.5 806.2 L 1235.0 821.6 L 1252.5 849.8 L 1270.0 865.2 L 1287.5 878.0 L 1305.0 872.9 L 1322.5 857.5 L 1340.0 867.7 L 1357.5 849.8 L 1375.0 826.7 L 1392.5 811.3 L 1410.0 803.6 L 1427.5 813.9 L 1445.0 795.9 L 1462.5 785.7 L 1480.0 793.3 L 1497.5 778.0 L 1515.0 770.3 L 1532.5 760.0 L 1550.0 765.1 L 1567.5 772.8 L 1585.0 762.6 L 1602.5 775.4 L 1620.0 783.1 L 1620 878 L 1200 878 Z" fill="#351018" opacity=".62"/><path d="M 1200.0 795.9 L 1217.5 806.2 L 1235.0 821.6 L 1252.5 849.8 L 1270.0 865.2 L 1287.5 878.0 L 1305.0 872.9 L 1322.5 857.5 L 1340.0 867.7 L 1357.5 849.8 L 1375.0 826.7 L 1392.5 811.3 L 1410.0 803.6 L 1427.5 813.9 L 1445.0 795.9 L 1462.5 785.7 L 1480.0 793.3 L 1497.5 778.0 L 1515.0 770.3 L 1532.5 760.0 L 1550.0 765.1 L 1567.5 772.8 L 1585.0 762.6 L 1602.5 775.4 L 1620.0 783.1" class="lineGreen"/>
+  <path d="M 1200.0 854.2 L 1222.1 854.2 L 1244.2 861.1 L 1266.3 868.0 L 1288.4 868.0 L 1310.5 861.1 L 1332.6 854.2 L 1354.7 840.3 L 1376.8 833.4 L 1398.9 826.5 L 1421.1 819.5 L 1443.2 819.5 L 1465.3 812.6 L 1487.4 805.7 L 1509.5 805.7 L 1531.6 798.8 L 1553.7 791.8 L 1575.8 791.8 L 1597.9 784.9 L 1620.0 778.0" class="dash"/>
+  <text x="1156" y="738" class="tiny" text-anchor="start">sell put exposure</text><text x="1620" y="738" class="amber" text-anchor="end">cash used 21.6%</text>
+  <text x="1156" y="900" class="tiny" text-anchor="start">DTE 0-7</text><text x="1620" y="900" class="tiny" text-anchor="end">DTE 30+</text>
+</svg>

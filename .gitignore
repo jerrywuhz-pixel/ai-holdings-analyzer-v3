@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env
+.env
+.env.local
+.env.*.local
+.env.production
+.env.cloud
+
+# Build
+.next/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+.turbo/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Supabase
+.supabase/
+supabase/.branches/
+supabase/.temp/
+
+# Vercel
+.vercel/

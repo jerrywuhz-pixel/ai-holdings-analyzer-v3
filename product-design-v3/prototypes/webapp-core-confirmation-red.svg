@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <style>
+  .bg { fill: #050606; }
+  .window { fill: #0b0d0e; stroke: #303538; stroke-width: 1.2; }
+  .topbar { fill: #111315; stroke: #252a2e; stroke-width: 1; }
+  .panel { fill: #141619; stroke: #30353a; stroke-width: 1.1; }
+  .panel2 { fill: #101214; stroke: #2a2f34; stroke-width: 1; }
+  .soft { fill: #111315; stroke: #242a2d; stroke-width: 1; }
+  .active { stroke: #ff4357; stroke-width: 1.8; }
+  .title { font: 800 31px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f3f6f6; }
+  .h1 { font: 800 24px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f5f7f7; }
+  .h2 { font: 750 18px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #f1f5f3; }
+  .h3 { font: 720 15px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #dce2e0; }
+  .label { font: 650 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #8e9898; }
+  .tiny { font: 520 11px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #788282; }
+  .body { font: 540 14px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #d6ddda; }
+  .body2 { font: 520 13px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #aeb8b5; }
+  .red { fill: #ff4357; }
+  .red2 { fill: #ff7a88; }
+  .amber { fill: #f6c45b; }
+  .green { fill: #50d27a; }
+  .cyan { fill: #60d2ff; }
+  .violet { fill: #a88cff; }
+  .mono { font: 680 14px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #f2f5f2; }
+  .monoRed { font: 850 24px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #ff4357; }
+  .monoSmall { font: 650 12px "SFMono-Regular", "Cascadia Mono", Menlo, monospace; fill: #9ba7a3; }
+  .chipText { font: 750 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #fff2f3; }
+  .darkChipText { font: 750 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif; fill: #18070a; }
+  .lineRed { fill: none; stroke: #ff5263; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .lineAmber { fill: none; stroke: #f6c45b; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 5 6; }
+  .divider { stroke: #252b2e; stroke-width: 1; }
+</style>
+  
+    <rect width="1600" height="1000" class="bg"/>
+    <rect x="40" y="34" width="1520" height="920" rx="28" class="window"/>
+    <rect x="40" y="34" width="1520" height="66" rx="28" class="topbar"/>
+    <circle cx="76" cy="66" r="9" fill="#ff5f57"/><circle cx="104" cy="66" r="9" fill="#ffbd2e"/><circle cx="132" cy="66" r="9" fill="#28c840"/>
+    <rect x="540" y="50" width="520" height="34" rx="17" fill="#1a1d20" stroke="#33383c"/>
+    <text x="800" y="72" class="body2" text-anchor="middle">holdings.ai / webapp</text>
+    <text x="78" y="128" class="label" text-anchor="start">AI HOLDINGS · FUTU PRIMARY · TENCENT CHECK</text>
+    <text x="78" y="164" class="title" text-anchor="start">确认中心</text>
+    <text x="78" y="193" class="body2" text-anchor="start">所有会改变事实或高风险判断的动作，在这里完成结构化确认和审计留痕。</text>
+    <rect x="520" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="559" y="144" class="body2" text-anchor="middle">总览</text><rect x="614" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="653" y="144" class="body2" text-anchor="middle">持仓</text><rect x="708" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="747" y="144" class="body2" text-anchor="middle">关注</text><rect x="802" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="841" y="144" class="body2" text-anchor="middle">研究</text><rect x="896" y="124" width="78" height="30" rx="15" fill="#2c1118" stroke="#ff4357"/>
+      <text x="935" y="144" class="red2" text-anchor="middle">确认</text><rect x="990" y="124" width="78" height="30" rx="15" fill="#111417" stroke="#2a3033"/>
+      <text x="1029" y="144" class="body2" text-anchor="middle">我的</text>
+    <rect x="1360" y="124" width="150" height="58" rx="5" fill="#111416" stroke="#30353a"/>
+    <circle cx="1380" cy="144" r="4" fill="#ff4357"/>
+    <text x="1394" y="147" class="label" text-anchor="start">ALL_ASSETS</text>
+    <text x="1380" y="173" class="red2" text-anchor="start">fresh 42s</text>
+  
+
+  <rect x="78" y="226" width="430" height="650" rx="6" class="panel"/><text x="94" y="254" class="h3" text-anchor="start">待处理</text>
+  <rect x="102" y="266" width="74" height="26" rx="13" fill="#ff1f3d" stroke="#ff6574"/><text x="139" y="283" class="darkChipText" text-anchor="middle">全部 5</text><rect x="188" y="266" width="74" height="26" rx="13" fill="#111417" stroke="#ff4357"/><text x="225" y="283" class="red2" text-anchor="middle">交易</text><rect x="274" y="266" width="74" height="26" rx="13" fill="#111417" stroke="#ff4357"/><text x="311" y="283" class="red2" text-anchor="middle">OCR</text><rect x="360" y="266" width="74" height="26" rx="13" fill="#111417" stroke="#f6c45b"/><text x="397" y="283" class="amber" text-anchor="middle">规则</text>
+  <rect x="102" y="322" width="382" height="96" rx="6" fill="#2c1118" stroke="#ff4357"/>
+  <text x="122" y="352" class="h3" text-anchor="start">TSLA 250P 持有策略确认</text>
+  <text x="122" y="382" class="amber" text-anchor="start">高注意 · Sell Put · DTE 6</text>
+  <text x="122" y="404" class="tiny" text-anchor="start">来源：期权工作台 / RiskReviewTools</text>
+  <rect x="102" y="432" width="382" height="76" rx="6" fill="#101315" stroke="#2a2f34"/>
+  <text x="122" y="462" class="body" text-anchor="start">OCR 交易截图字段修正</text>
+  <text x="122" y="490" class="tiny" text-anchor="start">AAPL 买入 10 股 · 价格低置信</text>
+  <rect x="102" y="522" width="382" height="76" rx="6" fill="#101315" stroke="#2a2f34"/>
+  <text x="122" y="552" class="body" text-anchor="start">NVDA 加仓草稿</text>
+  <text x="122" y="580" class="tiny" text-anchor="start">命中科技仓位集中纪律</text>
+  <rect x="102" y="612" width="382" height="76" rx="6" fill="#101315" stroke="#2a2f34"/>
+  <text x="122" y="642" class="body" text-anchor="start">批量导入 12 条成交</text>
+  <text x="122" y="670" class="tiny" text-anchor="start">CSV 预览 · 2 条重复候选</text>
+
+  <rect x="536" y="226" width="954" height="232" rx="6" class="panel"/><text x="552" y="254" class="h3" text-anchor="start">确认对象</text>
+  <text x="564" y="278" class="h2" text-anchor="start">TSLA 250P 2026-05-15 · 继续持有 / roll / 平仓确认</text>
+  <text x="564" y="318" class="label" text-anchor="start">对象类型</text><text x="674" y="318" class="monoSmall" text-anchor="start">option_position_action</text>
+  <text x="564" y="354" class="label" text-anchor="start">风险等级</text><text x="674" y="354" class="amber" text-anchor="start">high_attention</text>
+  <text x="564" y="390" class="label" text-anchor="start">状态</text><text x="674" y="390" class="red2" text-anchor="start">pending_user_confirmation</text>
+  <text x="1020" y="318" class="label" text-anchor="start">数据时点</text><text x="1140" y="318" class="red2" text-anchor="start">Futu fresh 42s</text>
+  <text x="1020" y="354" class="label" text-anchor="start">策略纪律</text><text x="1140" y="354" class="amber" text-anchor="start">高波动 + DTE 6</text>
+  <text x="1020" y="390" class="label" text-anchor="start">动作上限</text><text x="1140" y="390" class="body2" text-anchor="start">生成草稿，不自动下单</text>
+
+  <rect x="536" y="484" width="454" height="392" rx="6" class="panel"/><text x="552" y="512" class="h3" text-anchor="start">结构化明细</text>
+  <text x="564" y="532" class="label" text-anchor="start">合约</text><text x="700" y="532" class="monoSmall" text-anchor="start">TSLA260515P00250000</text>
+  <text x="564" y="578" class="label" text-anchor="start">持仓</text><text x="700" y="578" class="body2" text-anchor="start">Short Put · 1 张</text>
+  <text x="564" y="624" class="label" text-anchor="start">权利金</text><text x="700" y="624" class="red2" text-anchor="start">4.20 / 4.40</text>
+  <text x="564" y="670" class="label" text-anchor="start">现金占用</text><text x="700" y="670" class="red2" text-anchor="start">¥25,000</text>
+  <text x="564" y="716" class="label" text-anchor="start">建议动作</text><text x="700" y="716" class="body2" text-anchor="start">评估 roll 或平仓，不建议被动等待</text>
+  <text x="564" y="762" class="label" text-anchor="start">用户备注</text>
+  <rect x="564" y="780" width="390" height="54" rx="5" fill="#0f1112" stroke="#2a3033"/>
+  <text x="582" y="814" class="tiny" text-anchor="start">输入 override 原因或执行备注...</text>
+
+  <rect x="1020" y="484" width="470" height="392" rx="6" class="panel"/><text x="1036" y="512" class="h3" text-anchor="start">证据与审计</text>
+  <text x="1048" y="532" class="label" text-anchor="start">数据来源</text><text x="1180" y="532" class="body2" text-anchor="start">Futu option chain + position</text>
+  <text x="1048" y="578" class="label" text-anchor="start">规则命中</text><text x="1180" y="578" class="amber" text-anchor="start">Sell Put 高波动 / DTE 过近</text>
+  <text x="1048" y="624" class="label" text-anchor="start">模型</text><text x="1180" y="624" class="body2" text-anchor="start">MiniMax M2.7 summary</text>
+  <text x="1048" y="670" class="label" text-anchor="start">RiskReview</text><text x="1180" y="670" class="red2" text-anchor="start">required</text>
+  <rect x="1048" y="736" width="190" height="44" rx="5" fill="#2c1118" stroke="#ff4357"/>
+  <text x="1143" y="764" class="red2" text-anchor="middle">确认并记录</text>
+  <rect x="1258" y="736" width="190" height="44" rx="5" fill="#111417" stroke="#f6c45b"/>
+  <text x="1353" y="764" class="amber" text-anchor="middle">拒绝 / 退回</text>
+  <text x="1048" y="830" class="tiny" text-anchor="start">确认只写系统事实和执行清单，不代表自动下单授权。</text>
+</svg>
