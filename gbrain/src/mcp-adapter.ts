@@ -10,6 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import postgres from "postgres";
 import OpenAI from "openai";
 import { z } from "zod";
+import { getDatabaseWaitConfig, waitForDatabase } from "./database-retry.js";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -132,7 +133,13 @@ function buildHealthStatus() {
     process.env.OPENAI_CODEX_BRIDGE_BASE_URL || process.env.HERMES_CODEX_GATEWAY_BASE_URL || process.env.OPENCLAW_CODEX_GATEWAY_BASE_URL
   );
   const openaiConfigured = Boolean(OPENAI_API_KEY);
-  const minimaxConfigured = Boolean(process.env.MINIMAX_API_KEY);
+  const minimaxConfigured = Boolean(
+    process.env.MINIMAX_API_KEY ||
+      process.env.ANTHROPIC_AUTH_TOKEN ||
+      process.env.ANTHROPIC_API_KEY ||
+      ((process.env.MINIMAX_API_FORMAT || "").toLowerCase() === "openclaw-cli" &&
+        ["1", "true", "yes"].includes((process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase())),
+  );
   const liveModelsEnabled = (process.env.GBRAIN_LIVE_MODELS_ENABLED || "false").toLowerCase() === "true";
   const providerReady =
     normalizedDeepProvider === "openai"
@@ -161,7 +168,12 @@ function buildHealthStatus() {
     minimax_configured: minimaxConfigured,
     minimax_api_format:
       process.env.MINIMAX_API_FORMAT ||
-      ((process.env.MINIMAX_OPENAI_BASE_URL || process.env.MINIMAX_BASE_URL || "").includes("/anthropic") ? "anthropic" : "openai"),
+      (process.env.ANTHROPIC_BASE_URL ||
+      process.env.ANTHROPIC_AUTH_TOKEN ||
+      process.env.ANTHROPIC_API_KEY ||
+      (process.env.MINIMAX_OPENAI_BASE_URL || process.env.MINIMAX_BASE_URL || "").includes("/anthropic")
+        ? "anthropic"
+        : "openai"),
     system_model_auth_ready: liveModelsEnabled && providerReady,
   };
 }
@@ -513,7 +525,10 @@ server.tool(
 // ---------------------------------------------------------------------------
 async function main() {
   try {
-    await sql`SELECT 1`;
+    await waitForDatabase(
+      () => sql`SELECT 1`,
+      getDatabaseWaitConfig(process.env, HEALTH_CHECK_MODE),
+    );
     if (HEALTH_CHECK_MODE || HEALTH_JSON_MODE) {
       console.log(HEALTH_JSON_MODE ? JSON.stringify(buildHealthStatus()) : "ok");
       await sql.end();

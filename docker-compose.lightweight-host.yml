@@ -1,0 +1,52 @@
+# Host-network override for lightweight servers where Docker bridge traffic is
+# blocked by the provider image or server panel firewall.
+#
+# Usage:
+#   docker compose --env-file .env.server \
+#     -f docker-compose.server.yml \
+#     -f docker-compose.lightweight-host.yml up -d --no-build --force-recreate
+
+services:
+  postgres:
+    network_mode: host
+    ports: !reset []
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+
+  redis:
+    network_mode: host
+    ports: !reset []
+    command: ["redis-server", "--appendonly", "yes", "--bind", "127.0.0.1", "--protected-mode", "yes"]
+
+  minio:
+    network_mode: host
+    ports: !reset []
+    command: server /data --address "127.0.0.1:9000" --console-address "127.0.0.1:9001"
+
+  minio-create-buckets:
+    network_mode: host
+    extra_hosts: !reset []
+
+  data-service:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: !reset []
+    command: ["uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", "8000", "--workers", "2"]
+
+  gbrain:
+    network_mode: host
+    extra_hosts: !reset []
+
+  openclaw:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: !reset []
+    command: ["sh", "-c", "uvicorn gateway_app:app --host 127.0.0.1 --port ${PORT:-8080} --workers 2"]
+
+  webapp:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: !reset []
+    environment:
+      HOSTNAME: 127.0.0.1
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]

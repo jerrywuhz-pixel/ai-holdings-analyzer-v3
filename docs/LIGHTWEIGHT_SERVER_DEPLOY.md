@@ -45,7 +45,7 @@ SSH 端口：
 ### 1. 登录服务器
 
 ```bash
-ssh root@YOUR_SERVER_IP
+ssh -p 22222 root@YOUR_SERVER_IP
 ```
 
 ### 2. 安装 Docker
@@ -79,6 +79,7 @@ rsync -avh --progress \
   --exclude ".env.local" \
   --exclude ".env.server" \
   --exclude ".DS_Store" \
+  --exclude "._*" \
   --exclude "node_modules/" \
   --exclude ".next/" \
   --exclude "__pycache__/" \
@@ -147,6 +148,28 @@ chmod +x scripts/server-preflight.sh
 docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 ```
 
+如果服务器镜像或面板防火墙完全阻断 Docker bridge（典型表现是容器内访问
+`postgres:5432`、`host.docker.internal:5432`、外部 DNS 都报 `No route to host`），
+改用 host-network 覆盖文件：
+
+```bash
+POSTGRES_HOST=127.0.0.1
+REDIS_HOST=127.0.0.1
+MINIO_HOST=127.0.0.1
+DATA_SERVICE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_DATA_SERVICE_URL=http://127.0.0.1:8000
+
+docker compose --env-file .env.server \
+  -f docker-compose.server.yml \
+  -f docker-compose.lightweight-host.yml \
+  up -d --build
+```
+
+host-network 模式会让 WebApp 只监听 `127.0.0.1:3000`，建议用服务器自带
+Nginx/宝塔站点把公网 `80/443` 反向代理到 `http://127.0.0.1:3000`。这时
+`.env.server` 里的 `WEBAPP_BASE_URL` 应写公网地址，例如 `http://你的服务器公网IP`
+或后续的正式域名，而不是内部的 `127.0.0.1`。
+
 ### 8. 初始化本地数据库 schema
 
 如果第一阶段先不配置 Supabase Cloud，就在本机 Postgres 上初始化兼容 schema：
@@ -156,7 +179,14 @@ docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 ./scripts/init-openclaw-foundation.sh
 ```
 
-这个脚本会先创建 Supabase 兼容的 `auth` 函数和角色，再按顺序应用 `supabase/migrations/000001` 到 `000027`，包括 GBrain 表、持仓 3.0 P0 表、delivery outbox、broker connector instances 等。
+使用 host-network 覆盖文件时，迁移脚本也要带上覆盖文件：
+
+```bash
+COMPOSE_FILES="$PWD/docker-compose.server.yml:$PWD/docker-compose.lightweight-host.yml" \
+  ./scripts/apply-server-migrations.sh
+```
+
+这个脚本会先创建 Supabase 兼容的 `auth` 函数和角色，再按顺序应用 `supabase/migrations/000001` 到 `000028`，包括 GBrain 表、持仓 3.0 P0 表、delivery outbox、broker connector instances、注册初始化和微信绑定状态等。
 
 `init-openclaw-foundation.sh` 会补齐 OpenClaw 运行初始化：生成内部 `OPENCLAW_SKILL_KEY`、写入 P0 默认套餐/额度、为现有账号补 `quota_tracking` 和 active subscription。若需要同时开启 OpenAI live 授权，可在执行时传入：
 
@@ -167,19 +197,33 @@ docker compose --env-file .env.server -f docker-compose.server.yml up -d --force
 
 如果使用系统级 OpenAI Codex / Hermes auth profile，不在本系统里保存网页登录态。先在 Mac mini 或受控 OpenClaw/Hermes 节点启动一个拥有 `openai-codex` auth profile 的 bridge，并让它暴露 OpenAI-compatible `/chat/completions` 接口。
 
-本仓库提供了 bridge sidecar 的最小契约实现，可先以 stub 模式验证云端链路：
+本仓库提供了 bridge sidecar 的最小契约实现。先在本机确认 Codex CLI 版本与登录态；如需重新授权，`login` 会生成 OpenAI device-auth 地址和一次性授权码：
 
 ```bash
-CODEX_BRIDGE_MODE=stub \
-CODEX_BRIDGE_AUTH_PROFILE=system-pro \
-CODEX_BRIDGE_HOST=0.0.0.0 \
-CODEX_BRIDGE_PORT=8091 \
-python -m local_connectors.openai_codex_bridge.server
+./scripts/openai-codex-auth-bridge.sh status
+./scripts/openai-codex-auth-bridge.sh login
 ```
 
-正式接入时将 `CODEX_BRIDGE_MODE` 切到 `command` 或 `http`：
+本地正式接入推荐用 `command` 模式，它会通过 `local_connectors.openai_codex_bridge.codex_cli_adapter` 调用本机 Codex CLI，并把最终消息包装成 OpenAI-compatible JSON：
 
-- `command`：通过 `CODEX_BRIDGE_COMMAND` 调用本机 OpenClaw/Hermes/Codex CLI，命令从 stdin 接收 JSON，并输出 OpenAI-compatible JSON。
+```bash
+CODEX_BRIDGE_HOST=0.0.0.0 \
+CODEX_BRIDGE_PORT=8091 \
+OPENAI_CODEX_AUTH_PROFILE=system-pro \
+./scripts/openai-codex-auth-bridge.sh start
+```
+
+启动后运行：
+
+```bash
+CODEX_BRIDGE_HOST=127.0.0.1 \
+CODEX_BRIDGE_PORT=8091 \
+./scripts/openai-codex-auth-bridge.sh smoke
+```
+
+如果需要替代接入，也可以将 `CODEX_BRIDGE_MODE` 切到 `stub` 或 `http`：
+
+- `stub`：只验证云端链路，不调用真实 OpenAI/Codex。
 - `http`：通过 `CODEX_BRIDGE_UPSTREAM_BASE_URL` 转发给已经拥有 `openai-codex` auth profile 的上游 Hermes/OpenClaw 服务。
 
 然后在阿里云主服务写入：
@@ -198,7 +242,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml up -d --force
 GBRAIN_LIVE_MODELS_ENABLED=true
 MODEL_AUTH_MODE=openai_codex
 HERMES_DEEP_PROVIDER=openai-codex
-HERMES_DEEP_MODEL=gpt-5.4
+HERMES_DEEP_MODEL=gpt-5.5
 OPENAI_CODEX_AUTH_PROFILE=system-pro
 OPENAI_CODEX_BRIDGE_BASE_URL=http://mac-mini-lan-ip:8091/v1
 OPENAI_CODEX_BRIDGE_API_KEY=
@@ -214,6 +258,19 @@ MINIMAX_OPENAI_BASE_URL=https://api.minimaxi.com/anthropic
 MINIMAX_API_FORMAT=anthropic
 MINIMAX_MODEL=MiniMax-M2.7
 HERMES_LIGHT_MODEL=MiniMax-M2.7
+```
+
+MiniMax Token Plan / OpenClaw 文档中的 Anthropic-style 环境变量也支持直接透传：
+
+```dotenv
+ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
+ANTHROPIC_AUTH_TOKEN=...
+API_TIMEOUT_MS=3000000
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+ANTHROPIC_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.7
 ```
 
 ### 9. 查看状态
@@ -300,9 +357,46 @@ docker compose --env-file .env.server -f docker-compose.server.yml restart
 # 更新代码后重建
 docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 
+# host-network 模式下更新代码后重建
+docker compose --env-file .env.server \
+  -f docker-compose.server.yml \
+  -f docker-compose.lightweight-host.yml \
+  up -d --build
+
 # 验证 OpenClaw + Hermes/GBrain 基座
 ./scripts/verify-foundation-runtime.sh
 ./scripts/verify-openclaw-foundation.sh
+
+# 如果 gbrain 处于 restarting，先看数据库连接日志
+docker compose --env-file .env.server -f docker-compose.server.yml logs --tail=120 gbrain
+
+# 如果日志是 ECONNREFUSED / No route to host postgres:5432，通常是宿主机
+# Docker bridge 禁用了容器互通。确认 .env.server 使用 host-gateway 连接：
+# INTERNAL_HOST_BIND=172.17.0.1
+# POSTGRES_HOST=host.docker.internal
+# POSTGRES_PORT=5432
+# POSTGRES_HOST_PORT=5432
+# REDIS_HOST=host.docker.internal
+# REDIS_PORT=6379
+# REDIS_HOST_PORT=6379
+# MINIO_HOST=host.docker.internal
+# MINIO_PORT=9000
+# MINIO_HOST_PORT=9000
+# DATA_SERVICE_URL=http://host.docker.internal:8000
+#
+# 轻量服务器冷启动或 Postgres 短暂不可达时，也可调大启动重试窗口：
+# GBRAIN_DATABASE_CONNECT_RETRIES=12
+# GBRAIN_DATABASE_CONNECT_RETRY_DELAY_MS=5000
+
+# 如果 Docker build 里能拉镜像但 apt/npm 解析失败，优先用宿主机网络构建：
+docker compose --env-file .env.server \
+  -f docker-compose.server.yml \
+  -f docker-compose.lightweight-host.yml \
+  build --network host webapp openclaw
+docker compose --env-file .env.server \
+  -f docker-compose.server.yml \
+  -f docker-compose.lightweight-host.yml \
+  up -d --no-build --force-recreate
 
 # 停止
 docker compose --env-file .env.server -f docker-compose.server.yml down
@@ -316,7 +410,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml down
 - `python3 scripts/production_readiness.py --profile lightweight --env-file .env.server` 无 fail；允许对完整生产项给出 warn。
 - `./scripts/verify-foundation-runtime.sh` 通过，证明 OpenClaw Gateway、Hermes/GBrain adapter、WebApp、data-service 都在当前服务器上可达。
 - `./scripts/verify-openclaw-foundation.sh` 通过，证明 OpenClaw 内部 skill key、默认套餐、token budget、quota/subscription 初始化完整。
-- `public.schema_migrations` 记录数为 `27`。
+- `public.schema_migrations` 记录数为 `28`。
 - MinIO 中存在 `market-data`、`hermes-artifacts`、`replay-evidence`、`tenant-media` 四个 bucket。
 - 公网能打开 WebApp 首页。
 - `/holdings`、`/sell-put`、`/data`、`/settings` 不崩溃。

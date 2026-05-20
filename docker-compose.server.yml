@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ai_holdings}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${INTERNAL_HOST_BIND:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ai_holdings}"]
       interval: 10s
@@ -22,6 +24,8 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
+    ports:
+      - "${INTERNAL_HOST_BIND:-127.0.0.1}:${REDIS_HOST_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -37,6 +41,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
+    ports:
+      - "${INTERNAL_HOST_BIND:-127.0.0.1}:${MINIO_HOST_PORT:-9000}:9000"
+      - "${INTERNAL_HOST_BIND:-127.0.0.1}:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live || exit 1"]
       interval: 15s
@@ -52,12 +59,14 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      mc alias set local http://${MINIO_HOST:-minio}:${MINIO_PORT:-9000} ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
       mc mb --ignore-existing local/${MINIO_BUCKET_MARKET_DATA:-market-data} &&
       mc mb --ignore-existing local/${MINIO_BUCKET_ARTIFACTS:-hermes-artifacts} &&
       mc mb --ignore-existing local/${MINIO_BUCKET_REPLAYS:-replay-evidence} &&
       mc mb --ignore-existing local/${MINIO_BUCKET_MEDIA:-tenant-media}
       "
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   data-service:
     build:
@@ -67,13 +76,13 @@ services:
     env_file:
       - .env.server
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_holdings}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
+      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/0
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-minio}
-      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ENDPOINT: http://${MINIO_HOST:-minio}:${MINIO_PORT:-9000}
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -90,6 +99,8 @@ services:
       HERMES_WORKER_MODE: ${HERMES_WORKER_MODE:-stub}
       FUTU_CONNECTOR_MODE: ${FUTU_CONNECTOR_MODE:-local_mock}
       FUTU_CONNECTOR_BASE_URL: ${FUTU_CONNECTOR_BASE_URL:-http://host.docker.internal:8765}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,7 +111,7 @@ services:
       minio-create-buckets:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:${DATA_SERVICE_PORT:-8000}:8000"
+      - "${INTERNAL_HOST_BIND:-127.0.0.1}:${DATA_SERVICE_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 15s
@@ -118,8 +129,8 @@ services:
     env_file:
       - .env.server
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_holdings}
-      GBRAIN_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_holdings}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
+      GBRAIN_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GBRAIN_OPENAI_API_KEY: ${GBRAIN_OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
@@ -128,9 +139,22 @@ services:
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-}
       MINIMAX_OPENAI_BASE_URL: ${MINIMAX_OPENAI_BASE_URL:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+      ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+      API_TIMEOUT_MS: ${API_TIMEOUT_MS:-3000000}
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-1}
       GBRAIN_LIVE_MODELS_ENABLED: ${GBRAIN_LIVE_MODELS_ENABLED:-false}
       MINIMAX_API_FORMAT: ${MINIMAX_API_FORMAT:-anthropic}
       MINIMAX_MAX_TOKENS: ${MINIMAX_MAX_TOKENS:-2048}
+      MINIMAX_ANTHROPIC_STREAMING: ${MINIMAX_ANTHROPIC_STREAMING:-}
+      OPENCLAW_MINIMAX_CLI_ENABLED: ${OPENCLAW_MINIMAX_CLI_ENABLED:-false}
+      OPENCLAW_MINIMAX_MODEL: ${OPENCLAW_MINIMAX_MODEL:-minimax-portal/MiniMax-M2.7}
+      OPENCLAW_CLI_PATH: ${OPENCLAW_CLI_PATH:-openclaw}
       MODEL_AUTH_MODE: ${MODEL_AUTH_MODE:-api_key}
       MODEL_ADAPTER_BASE_URL: ${MODEL_ADAPTER_BASE_URL:-}
       OPENAI_CODEX_AUTH_PROFILE: ${OPENAI_CODEX_AUTH_PROFILE:-}
@@ -148,6 +172,8 @@ services:
       HERMES_ARTIFACT_STORAGE_BACKEND: ${HERMES_ARTIFACT_STORAGE_BACKEND:-file}
       HERMES_ARTIFACT_BASE_URI: ${HERMES_ARTIFACT_BASE_URI:-file://hermes-artifacts}
       HERMES_ARTIFACT_FILE_ROOT: ${HERMES_ARTIFACT_FILE_ROOT:-/app/.artifacts/hermes}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,13 +203,13 @@ services:
       HERMES_UPSTREAM_TARGET_VERSION: ${HERMES_UPSTREAM_TARGET_VERSION:-v2026.5.16}
       GBRAIN_ADAPTER_VERSION: ${GBRAIN_ADAPTER_VERSION:-0.2.0}
       WEBAPP_BASE_URL: ${WEBAPP_BASE_URL:-http://localhost:3000}
-      REDIS_URL: redis://redis:6379/0
-      DATA_SERVICE_URL: http://data-service:8000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_holdings}
+      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/0
+      DATA_SERVICE_URL: ${DATA_SERVICE_URL:-http://data-service:8000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-minio}
-      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ENDPOINT: http://${MINIO_HOST:-minio}:${MINIO_PORT:-9000}
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -200,8 +226,21 @@ services:
       HERMES_AUTH_PROFILE_ID: ${HERMES_AUTH_PROFILE_ID:-}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       MINIMAX_OPENAI_BASE_URL: ${MINIMAX_OPENAI_BASE_URL:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+      ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+      API_TIMEOUT_MS: ${API_TIMEOUT_MS:-3000000}
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-1}
       MINIMAX_API_FORMAT: ${MINIMAX_API_FORMAT:-anthropic}
       MINIMAX_MAX_TOKENS: ${MINIMAX_MAX_TOKENS:-2048}
+      MINIMAX_ANTHROPIC_STREAMING: ${MINIMAX_ANTHROPIC_STREAMING:-}
+      OPENCLAW_MINIMAX_CLI_ENABLED: ${OPENCLAW_MINIMAX_CLI_ENABLED:-false}
+      OPENCLAW_MINIMAX_MODEL: ${OPENCLAW_MINIMAX_MODEL:-minimax-portal/MiniMax-M2.7}
+      OPENCLAW_CLI_PATH: ${OPENCLAW_CLI_PATH:-openclaw}
       OPENCLAW_DELIVERY_MODE: ${OPENCLAW_DELIVERY_MODE:-log}
       OPENCLAW_DELIVERY_WEBHOOK_URL: ${OPENCLAW_DELIVERY_WEBHOOK_URL:-}
       OPENCLAW_DELIVERY_WEBHOOK_SECRET: ${OPENCLAW_DELIVERY_WEBHOOK_SECRET:-}
@@ -223,6 +262,8 @@ services:
       CONFIRMATION_LOW_RISK_TTL_MINUTES: ${CONFIRMATION_LOW_RISK_TTL_MINUTES:-1440}
       MEDIA_ARTIFACT_TTL_DAYS: ${MEDIA_ARTIFACT_TTL_DAYS:-30}
       HERMES_ARTIFACT_TTL_DAYS: ${HERMES_ARTIFACT_TTL_DAYS:-90}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy
@@ -235,7 +276,7 @@ services:
       gbrain:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${OPENCLAW_PORT:-8080}:8080"
+      - "${INTERNAL_HOST_BIND:-127.0.0.1}:${OPENCLAW_PORT:-8080}:8080"
     volumes:
       - openclaw_artifacts:/app/.artifacts
     healthcheck:
@@ -261,11 +302,13 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_holdings}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
       DATA_SERVICE_URL: ${DATA_SERVICE_URL:-http://data-service:8000}
       NEXT_PUBLIC_DATA_SERVICE_URL: ${NEXT_PUBLIC_DATA_SERVICE_URL:-http://data-service:8000}
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       data-service:
         condition: service_healthy

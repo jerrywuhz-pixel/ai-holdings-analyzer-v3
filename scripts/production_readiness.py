@@ -50,8 +50,36 @@ def _env(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+def _is_placeholder(value: str) -> bool:
+    normalized = value.strip().strip('"').strip("'").lower()
+    if not normalized:
+        return True
+    exact_placeholders = {
+        "todo",
+        "tbd",
+        "changeme",
+        "change-me",
+        "replace-me",
+        "placeholder",
+        "your-value",
+    }
+    if normalized in exact_placeholders:
+        return True
+    placeholder_markers = (
+        "your-project",
+        "your_",
+        "example.",
+        "<",
+        ">",
+        "user:password@",
+        "rds-internal-host",
+        "redis-internal-host",
+    )
+    return any(marker in normalized for marker in placeholder_markers)
+
+
 def _missing(names: Iterable[str]) -> list[str]:
-    return [name for name in names if not _env(name)]
+    return [name for name in names if _is_placeholder(_env(name))]
 
 
 def _soft_missing(profile: str, *, profiles: set[str] | None = None) -> bool:
@@ -145,7 +173,10 @@ def run_checks(*, profile: str) -> list[CheckResult]:
 
 
 def _live_model_provider_check(*, profile: str) -> CheckResult:
-    common_missing = _missing(["GBRAIN_LIVE_MODELS_ENABLED", "MINIMAX_API_KEY"])
+    common_missing = _missing(["GBRAIN_LIVE_MODELS_ENABLED"])
+    has_minimax = bool(_env("MINIMAX_API_KEY") or _env("ANTHROPIC_AUTH_TOKEN") or _env("ANTHROPIC_API_KEY"))
+    if not has_minimax:
+        common_missing.append("MINIMAX_API_KEY or ANTHROPIC_AUTH_TOKEN")
     has_openai_api = bool(_env("OPENAI_API_KEY") or _env("GBRAIN_OPENAI_API_KEY"))
     has_codex_bridge = bool(
         (_env("OPENAI_CODEX_AUTH_PROFILE") or _env("HERMES_AUTH_PROFILE_ID") or _env("OPENCLAW_AUTH_PROFILE"))
@@ -173,7 +204,7 @@ def _live_model_provider_check(*, profile: str) -> CheckResult:
         detail = f"missing required env: {', '.join(missing)}"
     else:
         detail = (
-            f"Live model routing route={route}; MiniMax configured={bool(_env('MINIMAX_API_KEY'))}; "
+            f"Live model routing route={route}; MiniMax configured={has_minimax}; "
             "deep research can use OpenAI API key or a system-level openai-codex bridge"
         )
     return CheckResult(
@@ -233,8 +264,8 @@ def _one_of_check(group: str, env_name: str, allowed: set[str], *, profile: str)
 
 
 def _fx_source_check(*, profile: str) -> CheckResult:
-    has_inline_rates = bool(_env("FX_RATES_JSON"))
-    has_endpoint = bool(_env("FX_RATE_ENDPOINT"))
+    has_inline_rates = not _is_placeholder(_env("FX_RATES_JSON"))
+    has_endpoint = not _is_placeholder(_env("FX_RATE_ENDPOINT"))
     if has_inline_rates or has_endpoint:
         return CheckResult("fx", "fx_rates", "pass", "trusted FX source is configured")
     if profile == "lightweight":

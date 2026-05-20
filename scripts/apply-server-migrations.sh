@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env.server}"
 COMPOSE_FILE="${COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.server.yml}"
+COMPOSE_FILES="${COMPOSE_FILES:-$COMPOSE_FILE}"
 BOOTSTRAP_FILE="${BOOTSTRAP_FILE:-$PROJECT_ROOT/deployment/local-postgres/000000_supabase_compat.sql}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-$PROJECT_ROOT/supabase/migrations}"
 
@@ -13,10 +14,15 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-  echo "[server-migrations][ERROR] Missing compose file: $COMPOSE_FILE" >&2
-  exit 1
-fi
+IFS=':' read -r -a COMPOSE_FILE_LIST <<< "$COMPOSE_FILES"
+COMPOSE_ARGS=()
+for compose_file in "${COMPOSE_FILE_LIST[@]}"; do
+  if [[ ! -f "$compose_file" ]]; then
+    echo "[server-migrations][ERROR] Missing compose file: $compose_file" >&2
+    exit 1
+  fi
+  COMPOSE_ARGS+=("-f" "$compose_file")
+done
 
 if [[ ! -f "$BOOTSTRAP_FILE" ]]; then
   echo "[server-migrations][ERROR] Missing local Postgres bootstrap file: $BOOTSTRAP_FILE" >&2
@@ -28,16 +34,32 @@ if [[ ! -d "$MIGRATIONS_DIR" ]]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+read_env_value() {
+  local key="$1"
+  local default_value="$2"
+  local line value
 
-POSTGRES_USER="${POSTGRES_USER:-postgres}"
-POSTGRES_DB="${POSTGRES_DB:-ai_holdings}"
+  line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    printf '%s' "$default_value"
+    return
+  fi
+
+  value="${line#*=}"
+  value="${value%$'\r'}"
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s' "$value"
+}
+
+POSTGRES_USER="$(read_env_value POSTGRES_USER "${POSTGRES_USER:-postgres}")"
+POSTGRES_DB="$(read_env_value POSTGRES_DB "${POSTGRES_DB:-ai_holdings}")"
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  docker compose --env-file "$ENV_FILE" "${COMPOSE_ARGS[@]}" "$@"
 }
 
 DB_CONTAINER="$(compose ps -q postgres)"

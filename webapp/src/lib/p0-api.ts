@@ -142,6 +142,10 @@ export interface P0ApiSnapshot {
   assetSources: P0ApiAssetSource[];
 }
 
+export interface FetchP0ApiSnapshotOptions {
+  tenantId?: string;
+}
+
 export function getDataServiceBaseUrl() {
   return (
     process.env.NEXT_PUBLIC_DATA_SERVICE_URL ||
@@ -150,7 +154,12 @@ export function getDataServiceBaseUrl() {
   ).replace(/\/+$/, '');
 }
 
-export function getP0TenantId() {
+export function getP0TenantId(tenantId?: string) {
+  const requestedTenantId = tenantId?.trim();
+  if (requestedTenantId) {
+    return requestedTenantId;
+  }
+
   return (
     process.env.NEXT_PUBLIC_P0_TENANT_ID ||
     process.env.P0_TENANT_ID ||
@@ -158,18 +167,17 @@ export function getP0TenantId() {
   );
 }
 
-export async function fetchP0ApiSnapshot(options?: { tenantId?: string }): Promise<P0ApiSnapshot> {
+export async function fetchP0ApiSnapshot(options: FetchP0ApiSnapshotOptions = {}): Promise<P0ApiSnapshot> {
   const baseUrl = getDataServiceBaseUrl();
-  const tenantId = options?.tenantId || getP0TenantId();
   const errors: string[] = [];
 
   const [overviewResult, positionsResult, statusResult, healthResult, capabilitiesResult] =
     await Promise.all([
-      fetchCandidate(baseUrl, OVERVIEW_PATHS, errors, tenantId),
-      fetchCandidate(baseUrl, POSITIONS_PATHS, errors, tenantId),
-      fetchCandidate(baseUrl, STATUS_PATHS, errors, tenantId),
-      fetchCandidate(baseUrl, HEALTH_PATHS, errors, tenantId),
-      fetchCandidate(baseUrl, CAPABILITY_PATHS, errors, tenantId),
+      fetchCandidate(baseUrl, OVERVIEW_PATHS, errors, options.tenantId),
+      fetchCandidate(baseUrl, POSITIONS_PATHS, errors, options.tenantId),
+      fetchCandidate(baseUrl, STATUS_PATHS, errors, options.tenantId),
+      fetchCandidate(baseUrl, HEALTH_PATHS, errors, options.tenantId),
+      fetchCandidate(baseUrl, CAPABILITY_PATHS, errors, options.tenantId),
     ]);
 
   const overview = normalizeOverview(overviewResult?.data);
@@ -285,7 +293,7 @@ async function fetchCandidate(
   baseUrl: string,
   paths: string[],
   errors: string[],
-  tenantId: string
+  tenantId?: string
 ): Promise<CandidateFetchResult | undefined> {
   for (const path of paths) {
     try {
@@ -299,23 +307,30 @@ async function fetchCandidate(
   return undefined;
 }
 
-async function fetchJson(baseUrl: string, path: string, tenantId: string) {
+async function fetchJson(baseUrl: string, path: string, tenantId?: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     const url = new URL(path, `${baseUrl}/`);
+    const resolvedTenantId = getP0TenantId(tenantId);
     if (needsTenantId(url) && !url.searchParams.has('tenant_id')) {
-      url.searchParams.set('tenant_id', tenantId);
+      url.searchParams.set('tenant_id', resolvedTenantId);
+    }
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (process.env.DATA_SERVICE_INTERNAL_TOKEN && tenantId) {
+      headers['X-Data-Service-Token'] = process.env.DATA_SERVICE_INTERNAL_TOKEN;
+      headers['X-Data-Service-Tenant-Id'] = resolvedTenantId;
     }
 
     const response = await fetch(url.toString(), {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
+      headers,
     });
 
     if (!response.ok) {

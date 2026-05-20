@@ -1,6 +1,6 @@
 {
   "name": "ai-holdings-webapp",
-  "version": "2.0.0",
+  "version": "3.0.0-p0",
   "private": true,
   "scripts": {
     "dev": "next dev",

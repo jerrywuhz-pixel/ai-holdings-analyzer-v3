@@ -533,10 +533,12 @@ Filled production env files are intentionally ignored by `.gitignore`.
 Before cutting traffic to a cloud environment, run the full preflight:
 
 ```bash
-./scripts/deploy-cloud.sh --target preflight
+python3 scripts/production_readiness.py --profile production
+python3 scripts/product_feature_readiness.py --profile production
+python3 scripts/aliyun_preflight.py --profile production
 ```
 
-It checks Google Cloud CLI availability, active project/auth, required runtime tools, and the production env readiness gate. You can run the env-only gate directly:
+Alibaba Cloud is the default production path for mainland China access and ICP filing. The preflight checks Alibaba Cloud CLI/config, ACR/SAE/RDS/Redis/OSS/EventBridge/ICP env, product feature dependencies, required runtime tools, and the production env readiness gate. You can run the env-only gate directly:
 
 ```bash
 python3 scripts/production_readiness.py --profile production
@@ -563,7 +565,7 @@ On a lightweight server, pass the server env file explicitly:
 python3 scripts/production_readiness.py --profile lightweight --env-file .env.server
 ```
 
-After Cloud Run deployment, run the deployment monitor:
+The legacy Google Cloud Run deployment script remains as a historical fallback, but new 3.0 production work should prefer the Alibaba Cloud plan in `product-design-v3/28-aliyun-deployment-plan.md`. If you intentionally deploy the legacy Cloud Run path, run the deployment monitor:
 
 ```bash
 python3 scripts/cloud_deployment_monitor.py \

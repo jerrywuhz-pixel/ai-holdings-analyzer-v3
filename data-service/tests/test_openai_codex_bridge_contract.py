@@ -18,7 +18,7 @@ def test_codex_bridge_health_and_stub_chat(monkeypatch):
     response = client.post(
         "/v1/chat/completions",
         json={
-            "model": "openai-codex/gpt-5.4",
+            "model": "openai-codex/gpt-5.5",
             "messages": [{"role": "user", "content": "Summarize NVDA."}],
         },
     )
@@ -36,13 +36,13 @@ def test_codex_bridge_requires_inbound_authorization_when_configured(monkeypatch
 
     rejected = client.post(
         "/v1/chat/completions",
-        json={"model": "openai-codex/gpt-5.4", "messages": []},
+        json={"model": "openai-codex/gpt-5.5", "messages": []},
     )
     assert rejected.status_code == 401
 
     accepted = client.post(
         "/v1/chat/completions",
         headers={"Authorization": "Bearer bridge-secret"},
-        json={"model": "openai-codex/gpt-5.4", "messages": []},
+        json={"model": "openai-codex/gpt-5.5", "messages": []},
     )
     assert accepted.status_code == 200

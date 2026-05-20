@@ -5,11 +5,11 @@ from scripts.production_readiness import run_checks, summarize
 
 
 PRODUCTION_ENV = {
-    "SUPABASE_URL": "https://example.supabase.co",
+    "SUPABASE_URL": "https://prod.supabase.co",
     "SUPABASE_ANON_KEY": "anon",
     "SUPABASE_SERVICE_ROLE_KEY": "service",
     "OPENCLAW_DELIVERY_MODE": "webhook",
-    "OPENCLAW_DELIVERY_WEBHOOK_URL": "https://claw.example/send",
+    "OPENCLAW_DELIVERY_WEBHOOK_URL": "https://claw.ai-holdings.cn/send",
     "OPENCLAW_DELIVERY_WEBHOOK_SECRET": "secret",
     "GBRAIN_LIVE_MODELS_ENABLED": "true",
     "OPENAI_API_KEY": "openai",
@@ -18,10 +18,10 @@ PRODUCTION_ENV = {
     "HERMES_ARTIFACT_BASE_URI": "supabase://artifacts",
     "HISTORICAL_STORAGE_BACKEND": "supabase_storage",
     "FX_RATES_SOURCE": "trusted_fx",
-    "FX_RATE_ENDPOINT": "https://fx.example/latest",
-    "SENTRY_DSN": "https://sentry.example/1",
-    "CORS_ALLOWED_ORIGINS": "https://app.example.com",
-    "WEBAPP_BASE_URL": "https://app.example.com",
+    "FX_RATE_ENDPOINT": "https://fx.ai-holdings.cn/latest",
+    "SENTRY_DSN": "https://sentry.ai-holdings.cn/1",
+    "CORS_ALLOWED_ORIGINS": "https://app.ai-holdings.cn",
+    "WEBAPP_BASE_URL": "https://app.ai-holdings.cn",
 }
 
 LIGHTWEIGHT_ENV = {
@@ -109,3 +109,15 @@ def test_local_profile_warns_instead_of_failing_for_missing_production_hooks():
     assert summary["status"] == "pass"
     assert summary["counts"]["fail"] == 0
     assert summary["counts"]["warn"] > 0
+
+
+def test_production_readiness_treats_example_domains_as_missing():
+    env = dict(PRODUCTION_ENV)
+    env["WEBAPP_BASE_URL"] = "https://app.example.cn"
+    env["CORS_ALLOWED_ORIGINS"] = "https://app.example.cn"
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize(run_checks(profile="production"), profile="production")
+
+    failed = {check["name"] for check in summary["checks"] if check["status"] == "fail"}
+    assert "public_origins" in failed

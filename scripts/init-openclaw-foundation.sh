@@ -102,8 +102,8 @@ elif [[ -n "$codex_profile" && -n "$codex_bridge_base_url" ]]; then
   set_env_value MODEL_ADAPTER_MODE live
   set_env_value MODEL_AUTH_MODE openai_codex
   set_env_value HERMES_DEEP_PROVIDER openai-codex
-  if [[ -z "$(get_env_value HERMES_DEEP_MODEL)" || "$(get_env_value HERMES_DEEP_MODEL)" == "gpt-5.5" ]]; then
-    set_env_value HERMES_DEEP_MODEL "${HERMES_DEEP_MODEL:-gpt-5.4}"
+  if [[ -z "$(get_env_value HERMES_DEEP_MODEL)" || "$(get_env_value HERMES_DEEP_MODEL)" == "gpt-5.4" ]]; then
+    set_env_value HERMES_DEEP_MODEL "${HERMES_DEEP_MODEL:-gpt-5.5}"
   fi
 else
   log "no OpenAI API key or Codex auth bridge provided; keeping model runtime in stub mode"

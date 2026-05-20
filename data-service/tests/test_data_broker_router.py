@@ -8,6 +8,68 @@ from main import app
 client = TestClient(app)
 
 
+def test_connector_poll_requires_pairing_token(monkeypatch):
+    monkeypatch.delenv("FUTU_CONNECTOR_PAIRING_TOKEN", raising=False)
+
+    response = client.post(
+        "/api/v3/connectors/poll",
+        json={
+            "tenant_id": "tenant-1",
+            "connector_instance_id": "connector-1",
+        },
+    )
+
+    assert response.status_code == 503
+
+
+def test_connector_poll_returns_read_only_snapshot_task(monkeypatch):
+    monkeypatch.setenv("FUTU_CONNECTOR_PAIRING_TOKEN", "pairing-token")
+
+    response = client.post(
+        "/api/v3/connectors/poll",
+        headers={"X-Connector-Pairing-Token": "pairing-token"},
+        json={
+            "tenant_id": "tenant-1",
+            "connector_instance_id": "connector-1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["permission_scope"] == "read_only"
+    assert payload["tasks"][0]["kind"] == "account_snapshot"
+    assert payload["tasks"][0]["upload_url"] == "/api/v3/connectors/upload"
+
+
+def test_connector_upload_can_accept_snapshot_without_persisting(monkeypatch):
+    now = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setenv("FUTU_CONNECTOR_PAIRING_TOKEN", "pairing-token")
+
+    response = client.post(
+        "/api/v3/connectors/upload",
+        headers={"X-Connector-Pairing-Token": "pairing-token"},
+        json={
+            "tenant_id": "tenant-1",
+            "connector_instance_id": "connector-1",
+            "task_id": "task-1",
+            "persist": False,
+            "snapshot": {
+                "broker_connection_id": "bc-1",
+                "as_of": now,
+                "received_at": now,
+                "positions": [],
+                "cash_balances": [],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["persisted"] is False
+    assert payload["permission_scope"] == "read_only"
+    assert payload["snapshot_summary"]["positions_count"] == 0
+
+
 def test_futu_snapshot_endpoint_returns_read_only_mock():
     response = client.post(
         "/api/v3/broker/futu/snapshot",
@@ -45,6 +107,29 @@ def test_futu_sync_endpoint_can_dry_run_without_persisting():
     assert data["snapshot_summary"]["cash_balance_count"] == 1
     assert data["account_snapshot"]["permission_scope"] == "read_only"
     assert data["account_snapshot"]["connector_mode"] == "local_mock"
+
+
+def test_futu_sync_endpoint_rejects_mismatched_authenticated_tenant(monkeypatch):
+    monkeypatch.setenv("DATA_SERVICE_TENANT_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("DATA_SERVICE_INTERNAL_TOKEN", "service-token")
+
+    response = client.post(
+        "/api/v3/broker/futu/sync",
+        headers={
+            "X-Data-Service-Token": "service-token",
+            "X-Data-Service-Tenant-Id": "tenant-1",
+        },
+        json={
+            "tenant_id": "tenant-2",
+            "connection_label": "富途本地 OpenD 测试",
+            "snapshot_label": "default",
+            "connector_mode": "local_mock",
+            "persist": False,
+        },
+    )
+
+    assert response.status_code == 403
+    assert "tenant_id does not match authenticated user" in response.json()["detail"]["message"]
 
 
 def test_futu_option_chain_endpoint_returns_read_only_mock_candidates():

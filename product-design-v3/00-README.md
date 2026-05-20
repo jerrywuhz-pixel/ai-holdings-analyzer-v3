@@ -41,6 +41,8 @@
 | `33-gbrain-runtime-upgrade-plan.md` | GBrain 3.0 可用化方案：当前能力、上游同步、长期记忆边界、本地/阿里云部署与验收标准 |
 | `34-ima-reference-source-integration.md` | IMA 参考资料源集成方案：微信公众号/网页/笔记/知识库作为 OpenClaw 与 Hermes 的研究参考源 |
 | `35-implementation-review-2026-05-20.md` | 最新实现 review：阿里云轻量服务器、MiniMax live、OpenAI/Codex bridge、readiness gate、代码审查和 GitHub 同步边界 |
+| `36-product-feature-readiness-checklist.md` | 3.0 产品功能 readiness：注册/onboarding、微信绑定、Futu 同步、股票/期权分析和阿里云基础依赖 |
+| `37-production-dependency-config-package.md` | 生产依赖配置包：本地 secret 文件、仍需外部提供的域名/云资源/API key/授权清单 |
 | `prd/00-README.md` | PRD 索引：持仓核心、数据/券商/对账、交互/确认/Agent 体验 |
 | `system-analysis/00-README.md` | 系统分析索引：PRD 完成后的编码前架构分析入口 |
 | `system-analysis/04-architecture-integration-and-coding-entry.md` | 三份 PRD 与三份系统分析的架构整合、共享契约、编码任务切分和编码前确认结果 |

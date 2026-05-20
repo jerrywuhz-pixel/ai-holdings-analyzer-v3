@@ -17,6 +17,10 @@ export default function LoginForm({ authModeLabel }: { authModeLabel: string }) 
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
+  function goToOnboarding() {
+    router.push('/onboarding');
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
@@ -67,8 +71,14 @@ export default function LoginForm({ authModeLabel }: { authModeLabel: string }) 
       return;
     }
 
-    const nextPath = new URLSearchParams(window.location.search).get('next') || '/';
-    router.push(nextPath.startsWith('/') ? nextPath : '/');
+    const nextPath = new URLSearchParams(window.location.search).get('next');
+    if (result.user?.provider === 'local') {
+      router.push(nextPath?.startsWith('/') ? nextPath : '/');
+    } else if (nextPath?.startsWith('/') && nextPath !== '/') {
+      router.push(nextPath);
+    } else {
+      goToOnboarding();
+    }
     router.refresh();
   }
 

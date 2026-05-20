@@ -7,6 +7,7 @@ import { describe, test } from "node:test";
 import type { ContextSourceRef, MemoryWriteRequest, RunContract } from "./hermes-types.js";
 import { ContextPackBuilder } from "./hermes-context-pack.js";
 import { ArtifactRegistryWriterClient, FileArtifactObjectStore, InMemoryArtifactRegistrySink, buildArtifactRegistryInsert } from "./hermes-artifact-registry.js";
+import { getDatabaseWaitConfig, waitForDatabase } from "./database-retry.js";
 import { MemoryWriteGate } from "./hermes-memory-gate.js";
 import { WeeklyOptimizationConfirmationProposalGenerator } from "./hermes-optimization.js";
 import { HermesWorker, createHermesJob, createOptimizationSuggestions } from "./hermes-runtime.js";
@@ -129,7 +130,7 @@ describe("ModelAdapter", () => {
         const deepPolicy = createDefaultHermesModelPolicy(30 * 60 * 1000, "deep");
 
         assert.equal(deepPolicy.primary.provider, "openai-codex");
-        assert.equal(deepPolicy.primary.model, "gpt-5.4");
+        assert.equal(deepPolicy.primary.model, "gpt-5.5");
         assert.equal(deepPolicy.primary.mode, "stub");
       },
     );
@@ -257,9 +258,66 @@ describe("ModelAdapter", () => {
           assert.equal(response.text, "MiniMax response");
           assert.equal(calls[0].url, "https://api.minimaxi.com/anthropic/v1/messages");
           assert.equal(calls[0].headers.get("x-api-key"), "test-minimax-key");
+          assert.equal(calls[0].headers.get("anthropic-version"), "2023-06-01");
           assert.equal(calls[0].body.model, "MiniMax-M2.7");
           assert.equal(calls[0].body.system, "Be concise.");
           assert.equal(calls[0].body.max_tokens, 2048);
+        },
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("uses Anthropic-style MiniMax token plan environment", async () => {
+    const previousFetch = globalThis.fetch;
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body ?? "{}")),
+      });
+      return new Response(
+        JSON.stringify({
+          id: "msg-minimax-token-plan",
+          content: [{ type: "text", text: "MiniMax token plan response" }],
+          usage: { input_tokens: 9, output_tokens: 5 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await withEnv(
+        {
+          MINIMAX_API_KEY: undefined,
+          MINIMAX_OPENAI_BASE_URL: undefined,
+          MINIMAX_API_FORMAT: undefined,
+          ANTHROPIC_AUTH_TOKEN: "test-anthropic-token",
+          ANTHROPIC_BASE_URL: "https://api.minimaxi.com/anthropic/v1",
+          ANTHROPIC_MODEL: "MiniMax-M2.7",
+          GBRAIN_LIVE_MODELS_ENABLED: "true",
+        },
+        async () => {
+          const adapter = buildDefaultModelAdapter();
+          const response = await adapter.generate(
+            {
+              primary: { provider: "minimax", model: "MiniMax-M2.7", mode: "live" },
+              fallbacks: [],
+            },
+            {
+              objective: "daily intent",
+              prompt: "Reply ok.",
+            },
+          );
+
+          assert.equal(response.stub, false);
+          assert.equal(response.text, "MiniMax token plan response");
+          assert.equal(calls[0].url, "https://api.minimaxi.com/anthropic/v1/messages");
+          assert.equal(calls[0].headers.get("x-api-key"), "test-anthropic-token");
+          assert.equal(calls[0].headers.get("anthropic-version"), "2023-06-01");
+          assert.equal(calls[0].body.model, "MiniMax-M2.7");
         },
       );
     } finally {
@@ -300,7 +358,7 @@ describe("ModelAdapter", () => {
           const adapter = buildDefaultModelAdapter();
           const response = await adapter.generate(
             {
-              primary: { provider: "openai-codex", model: "gpt-5.4", mode: "live" },
+              primary: { provider: "openai-codex", model: "gpt-5.5", mode: "live" },
               fallbacks: [],
             },
             {
@@ -316,7 +374,7 @@ describe("ModelAdapter", () => {
           assert.equal(calls[0].url, "https://codex-bridge.example/v1/chat/completions");
           assert.equal(calls[0].headers.get("x-hermes-auth-profile"), "system-pro");
           assert.equal(calls[0].headers.has("authorization"), false);
-          assert.equal(calls[0].body.model, "openai-codex/gpt-5.4");
+          assert.equal(calls[0].body.model, "openai-codex/gpt-5.5");
         },
       );
     } finally {
@@ -344,6 +402,40 @@ describe("ModelAdapter", () => {
     assert.equal(response.provider, "fallback-template");
     assert.match(response.text, /Hermes Fallback Template/);
     assert.deepEqual(response.attemptedRoutes, ["openai:gpt-5.5", "fallback-template:hermes-fallback-v1"]);
+  });
+});
+
+describe("database startup retry", () => {
+  test("retries transient database connection failures before giving up", async () => {
+    let attempts = 0;
+    const messages: string[] = [];
+
+    await waitForDatabase(
+      async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error("database not ready");
+        }
+      },
+      { attempts: 4, delayMs: 0 },
+      (message) => messages.push(message),
+    );
+
+    assert.equal(attempts, 3);
+    assert.equal(messages.length, 2);
+    assert.match(messages[0], /attempt 1\/4/);
+  });
+
+  test("uses one attempt for Docker health checks", () => {
+    const config = getDatabaseWaitConfig(
+      {
+        GBRAIN_DATABASE_CONNECT_RETRIES: "9",
+        GBRAIN_DATABASE_CONNECT_RETRY_DELAY_MS: "250",
+      },
+      true,
+    );
+
+    assert.deepEqual(config, { attempts: 1, delayMs: 250 });
   });
 });
 

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import type { ContextPack, HermesComplexity, ModelPolicy, ModelProviderId, ModelRoute } from "./hermes-types.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface ModelMessage {
   role: "system" | "user" | "assistant";
@@ -75,7 +79,7 @@ function hasOpenAICodexAuthBridge(): boolean {
 }
 
 function resolveMiniMaxApiKey(): string {
-  return process.env.MINIMAX_API_KEY || "";
+  return process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || "";
 }
 
 function liveModelsEnabled(): boolean {
@@ -85,7 +89,7 @@ function liveModelsEnabled(): boolean {
 function hasProviderCredentials(provider: ModelProviderId): boolean {
   if (provider === "openai") return resolveOpenAIApiKey() !== "";
   if (provider === "openai-codex") return hasOpenAICodexAuthBridge();
-  if (provider === "minimax") return resolveMiniMaxApiKey() !== "";
+  if (provider === "minimax") return resolveMiniMaxApiKey() !== "" || (resolveMiniMaxApiFormat() === "openclaw-cli" && openClawMiniMaxCliEnabled());
   return false;
 }
 
@@ -94,12 +98,12 @@ function resolveRouteMode(provider: ModelProviderId): "stub" | "live" {
 }
 
 function resolveLightModel(): string {
-  return process.env.MINIMAX_MODEL || process.env.HERMES_LIGHT_MODEL || "MiniMax-M2.7";
+  return process.env.ANTHROPIC_MODEL || process.env.MINIMAX_MODEL || process.env.HERMES_LIGHT_MODEL || "MiniMax-M2.7";
 }
 
 function resolveDeepModel(): string {
   if (process.env.HERMES_DEEP_MODEL) return process.env.HERMES_DEEP_MODEL;
-  return resolveDeepProvider() === "openai-codex" ? "gpt-5.4" : "gpt-5.5";
+  return "gpt-5.5";
 }
 
 function resolveOpenAIBaseUrl(): string {
@@ -107,13 +111,29 @@ function resolveOpenAIBaseUrl(): string {
 }
 
 function resolveMiniMaxBaseUrl(): string {
-  return (process.env.MINIMAX_OPENAI_BASE_URL || process.env.MINIMAX_BASE_URL || "https://api.minimax.io/v1").replace(/\/+$/, "");
+  return (
+    process.env.MINIMAX_OPENAI_BASE_URL ||
+    process.env.MINIMAX_BASE_URL ||
+    process.env.ANTHROPIC_BASE_URL ||
+    "https://api.minimaxi.com/anthropic"
+  ).replace(/\/+$/, "");
 }
 
-function resolveMiniMaxApiFormat(): "openai" | "anthropic" {
+function resolveMiniMaxApiFormat(): "openai" | "anthropic" | "openclaw-cli" {
   const configured = (process.env.MINIMAX_API_FORMAT || "").toLowerCase();
-  if (configured === "anthropic" || configured === "openai") return configured;
+  if (configured === "anthropic" || configured === "openai" || configured === "openclaw-cli") return configured;
+  if (process.env.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY) return "anthropic";
   return resolveMiniMaxBaseUrl().includes("/anthropic") ? "anthropic" : "openai";
+}
+
+function openClawMiniMaxCliEnabled(): boolean {
+  return ["1", "true", "yes"].includes((process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase());
+}
+
+function miniMaxAnthropicStreamingEnabled(): boolean {
+  const configured = (process.env.MINIMAX_ANTHROPIC_STREAMING || "").toLowerCase();
+  if (configured) return ["1", "true", "yes"].includes(configured);
+  return resolveMiniMaxApiFormat() === "anthropic" && resolveMiniMaxApiKey().startsWith("sk-cp-");
 }
 
 function resolveDeepProvider(): ModelProviderId {
@@ -385,6 +405,16 @@ export class OpenAICodexBridgeProvider extends HttpChatCompletionProvider {
 export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
   id: ModelProviderId = "minimax";
 
+  override async generate(route: ModelRoute, invocation: ModelInvocation): Promise<ModelResponse> {
+    if (resolveMiniMaxApiFormat() === "openclaw-cli") {
+      return this.generateWithOpenClawCli(route, invocation);
+    }
+    if (resolveMiniMaxApiFormat() === "anthropic" && miniMaxAnthropicStreamingEnabled()) {
+      return this.generateWithAnthropicStream(route, invocation);
+    }
+    return super.generate(route, invocation);
+  }
+
   protected apiKey(): string {
     return resolveMiniMaxApiKey();
   }
@@ -394,7 +424,8 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
   }
 
   protected endpoint(): string {
-    return resolveMiniMaxApiFormat() === "anthropic" ? "/v1/messages" : "/chat/completions";
+    if (resolveMiniMaxApiFormat() !== "anthropic") return "/chat/completions";
+    return this.baseUrl().endsWith("/v1") ? "/messages" : "/v1/messages";
   }
 
   protected requestHeaders(route: ModelRoute): Record<string, string> {
@@ -405,6 +436,7 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
     return {
       "Content-Type": "application/json",
       "X-Api-Key": this.apiKey(),
+      "anthropic-version": "2023-06-01",
     };
   }
 
@@ -426,6 +458,7 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
       max_tokens: Number(process.env.MINIMAX_MAX_TOKENS || "2048"),
       system: systemMessages.length > 0 ? systemMessages.join("\n\n") : undefined,
       messages,
+      stream: miniMaxAnthropicStreamingEnabled() || undefined,
       temperature: invocation.temperature ?? 1,
     };
   }
@@ -448,6 +481,144 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
       text,
       inputTokens: usage?.input_tokens ?? fallbackInputTokens,
       outputTokens: usage?.output_tokens ?? estimateTokens(text),
+    };
+  }
+
+  private async generateWithAnthropicStream(route: ModelRoute, invocation: ModelInvocation): Promise<ModelResponse> {
+    if (route.mode !== "live") {
+      return this.generateStub(route, invocation);
+    }
+    if (!this.hasLiveCredentials()) {
+      return this.generateStub(route, invocation, this.missingCredentialsReason());
+    }
+    if (!liveModelsEnabled()) {
+      return this.generateStub(route, invocation, "live_provider_disabled");
+    }
+    if (!this.baseUrl()) {
+      return this.generateStub(route, invocation, "missing_base_url");
+    }
+
+    const fallbackInputTokens = estimateTokens(invocation.prompt) + estimateTokens(invocation.systemPrompt ?? "");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), route.timeoutMs ?? 60_000);
+
+    try {
+      const response = await fetch(this.requestUrl(route), {
+        method: "POST",
+        headers: this.requestHeaders(route),
+        body: JSON.stringify(this.requestBody(route, invocation)),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${this.id} provider HTTP ${response.status}: ${text.slice(0, 500)}`);
+      }
+
+      const raw = await response.text();
+      const parsed = this.parseAnthropicSse(raw, fallbackInputTokens);
+      if (!parsed.text.trim()) {
+        throw new Error(`${this.id} provider returned an empty streamed response`);
+      }
+
+      return {
+        responseId: parsed.responseId,
+        provider: this.id,
+        model: route.model,
+        text: parsed.text,
+        finishReason: "stop",
+        stub: false,
+        usage: {
+          inputTokens: parsed.inputTokens,
+          outputTokens: parsed.outputTokens,
+          estimatedCostUsd: estimateCost(this.id, parsed.inputTokens, parsed.outputTokens),
+        },
+        attemptedRoutes: [`${this.id}:${route.model}:anthropic-stream`],
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private parseAnthropicSse(
+    raw: string,
+    fallbackInputTokens: number,
+  ): { responseId: string; text: string; inputTokens: number; outputTokens: number } {
+    let responseId: string = randomUUID();
+    let inputTokens = fallbackInputTokens;
+    let outputTokens = 0;
+    let text = "";
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const event = JSON.parse(data) as Record<string, unknown>;
+        if (event.type === "message_start") {
+          const message = event.message as { id?: string; usage?: { input_tokens?: number; output_tokens?: number } } | undefined;
+          if (message?.id) responseId = message.id;
+          inputTokens = message?.usage?.input_tokens ?? inputTokens;
+          outputTokens = message?.usage?.output_tokens ?? outputTokens;
+        } else if (event.type === "content_block_start") {
+          const block = event.content_block as { type?: string; text?: string } | undefined;
+          if (block?.type === "text" && block.text) text += block.text;
+        } else if (event.type === "content_block_delta") {
+          const delta = event.delta as { type?: string; text?: string } | undefined;
+          if (delta?.type === "text_delta" && delta.text) text += delta.text;
+        } else if (event.type === "message_delta") {
+          const usage = event.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+          inputTokens = usage?.input_tokens ?? inputTokens;
+          outputTokens = usage?.output_tokens ?? outputTokens;
+        }
+      } catch {
+        continue;
+      }
+    }
+    outputTokens = outputTokens || estimateTokens(text);
+    return { responseId, text, inputTokens, outputTokens };
+  }
+
+  private async generateWithOpenClawCli(route: ModelRoute, invocation: ModelInvocation): Promise<ModelResponse> {
+    const cli = process.env.OPENCLAW_CLI_PATH || "openclaw";
+    const model = process.env.OPENCLAW_MINIMAX_MODEL || `minimax-portal/${route.model}`;
+    const promptParts = [
+      invocation.systemPrompt ? `System:\n${invocation.systemPrompt}` : "",
+      ...(invocation.messages ?? []).map((message) => `${message.role}:\n${message.content}`),
+      invocation.prompt,
+    ].filter(Boolean);
+    const prompt = promptParts.join("\n\n");
+    const timeout = Number(process.env.API_TIMEOUT_MS || "3000000");
+    const { stdout } = await execFileAsync(
+      cli,
+      ["infer", "model", "run", "--local", "--model", model, "--prompt", prompt, "--json"],
+      {
+        timeout,
+        maxBuffer: 1024 * 1024,
+        env: {
+          ...process.env,
+          ANTHROPIC_AUTH_TOKEN: resolveMiniMaxApiKey(),
+          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || resolveMiniMaxBaseUrl(),
+          ANTHROPIC_MODEL: route.model,
+        },
+      },
+    );
+    const payload = JSON.parse(stdout) as { outputs?: Array<{ text?: string }> };
+    const text = payload.outputs?.map((output) => output.text ?? "").filter(Boolean).join("\n") ?? "";
+    const inputTokens = estimateTokens(prompt);
+    const outputTokens = estimateTokens(text);
+    return {
+      responseId: randomUUID(),
+      provider: this.id,
+      model: route.model,
+      text,
+      finishReason: "stop",
+      stub: false,
+      usage: {
+        inputTokens,
+        outputTokens,
+        estimatedCostUsd: estimateCost(this.id, inputTokens, outputTokens),
+      },
+      attemptedRoutes: [`${this.id}:${route.model}:openclaw-cli`],
     };
   }
 }

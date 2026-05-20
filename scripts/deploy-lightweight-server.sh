@@ -3,8 +3,8 @@ set -euo pipefail
 
 SERVER_HOST="${SERVER_HOST:-149.129.240.111}"
 SERVER_USER="${SERVER_USER:-root}"
-SERVER_PORT="${SERVER_PORT:-22}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/ai_holdings_aliyun_deploy_20260519}"
+SERVER_PORT="${SERVER_PORT:-22222}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/ai_holdings_aliyun_deploy_20260521}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/ai-holdings-analyzer-v3}"
 WEBAPP_HTTP_PORT="${WEBAPP_HTTP_PORT:-3000}"
 DATA_SERVICE_PORT="${DATA_SERVICE_PORT:-8000}"
@@ -59,6 +59,8 @@ log "syncing project files"
 rsync -az --delete \
   -e "ssh -i '$SSH_KEY' -p '$SERVER_PORT' -o StrictHostKeyChecking=accept-new" \
   --exclude '.git/' \
+  --exclude '._*' \
+  --exclude '.DS_Store' \
   --exclude '.next/' \
   --exclude 'node_modules/' \
   --exclude '.pytest_cache/' \

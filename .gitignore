@@ -22,6 +22,7 @@ build/
 coverage/
 .turbo/
 .pytest_cache/
+.runtime/
 .run/
 .logs/
 .omx/
@@ -32,6 +33,7 @@ coverage/
 
 # OS
 .DS_Store
+._*
 
 # Supabase
 .supabase/
