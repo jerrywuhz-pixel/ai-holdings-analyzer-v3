@@ -158,17 +158,18 @@ export function getP0TenantId() {
   );
 }
 
-export async function fetchP0ApiSnapshot(): Promise<P0ApiSnapshot> {
+export async function fetchP0ApiSnapshot(options?: { tenantId?: string }): Promise<P0ApiSnapshot> {
   const baseUrl = getDataServiceBaseUrl();
+  const tenantId = options?.tenantId || getP0TenantId();
   const errors: string[] = [];
 
   const [overviewResult, positionsResult, statusResult, healthResult, capabilitiesResult] =
     await Promise.all([
-      fetchCandidate(baseUrl, OVERVIEW_PATHS, errors),
-      fetchCandidate(baseUrl, POSITIONS_PATHS, errors),
-      fetchCandidate(baseUrl, STATUS_PATHS, errors),
-      fetchCandidate(baseUrl, HEALTH_PATHS, errors),
-      fetchCandidate(baseUrl, CAPABILITY_PATHS, errors),
+      fetchCandidate(baseUrl, OVERVIEW_PATHS, errors, tenantId),
+      fetchCandidate(baseUrl, POSITIONS_PATHS, errors, tenantId),
+      fetchCandidate(baseUrl, STATUS_PATHS, errors, tenantId),
+      fetchCandidate(baseUrl, HEALTH_PATHS, errors, tenantId),
+      fetchCandidate(baseUrl, CAPABILITY_PATHS, errors, tenantId),
     ]);
 
   const overview = normalizeOverview(overviewResult?.data);
@@ -283,11 +284,12 @@ const CAPABILITY_PATHS = ['/api/v3/broker/futu/capabilities'];
 async function fetchCandidate(
   baseUrl: string,
   paths: string[],
-  errors: string[]
+  errors: string[],
+  tenantId: string
 ): Promise<CandidateFetchResult | undefined> {
   for (const path of paths) {
     try {
-      const data = await fetchJson(baseUrl, path);
+      const data = await fetchJson(baseUrl, path, tenantId);
       return { path, data };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -297,14 +299,14 @@ async function fetchCandidate(
   return undefined;
 }
 
-async function fetchJson(baseUrl: string, path: string) {
+async function fetchJson(baseUrl: string, path: string, tenantId: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     const url = new URL(path, `${baseUrl}/`);
     if (needsTenantId(url) && !url.searchParams.has('tenant_id')) {
-      url.searchParams.set('tenant_id', getP0TenantId());
+      url.searchParams.set('tenant_id', tenantId);
     }
 
     const response = await fetch(url.toString(), {

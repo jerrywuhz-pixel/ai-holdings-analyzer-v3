@@ -9,6 +9,8 @@ venv/
 .env
 .env.local
 .env.*.local
+.env.server
+.env.aliyun
 .env.production
 .env.cloud
 
@@ -19,6 +21,10 @@ build/
 *.tsbuildinfo
 coverage/
 .turbo/
+.pytest_cache/
+.run/
+.logs/
+.omx/
 
 # IDE
 .vscode/

@@ -7,7 +7,10 @@ import {
   Panel,
   StatusPill,
 } from '@/components/p0-ui';
+import ManualPositionForm from '@/components/manual-position-form';
+import { ensureUserAccount } from '@/lib/account-store';
 import { getWorkspaceSnapshot, resolveDemoState } from '@/lib/p0';
+import { requireUser } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +33,11 @@ export default async function DataPage({
 }) {
   const params = (await searchParams) ?? {};
   const state = resolveDemoState(params.state);
-  const snapshot = await getWorkspaceSnapshot({ state });
+  const session = await requireUser();
+  const [account, snapshot] = await Promise.all([
+    ensureUserAccount(session.user),
+    getWorkspaceSnapshot({ state }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -52,6 +59,39 @@ export default async function DataPage({
       {snapshot.data ? (
         <>
           <DegradationBanner sources={snapshot.data.chrome.sources} compact />
+
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <Panel title="账户工作区" description="每个登录账号都有独立的 account_id、tenant_id、资产视图和数据来源。">
+              <div className="grid gap-3 text-sm text-slate-300">
+                <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">account_id</p>
+                  <p className="mt-2 break-all font-mono text-white">{account.accountId}</p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">tenant_id</p>
+                  <p className="mt-2 break-all font-mono text-white">{account.tenantId}</p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs text-slate-500">资产视图</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{account.portfolioViews.length}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs text-slate-500">关注清单</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{account.followView?.itemCount ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs text-slate-500">清仓回溯</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{account.listView?.itemCount ?? 0}</p>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="手工录入持仓" description="适合先把券商 App 里看到的持仓录进来；系统会记录来源并刷新当前账号的持仓快照。">
+              <ManualPositionForm />
+            </Panel>
+          </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {snapshot.data.data.summary.map((metric) => (

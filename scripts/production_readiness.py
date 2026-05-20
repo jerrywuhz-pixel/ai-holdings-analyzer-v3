@@ -54,9 +54,21 @@ def _missing(names: Iterable[str]) -> list[str]:
     return [name for name in names if not _env(name)]
 
 
-def _check_required(group: str, name: str, names: list[str], detail: str, *, profile: str) -> CheckResult:
+def _soft_missing(profile: str, *, profiles: set[str] | None = None) -> bool:
+    return profile in (profiles or {"local"})
+
+
+def _check_required(
+    group: str,
+    name: str,
+    names: list[str],
+    detail: str,
+    *,
+    profile: str,
+    soft_profiles: set[str] | None = None,
+) -> CheckResult:
     missing = _missing(names)
-    status = "pass" if not missing else ("warn" if profile == "local" else "fail")
+    status = "pass" if not missing else ("warn" if _soft_missing(profile, profiles=soft_profiles) else "fail")
     return CheckResult(
         group=group,
         name=name,
@@ -74,6 +86,7 @@ def run_checks(*, profile: str) -> list[CheckResult]:
             ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
             "Supabase REST/Auth/service role configured",
             profile=profile,
+            soft_profiles={"local", "lightweight"},
         ),
         _check_required(
             "delivery",
@@ -81,13 +94,7 @@ def run_checks(*, profile: str) -> list[CheckResult]:
             ["OPENCLAW_DELIVERY_MODE", "OPENCLAW_DELIVERY_WEBHOOK_URL", "OPENCLAW_DELIVERY_WEBHOOK_SECRET"],
             "OpenClaw delivery webhook endpoint and HMAC secret configured",
             profile=profile,
-        ),
-        _check_required(
-            "model",
-            "live_model_provider",
-            ["GBRAIN_LIVE_MODELS_ENABLED", "OPENAI_API_KEY", "MINIMAX_API_KEY"],
-            "Live model routing can use GPT-5.5 and MiniMax through the unified adapter",
-            profile=profile,
+            soft_profiles={"local", "lightweight"},
         ),
         _check_required(
             "storage",
@@ -116,6 +123,7 @@ def run_checks(*, profile: str) -> list[CheckResult]:
             ["SENTRY_DSN"],
             "Sentry DSN configured for runtime error monitoring",
             profile=profile,
+            soft_profiles={"local", "lightweight"},
         ),
         _check_required(
             "web",
@@ -128,6 +136,7 @@ def run_checks(*, profile: str) -> list[CheckResult]:
 
     checks.append(_mode_check("delivery", "OPENCLAW_DELIVERY_MODE", expected="webhook", profile=profile))
     checks.append(_enabled_check("model", "GBRAIN_LIVE_MODELS_ENABLED", profile=profile))
+    checks.append(_live_model_provider_check(profile=profile))
     checks.append(_one_of_check("storage", "HERMES_ARTIFACT_STORAGE_BACKEND", {"supabase", "file"}, profile=profile))
     checks.append(_one_of_check("storage", "HISTORICAL_STORAGE_BACKEND", {"supabase_storage", "file"}, profile=profile))
     checks.append(_fx_source_check(profile=profile))
@@ -135,8 +144,56 @@ def run_checks(*, profile: str) -> list[CheckResult]:
     return checks
 
 
+def _live_model_provider_check(*, profile: str) -> CheckResult:
+    common_missing = _missing(["GBRAIN_LIVE_MODELS_ENABLED", "MINIMAX_API_KEY"])
+    has_openai_api = bool(_env("OPENAI_API_KEY") or _env("GBRAIN_OPENAI_API_KEY"))
+    has_codex_bridge = bool(
+        (_env("OPENAI_CODEX_AUTH_PROFILE") or _env("HERMES_AUTH_PROFILE_ID") or _env("OPENCLAW_AUTH_PROFILE"))
+        and (_env("OPENAI_CODEX_BRIDGE_BASE_URL") or _env("HERMES_CODEX_GATEWAY_BASE_URL") or _env("OPENCLAW_CODEX_GATEWAY_BASE_URL"))
+    )
+    deep_missing = []
+    if not (has_openai_api or has_codex_bridge):
+        deep_missing.append("OPENAI_API_KEY or OPENAI_CODEX_AUTH_PROFILE+OPENAI_CODEX_BRIDGE_BASE_URL")
+
+    missing = [*common_missing, *deep_missing]
+    if common_missing:
+        status = "warn" if profile == "local" else "fail"
+    elif deep_missing:
+        status = "warn" if profile in {"local", "lightweight"} else "fail"
+    else:
+        status = "pass"
+    route = "openai_api_key" if has_openai_api else "openai_codex_bridge" if has_codex_bridge else "missing"
+    light_ready = not common_missing
+    if missing and light_ready and deep_missing and profile == "lightweight":
+        detail = (
+            "MiniMax light route is configured for first-stage deployment; "
+            "deep research still needs OpenAI API key or system-level openai-codex bridge before production"
+        )
+    elif missing:
+        detail = f"missing required env: {', '.join(missing)}"
+    else:
+        detail = (
+            f"Live model routing route={route}; MiniMax configured={bool(_env('MINIMAX_API_KEY'))}; "
+            "deep research can use OpenAI API key or a system-level openai-codex bridge"
+        )
+    return CheckResult(
+        group="model",
+        name="live_model_provider",
+        status=status,
+        detail=detail,
+        missing=missing,
+    )
+
+
 def _mode_check(group: str, env_name: str, *, expected: str, profile: str) -> CheckResult:
     value = _env(env_name).lower()
+    if profile == "lightweight" and value in {"log", expected}:
+        return CheckResult(
+            group,
+            env_name,
+            "pass",
+            f"{env_name}={value}; lightweight first stage accepts log delivery, production expects {expected}",
+        )
     if profile == "local" and value != expected:
         return CheckResult(group, env_name, "warn", f"{env_name}={value or '<empty>'}; production expects {expected}")
     return CheckResult(
@@ -180,6 +237,14 @@ def _fx_source_check(*, profile: str) -> CheckResult:
     has_endpoint = bool(_env("FX_RATE_ENDPOINT"))
     if has_inline_rates or has_endpoint:
         return CheckResult("fx", "fx_rates", "pass", "trusted FX source is configured")
+    if profile == "lightweight":
+        return CheckResult(
+            "fx",
+            "fx_rates",
+            "warn",
+            "lightweight profile may use labelled fallback FX for UI testing; production needs FX_RATES_JSON or FX_RATE_ENDPOINT",
+            ["FX_RATES_JSON or FX_RATE_ENDPOINT"],
+        )
     return CheckResult(
         "fx",
         "fx_rates",
@@ -211,14 +276,15 @@ def summarize(checks: list[CheckResult], *, profile: str) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check AI holdings production readiness config.")
-    parser.add_argument("--profile", choices=["local", "production"], default="production")
+    parser.add_argument("--profile", choices=["local", "lightweight", "production"], default="production")
+    parser.add_argument("--env-file", default=str(ENV_FILE), help="Environment file to load before running checks.")
     parser.add_argument("--output", default="")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    load_env_file(ENV_FILE)
+    load_env_file(Path(args.env_file))
     summary = summarize(run_checks(profile=args.profile), profile=args.profile)
     rendered = json.dumps(summary, ensure_ascii=False, indent=2)
     if args.output:

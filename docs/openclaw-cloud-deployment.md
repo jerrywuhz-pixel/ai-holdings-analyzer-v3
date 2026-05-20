@@ -2,6 +2,12 @@
 # OpenClaw 云端部署方案
 # ============================================================
 #
+# 2026-05-20 状态:
+#   本文是 2.0 / Google Cloud Run 历史方案，保留作备选参考。
+#   3.0 当前默认部署路线已经切换为阿里云：
+#     - 第一阶段: docs/LIGHTWEIGHT_SERVER_DEPLOY.md
+#     - 生产目标: product-design-v3/28-aliyun-deployment-plan.md
+#
 # 架构概览:
 #   Vercel (WebApp) ← Supabase (DB/Auth) → OpenClaw Gateway (Cloud Run)
 #                                                  ├── Data Service (Cloud Run)

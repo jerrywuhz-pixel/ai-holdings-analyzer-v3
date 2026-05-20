@@ -10,6 +10,7 @@ from services.health_cache import HealthCache
 
 # 健康缓存（减少 Supabase 读取，提升缓存命中率）
 _health_cache = HealthCache()
+APP_VERSION = os.getenv("APP_VERSION", "3.0.0-p0")
 
 
 @asynccontextmanager
@@ -21,7 +22,7 @@ async def lifespan(app: FastAPI):
     # 关闭时清理资源（如有需要）
 
 
-app = FastAPI(title="AI Holdings Data Service", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="AI Holdings Data Service", version=APP_VERSION, lifespan=lifespan)
 
 # CORS: 生产环境必须通过环境变量指定具体域名，禁止 * + credentials 组合
 _cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
@@ -51,7 +52,7 @@ def root():
     """根路径返回服务基础信息。"""
     return {
         "service": "AI Holdings Data Service",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "docs": "/docs",
         "health": "/health",
     }
@@ -63,7 +64,7 @@ async def health():
     gateway_status = await _health_cache.get_gateway_status()
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "gateway": gateway_status["gateway"],
         "data_sources": gateway_status["data_sources"],
     }

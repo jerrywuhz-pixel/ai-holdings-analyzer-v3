@@ -16,6 +16,21 @@
 
 结论：当前 GBrain 不是空白，但也还不是“生产可用服务”。3.0 P0 应采用 **OpenClaw/Hermes 按需启动 stdio adapter + Postgres 长期记忆表 + artifact/object storage** 的方式先跑通；P1 再评估引入上游 remote MCP / HTTP / OAuth 能力。
 
+## 1.1 2026-05-20 实现状态
+
+最新实现已把 GBrain/Hermes 从“模板和测试代码”推进到阿里云轻量服务器可运行基座：
+
+| 能力 | 当前状态 | 说明 |
+| --- | --- | --- |
+| GBrain health | 已可验证 | `verify-foundation-runtime.sh` 可检查 GBrain/Hermes adapter 和 OpenClaw 链路 |
+| MiniMax M2.7 light route | 已 live | `MINIMAX_API_FORMAT=anthropic` 时走 `/v1/messages`、`X-Api-Key` 和 Anthropic message schema |
+| OpenAI/GPT-5.5 deep route | 契约已实现，未启用 | 支持 API key 或系统级 `openai-codex` bridge；当前服务器仍缺 deep auth |
+| openai-codex bridge | 已有最小 sidecar | 支持 `stub`、`command`、`http` 三种模式，用于隔离系统级共享模型能力 |
+| artifact/object storage | P0 可用 | 当前可用 file/MinIO/Supabase 形态；生产建议迁移到 OSS |
+| readiness gate | 已更新 | `production_readiness.py --profile lightweight` 用于单机第一阶段，`--profile production` 用于正式切流 |
+
+需要注意：当前 `/health` 中的 `system_model_auth_ready=false` 只表示深研侧 OpenAI/Codex 授权未启用，不代表 MiniMax 日常文本模型不可用。
+
 ## 2. 上游开源版本检查
 
 | 项目 | 最新状态 | 对本系统的意义 |

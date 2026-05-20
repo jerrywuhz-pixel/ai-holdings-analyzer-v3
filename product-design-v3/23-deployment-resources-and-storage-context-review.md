@@ -1,6 +1,6 @@
 # AI 持仓投资分析系统 3.0 部署资源与存储上下文 Review
 
-> 状态：产品/架构确认稿  
+> 状态：产品/架构确认稿，已按 2026-05-20 最新实现补充落地状态  
 > 范围：部署前置资源、服务器与托管服务、数据库/对象存储/缓存/队列、GBrain 与 Hermes 四层存储映射、上下文管理遗漏项  
 > 关联文档：
 > - [09-historical-market-data-store.md](./09-historical-market-data-store.md)
@@ -23,6 +23,17 @@
 3. Hermes 的四层存储需要在 3.0 中明确映射，否则会出现“上下文、长期记忆、研究报告、审计回放”混在一起的问题。
 4. 上下文管理的关键遗漏是 `Context Pack Builder`、`Memory Write Gate`、`Artifact Registry`、`Replay/Eval Evidence Store` 和 `Retention/Deletion Policy`。
 5. 所有存储都必须以 `tenant_id` 为第一隔离维度；微信 bot、券商账户、portfolio view、follow/list view 都只是 tenant 内部的绑定或视图。
+
+2026-05-20 实现对齐：
+
+| 模块 | 原方案要求 | 当前实现状态 |
+| --- | --- | --- |
+| 单机 P0 部署 | 先用可控服务器打通主链路 | 已在阿里云轻量服务器用 Docker Compose 跑通 WebApp、data-service、Postgres/pgvector、Redis、MinIO、GBrain/Hermes、OpenClaw |
+| GBrain / Hermes 存储 | 长期记忆、artifact、replay、业务事实分层 | GBrain schema、artifact registry、file/MinIO/Supabase backend 和 memory gate 已具备 P0 能力 |
+| Model Adapter | MiniMax、GPT-5.5、fallback 统一接入 | MiniMax M2.7 Anthropic-compatible live route 已通；OpenAI API key / `openai-codex` bridge deep route 契约已通但未启用 |
+| Readiness Gate | 区分本地、部署、生产切流 | 已新增 `local`、`lightweight`、`production` 三档；轻量服务器使用 `--profile lightweight` |
+| 对象存储 | P0 可本地替身，生产上对象存储 | 当前用 MinIO/file；生产迁移目标为 OSS 或等价 S3-compatible storage |
+| 运维安全 | 可观测、备份、密钥隔离 | 仍需补 SSH 加固、真实 SMTP、HTTPS、SLS/ARMS、KMS/Secret Manager |
 
 ---
 
@@ -144,7 +155,7 @@ flowchart TB
 | Futu OpenD | 美股/港股行情、期权链、账户 read_only 同步主源 | 本地 OpenD、富途账号、read_only 权限、连接白名单、心跳检测 |
 | 腾讯财经 | 稳定行情补充源 | adapter、限频策略、数据新鲜度标记 |
 | MiniMax M2.7 | 日常微信/系统文本意图与轻量回复模型 | API key 或 CLI wrapper、统一 model adapter |
-| GPT-5.5 | 深研、长任务、复杂策略解释 | API key、长任务预算、模型路由策略 |
+| GPT-5.5 / OpenAI Codex auth | 深研、长任务、复杂策略解释 | API key 或系统级 `openai-codex` auth bridge、长任务预算、模型路由策略 |
 | Embedding Model | GBrain 长期记忆向量化 | 统一 provider、维度版本记录、迁移策略 |
 | OpenClaw 微信插件 | 消息渠道能力 | bot 绑定、`accountId`、`sessionSpace`、回调域名、TLS |
 | 可选付费行情源 | OPRA/美股细粒度期权、A 股/港股增强 | P0 不强依赖，但接口边界预留 |

@@ -35,8 +35,14 @@ from openclaw.gateway.outbox import (
     SupabaseOutboxRepository,
 )
 from openclaw.gateway.routers import miniprogram, openclaw_gateway, wechat_auth
+from openclaw.gateway.runtime_status import (
+    build_runtime_status,
+    local_gateway_snapshot,
+    prefer_external_or_local_gateway,
+)
 
 logger = logging.getLogger(__name__)
+APP_VERSION = os.getenv("APP_VERSION", "3.0.0-p0")
 
 # 哨兵初始化（可选）
 try:
@@ -150,7 +156,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="OpenClaw Gateway",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -197,11 +203,18 @@ async def health():
             "data_sources": [],
         }
 
+    local_status = local_gateway_snapshot(_heartbeat_reporter)
+    gateway = prefer_external_or_local_gateway(
+        gateway_status.get("gateway") if isinstance(gateway_status, dict) else None,
+        local_status,
+    )
+
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "service": "openclaw-gateway",
-        "gateway": gateway_status.get("gateway", "unknown"),
+        "gateway": gateway,
+        "runtime": build_runtime_status(),
         "data_sources": gateway_status.get("data_sources", []),
     }
 
@@ -211,9 +224,10 @@ def root():
     """根路径。"""
     return {
         "service": "OpenClaw Gateway",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "docs": "/docs",
         "health": "/health",
+        "runtime": build_runtime_status()["foundation"],
     }
 
 

@@ -95,6 +95,10 @@ describe("ModelAdapter", () => {
         MINIMAX_API_KEY: undefined,
         GBRAIN_LIVE_MODELS_ENABLED: undefined,
         MINIMAX_MODEL: "text-01",
+        HERMES_DEEP_PROVIDER: undefined,
+        HERMES_DEEP_MODEL: undefined,
+        MODEL_AUTH_MODE: undefined,
+        MODEL_ADAPTER_FALLBACK_PROVIDER: undefined,
       },
       () => {
         const lightPolicy = createDefaultHermesModelPolicy(5 * 60 * 1000, "standard");
@@ -105,6 +109,27 @@ describe("ModelAdapter", () => {
         assert.equal(lightPolicy.primary.mode, "stub");
         assert.equal(deepPolicy.primary.provider, "openai");
         assert.equal(deepPolicy.primary.model, "gpt-5.5");
+        assert.equal(deepPolicy.primary.mode, "stub");
+      },
+    );
+  });
+
+  test("can route deep Hermes jobs through the system-level openai-codex provider", async () => {
+    await withEnv(
+      {
+        HERMES_DEEP_PROVIDER: "openai-codex",
+        HERMES_DEEP_MODEL: undefined,
+        MODEL_AUTH_MODE: undefined,
+        MODEL_ADAPTER_FALLBACK_PROVIDER: undefined,
+        OPENAI_CODEX_AUTH_PROFILE: undefined,
+        OPENAI_CODEX_BRIDGE_BASE_URL: undefined,
+        GBRAIN_LIVE_MODELS_ENABLED: undefined,
+      },
+      () => {
+        const deepPolicy = createDefaultHermesModelPolicy(30 * 60 * 1000, "deep");
+
+        assert.equal(deepPolicy.primary.provider, "openai-codex");
+        assert.equal(deepPolicy.primary.model, "gpt-5.4");
         assert.equal(deepPolicy.primary.mode, "stub");
       },
     );
@@ -179,6 +204,119 @@ describe("ModelAdapter", () => {
           assert.equal(response.text, "Live model response");
           assert.equal(calls[0].url, "https://openai.example/v1/chat/completions");
           assert.equal(calls[0].body.model, "gpt-5.5");
+        },
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("uses MiniMax Anthropic-compatible endpoint when configured", async () => {
+    const previousFetch = globalThis.fetch;
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body ?? "{}")),
+      });
+      return new Response(
+        JSON.stringify({
+          id: "msg-minimax-1",
+          content: [{ type: "text", text: "MiniMax response" }],
+          usage: { input_tokens: 11, output_tokens: 4 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await withEnv(
+        {
+          MINIMAX_API_KEY: "test-minimax-key",
+          MINIMAX_OPENAI_BASE_URL: "https://api.minimaxi.com/anthropic",
+          MINIMAX_API_FORMAT: "anthropic",
+          GBRAIN_LIVE_MODELS_ENABLED: "true",
+        },
+        async () => {
+          const adapter = buildDefaultModelAdapter();
+          const response = await adapter.generate(
+            {
+              primary: { provider: "minimax", model: "MiniMax-M2.7", mode: "live" },
+              fallbacks: [],
+            },
+            {
+              objective: "daily intent",
+              systemPrompt: "Be concise.",
+              prompt: "Reply ok.",
+            },
+          );
+
+          assert.equal(response.stub, false);
+          assert.equal(response.provider, "minimax");
+          assert.equal(response.text, "MiniMax response");
+          assert.equal(calls[0].url, "https://api.minimaxi.com/anthropic/v1/messages");
+          assert.equal(calls[0].headers.get("x-api-key"), "test-minimax-key");
+          assert.equal(calls[0].body.model, "MiniMax-M2.7");
+          assert.equal(calls[0].body.system, "Be concise.");
+          assert.equal(calls[0].body.max_tokens, 2048);
+        },
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("uses the configured openai-codex bridge without requiring an OpenAI API key", async () => {
+    const previousFetch = globalThis.fetch;
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body ?? "{}")),
+      });
+      return new Response(
+        JSON.stringify({
+          id: "resp-codex-1",
+          choices: [{ message: { content: "Codex auth profile response" } }],
+          usage: { prompt_tokens: 18, completion_tokens: 5 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await withEnv(
+        {
+          OPENAI_API_KEY: undefined,
+          GBRAIN_OPENAI_API_KEY: undefined,
+          GBRAIN_LIVE_MODELS_ENABLED: "true",
+          OPENAI_CODEX_AUTH_PROFILE: "system-pro",
+          OPENAI_CODEX_BRIDGE_BASE_URL: "https://codex-bridge.example/v1",
+          OPENAI_CODEX_BRIDGE_API_KEY: undefined,
+        },
+        async () => {
+          const adapter = buildDefaultModelAdapter();
+          const response = await adapter.generate(
+            {
+              primary: { provider: "openai-codex", model: "gpt-5.4", mode: "live" },
+              fallbacks: [],
+            },
+            {
+              objective: "deep research",
+              systemPrompt: "Be precise.",
+              prompt: "Summarize NVDA.",
+            },
+          );
+
+          assert.equal(response.stub, false);
+          assert.equal(response.provider, "openai-codex");
+          assert.equal(response.text, "Codex auth profile response");
+          assert.equal(calls[0].url, "https://codex-bridge.example/v1/chat/completions");
+          assert.equal(calls[0].headers.get("x-hermes-auth-profile"), "system-pro");
+          assert.equal(calls[0].headers.has("authorization"), false);
+          assert.equal(calls[0].body.model, "openai-codex/gpt-5.4");
         },
       );
     } finally {

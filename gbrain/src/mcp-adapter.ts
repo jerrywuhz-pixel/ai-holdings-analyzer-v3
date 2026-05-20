@@ -19,7 +19,11 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.GBRAIN_OPENAI_A
 const EMBEDDING_MODEL = process.env.GBRAIN_EMBEDDING_MODEL || "text-embedding-3-small";
 const CHUNK_SIZE = parseInt(process.env.GBRAIN_CHUNK_SIZE || "500", 10);
 const CHUNK_OVERLAP = parseInt(process.env.GBRAIN_CHUNK_OVERLAP || "50", 10);
+const ADAPTER_VERSION = process.env.GBRAIN_ADAPTER_VERSION || "0.2.0";
+const OPENCLAW_UPSTREAM_TARGET_VERSION = process.env.OPENCLAW_UPSTREAM_TARGET_VERSION || "v2026.5.18";
+const HERMES_UPSTREAM_TARGET_VERSION = process.env.HERMES_UPSTREAM_TARGET_VERSION || "v2026.5.16";
 const HEALTH_CHECK_MODE = process.argv.includes("--health-check");
+const HEALTH_JSON_MODE = process.argv.includes("--health-json");
 
 if (!DATABASE_URL) {
   console.error("[gbrain] DATABASE_URL or GBRAIN_DATABASE_URL is required");
@@ -114,6 +118,54 @@ async function sha256Hex(text: string): Promise<string | null> {
   }
 }
 
+function buildHealthStatus() {
+  const deepProvider =
+    process.env.HERMES_DEEP_PROVIDER ||
+    (process.env.MODEL_AUTH_MODE === "openai_codex" || process.env.MODEL_AUTH_MODE === "hermes_auth_profile"
+      ? "openai-codex"
+      : process.env.MODEL_ADAPTER_FALLBACK_PROVIDER || "openai");
+  const normalizedDeepProvider = ["openai", "openai-codex", "minimax"].includes(deepProvider) ? deepProvider : "openai";
+  const openaiCodexAuthProfileConfigured = Boolean(
+    process.env.OPENAI_CODEX_AUTH_PROFILE || process.env.HERMES_AUTH_PROFILE_ID || process.env.OPENCLAW_AUTH_PROFILE
+  );
+  const openaiCodexBridgeConfigured = Boolean(
+    process.env.OPENAI_CODEX_BRIDGE_BASE_URL || process.env.HERMES_CODEX_GATEWAY_BASE_URL || process.env.OPENCLAW_CODEX_GATEWAY_BASE_URL
+  );
+  const openaiConfigured = Boolean(OPENAI_API_KEY);
+  const minimaxConfigured = Boolean(process.env.MINIMAX_API_KEY);
+  const liveModelsEnabled = (process.env.GBRAIN_LIVE_MODELS_ENABLED || "false").toLowerCase() === "true";
+  const providerReady =
+    normalizedDeepProvider === "openai"
+      ? openaiConfigured
+      : normalizedDeepProvider === "openai-codex"
+        ? openaiCodexAuthProfileConfigured && openaiCodexBridgeConfigured
+        : minimaxConfigured;
+
+  return {
+    ok: true,
+    engine: "postgres",
+    adapter: "gbrain-openclaw",
+    adapter_version: ADAPTER_VERSION,
+    embedding_enabled: !!openai,
+    embedding_model: openai ? EMBEDDING_MODEL : null,
+    openclaw_upstream_target: OPENCLAW_UPSTREAM_TARGET_VERSION,
+    hermes_upstream_target: HERMES_UPSTREAM_TARGET_VERSION,
+    artifact_backend: process.env.HERMES_ARTIFACT_STORAGE_BACKEND || "file",
+    live_models_enabled: liveModelsEnabled,
+    model_auth_mode: process.env.MODEL_AUTH_MODE || "api_key",
+    deep_provider: normalizedDeepProvider,
+    openai_configured: openaiConfigured,
+    openai_codex_auth_profile_configured: openaiCodexAuthProfileConfigured,
+    openai_codex_bridge_configured: openaiCodexBridgeConfigured,
+    openai_codex_configured: openaiCodexAuthProfileConfigured && openaiCodexBridgeConfigured,
+    minimax_configured: minimaxConfigured,
+    minimax_api_format:
+      process.env.MINIMAX_API_FORMAT ||
+      ((process.env.MINIMAX_OPENAI_BASE_URL || process.env.MINIMAX_BASE_URL || "").includes("/anthropic") ? "anthropic" : "openai"),
+    system_model_auth_ready: liveModelsEnabled && providerReady,
+  };
+}
+
 /** Hybrid search: vector + keyword + RRF fusion */
 async function hybridSearch(
   tenantId: string,
@@ -204,7 +256,7 @@ server.tool("health", {}, async () => {
   try {
     await sql`SELECT 1`;
     return {
-      content: [{ type: "text", text: JSON.stringify({ ok: true, engine: "postgres", embedding: !!openai }) }],
+      content: [{ type: "text", text: JSON.stringify(buildHealthStatus()) }],
     };
   } catch (err) {
     return {
@@ -462,8 +514,8 @@ server.tool(
 async function main() {
   try {
     await sql`SELECT 1`;
-    if (HEALTH_CHECK_MODE) {
-      console.log("ok");
+    if (HEALTH_CHECK_MODE || HEALTH_JSON_MODE) {
+      console.log(HEALTH_JSON_MODE ? JSON.stringify(buildHealthStatus()) : "ok");
       await sql.end();
       process.exit(0);
     }

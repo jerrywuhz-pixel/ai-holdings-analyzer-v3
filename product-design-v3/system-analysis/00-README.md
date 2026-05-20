@@ -18,6 +18,15 @@
 3. 开发前确认 gate 已完成：A 类全部确认、B 类全部确认、C 类全部延后。
 4. 形成编码任务切分、接口契约、测试策略和迁移顺序。
 
+## 最新实现对齐（2026-05-20）
+
+编码门槛之后的当前实现状态：
+
+1. 阿里云轻量服务器第一阶段已跑通 Docker Compose 单机栈，属于 P0 测试/演示形态。
+2. `Environment Orchestrator`、工具权限、memory gate 和 artifact 边界在 P0 中以现有 API、GBrain/Hermes adapter、readiness gate 和审计表落地。
+3. `model adapter` 已支持 MiniMax M2.7 live light route、OpenAI API key deep route、系统级 `openai-codex` bridge deep route 和 stub fallback。
+4. 生产化系统分析仍需继续补阿里云 SAE/RDS/OSS/Tair/SLS/ARMS 的具体脚本、监控和迁移演练。
+
 ## 对齐结论
 
 1. `tenant_id` 是 3.0 账号与数据隔离根；微信绑定后才有 `channel_binding_id` 和 `openclaw_account_id`。

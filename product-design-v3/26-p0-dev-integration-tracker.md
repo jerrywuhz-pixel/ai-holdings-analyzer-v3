@@ -1,8 +1,23 @@
 # AI 持仓系统 3.0 P0 并行研发跟踪表
 
-> 更新时间：2026-05-10  
-> 当前目标：打穿“真实 Futu 同步 -> 持仓 read model -> WebApp 展示 -> Sell Put / 确认 / 验证”主竖切。  
-> 当前状态：第四轮生产化补齐 6 条并行线已回收；本机 Supabase migration/seed、P0 required gate、真实 Futu read-only smoke 与 live E2E smoke 均已通过，gate=`READY_FOR_NEXT_STAGE`。
+> 更新时间：2026-05-20  
+> 当前目标：把 P0 主竖切从本地验证推进到阿里云轻量服务器第一阶段，并让文档、readiness gate、GitHub 基线与最新实现一致。  
+> 当前状态：阿里云轻量服务器 Docker Compose 栈已跑通；WebApp 公网登录页可访问；OpenClaw/GBrain foundation 验证通过；MiniMax M2.7 已进入 live route；OpenAI/GPT-5.5 深研授权、真实 SMTP、真实微信投递、域名 HTTPS 和生产托管存储仍为下一阶段待办。
+
+## 2026-05-20 阿里云轻量服务器验收状态
+
+| 项目 | 当前状态 | 证据 / 说明 |
+| --- | --- | --- |
+| 部署形态 | 已完成第一阶段 | `/opt/ai-holdings-analyzer-v3` 以 Docker Compose 运行 WebApp、data-service、Postgres/pgvector、Redis、MinIO、GBrain/Hermes、OpenClaw |
+| WebApp | 已可访问 | 公网登录页 `http://149.129.240.111:3000/login` 返回 200；域名和 HTTPS 暂未接入 |
+| 本地登录 / 注册 | P0 可用 | `AUTH_MODE=local`；未配置真实 SMTP 时验证码仍不应作为生产邮件链路宣称 |
+| OpenClaw foundation | 已通过 | `verify-openclaw-foundation.sh` 通过，默认套餐、token plan、quota/subscription 初始化完整 |
+| GBrain/Hermes foundation | 已通过 | `verify-foundation-runtime.sh` 通过，GBrain health 可读 |
+| MiniMax M2.7 | 已 live | `MINIMAX_API_FORMAT=anthropic`，`HERMES_LIGHT_MODEL=MiniMax-M2.7`；live smoke 返回非 stub 文本 |
+| OpenAI/GPT-5.5 deep route | 契约已接，未启用 | 代码支持 API key 或 `openai-codex` bridge；当前服务器 `system_model_auth_ready=false` 属于预期 |
+| readiness gate | 已更新 | 新增 `production_readiness.py --profile lightweight`，用于区分第一阶段服务器可用和完整生产切流 |
+| SSH 运维 | 待加固 | 当前可通过宝塔面板操作；SSH 链路仍需单独排查安全组、防火墙和密钥登录 |
+| GitHub 基线 | 待同步 | 当前源码目录不是 Git 仓库；同步目标为 `ai-holdings-analyzer-v3-fresh-deploy` |
 
 ## 生产化推进
 
@@ -21,12 +36,12 @@
 
 ### 剩余风险 / 下一步
 
-1. 云端正式切流前，先用 `scripts/production_readiness.py` 在目标环境复跑一遍，确认 `db` / `delivery` / `model` / `storage` / `fx` / `monitoring` / `web` 全部通过。
-2. live model 仍应维持 gate 控制，避免未配置真实 provider 时误走生产路径。
-3. delivery webhook 上云后需要补齐告警、重试和签名密钥轮换检查，确认线上 outbox 投递可观测。
-4. FX 与对象存储虽然已接入生产形态，但正式对账前仍要继续盯 fallback 告警和数据可用性。
-5. `scripts/cloud_deployment_monitor.py` 只证明云端服务状态和调度任务存在，不能替代真实交易日行情/投递成功率监控。
-6. 当前本机 `gcloud` 与 `supabase` CLI 未安装，production readiness 仍缺 delivery webhook、live model key、生产 storage、可信 FX、Sentry 和 WebApp URL；属于部署配置待办，不是代码阻断。
+1. 轻量服务器阶段用 `python3 scripts/production_readiness.py --profile lightweight` 验收；正式生产切流前必须改用 `--profile production`。
+2. MiniMax live 已可用，但 GPT-5.5 / OpenAI 深研授权尚未启用；不要把 `system_model_auth_ready=false` 误解为 MiniMax 不可用。
+3. delivery webhook、微信 claw bot 真实投递、确认主路径和失败补偿需要上云后补齐告警、重试和签名密钥轮换检查。
+4. FX 与对象存储已有 P0 形态；正式对账前仍需接可信汇率源，并把 MinIO/file backend 迁移到 OSS/RDS/Tair 或等价生产托管资源。
+5. `scripts/cloud_deployment_monitor.py` 仍是 Google Cloud 版本，阿里云正式路径需要新增 SAE/RDS/OSS/EventBridge/SLS 监控脚本。
+6. 域名、HTTPS、真实 SMTP、SSH 安全治理和生产监控仍是部署配置待办，不是 P0 代码阻断。
 
 ## 8 大块进度总览
 

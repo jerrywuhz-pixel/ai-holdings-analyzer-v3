@@ -9,6 +9,15 @@
 3. 哪些问题可以延后，哪些问题会阻塞编码。
 4. P0 应该按什么顺序拆任务。
 
+## 1.1 最新实现状态（2026-05-20）
+
+编码入口已完成到阿里云轻量服务器第一阶段：
+
+- WebApp、data-service、Postgres/pgvector、Redis、MinIO、GBrain/Hermes、OpenClaw 已以 Docker Compose 单机形态跑通。
+- MiniMax M2.7 已作为 OpenClaw-side 日常文本/意图 live route；GPT-5.5 深研 route 的 OpenAI API key / `openai-codex` bridge 契约已实现，但服务器尚未启用 deep auth。
+- 新增 `production_readiness.py --profile lightweight` 表达第一阶段部署验收；`--profile production` 仍保留为正式切流门禁。
+- 当前 GitHub 同步目标是 `ai-holdings-analyzer-v3-fresh-deploy`，不是本工作目录。
+
 ## 2. 已完成的分层结论
 
 ```mermaid

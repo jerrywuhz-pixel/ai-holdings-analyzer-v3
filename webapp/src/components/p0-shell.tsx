@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { FreshnessPill, StatusPill } from '@/components/p0-ui';
 import { ChromeSnapshot } from '@/lib/p0';
+import type { AppUser } from '@/lib/supabase';
 
 const desktopNav = [
   { href: '/', label: '总览' },
@@ -14,6 +15,7 @@ const desktopNav = [
   { href: '/data', label: '数据与账户' },
   { href: '/rules', label: '交易纪律' },
   { href: '/ops', label: '运行状态' },
+  { href: '/settings', label: '设置' },
 ];
 
 const mobileTabs = [
@@ -31,12 +33,15 @@ function isActive(pathname: string, href: string) {
 
 export default function AppShell({
   chrome,
+  user,
   children,
 }: {
   chrome: ChromeSnapshot;
+  user: AppUser | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   if (pathname.startsWith('/login')) {
@@ -44,6 +49,13 @@ export default function AppShell({
   }
 
   const activeView = chrome.views.find((view) => view.id === chrome.activeViewId) ?? chrome.views[0];
+  const userLabel = user?.name || user?.email || '已登录';
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+    router.refresh();
+  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#381116_0%,#0b0d10_38%,#060708_100%)] text-white">
@@ -68,6 +80,14 @@ export default function AppShell({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {user ? (
+                <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 lg:flex">
+                  <span className="max-w-[180px] truncate">{userLabel}</span>
+                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-slate-300">
+                    {user.provider === 'local' ? '本地' : 'Supabase'}
+                  </span>
+                </div>
+              ) : null}
               <Link
                 href="/confirmations"
                 className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-2.5 py-2 text-xs text-red-100 transition hover:bg-red-500/15 sm:px-3 sm:text-sm"
@@ -78,6 +98,13 @@ export default function AppShell({
                   {chrome.pendingConfirmations}
                 </span>
               </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 transition hover:bg-white/[0.08] sm:text-sm"
+              >
+                退出
+              </button>
             </div>
           </div>
 

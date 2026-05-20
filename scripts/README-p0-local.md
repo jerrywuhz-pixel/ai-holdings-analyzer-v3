@@ -550,6 +550,19 @@ python3 scripts/production_readiness.py --profile local
 
 Local profile downgrades missing production hooks to warnings so local smoke work can continue.
 
+For the single-server Aliyun first stage, use:
+
+```bash
+python3 scripts/production_readiness.py --profile lightweight
+```
+
+Lightweight profile still requires Web origins, artifact/historical storage, and MiniMax light-model routing, but allows local auth, log delivery, fallback FX, and missing deep OpenAI/Codex auth to remain warnings until production cutover.
+On a lightweight server, pass the server env file explicitly:
+
+```bash
+python3 scripts/production_readiness.py --profile lightweight --env-file .env.server
+```
+
 After Cloud Run deployment, run the deployment monitor:
 
 ```bash

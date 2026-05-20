@@ -60,7 +60,7 @@ def init_sentry(
         return False
 
     sentry_env = environment or os.getenv("SENTRY_ENVIRONMENT", "development")
-    sentry_release = release or os.getenv("SENTRY_RELEASE", "2.0.0")
+    sentry_release = release or os.getenv("SENTRY_RELEASE") or os.getenv("APP_VERSION", "3.0.0-p0")
 
     try:
         sentry_sdk.init(

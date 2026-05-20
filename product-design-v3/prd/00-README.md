@@ -32,6 +32,15 @@
 
 编码前应先 review `04-architecture-integration-and-coding-entry.md` 中的共享契约、任务切分和建议确认项。
 
+## 最新实现对齐（2026-05-20）
+
+三份 PRD 的 P0 范围已进入实现和第一阶段部署验证：
+
+1. 持仓核心：Dashboard、持仓工作台、Sell Put、确认中心、数据页和设置页已具备 P0 WebApp 展示能力，且用户可见文案已去除内部工程术语。
+2. 数据/券商/对账：Futu 继续按用户本地 connector + read-only 上传脱敏快照设计；阿里云服务器不直接连接用户本地 OpenD。
+3. 交互/确认/Agent：MiniMax M2.7 已作为日常文本/意图 live route；GPT-5.5 深研 route 已有 OpenAI API key / `openai-codex` bridge 契约，但当前服务器尚未启用 deep auth。
+4. 部署验收：第一阶段使用 `production_readiness.py --profile lightweight`；正式生产切流仍必须通过 `--profile production`。
+
 ## 一致性检查
 
 三份 PRD 已对齐以下边界：

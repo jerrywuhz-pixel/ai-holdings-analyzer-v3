@@ -1,7 +1,18 @@
-# AI 持仓系统 3.0 云端部署 Runbook
+# AI 持仓系统 3.0 Google Cloud 备选部署 Runbook
 
-> 状态：代码与本地验证已完成；当前进入真实云环境准备。  
-> 目标：把 P0 主竖切部署到 Google Cloud Run，并在切流前通过生产配置、健康探针和调度任务检查。
+> 状态：保留为 Google Cloud 备选 / 历史 Runbook。  
+> 当前默认部署路线已切换到阿里云：轻量服务器第一阶段见 `docs/LIGHTWEIGHT_SERVER_DEPLOY.md`，正式生产架构见 `28-aliyun-deployment-plan.md`。  
+> 本文只在后续决定使用 Google Cloud Run 时继续适用。
+
+## 0. 当前路线说明
+
+2026-05-20 后的默认路线：
+
+1. P0 测试和演示：阿里云轻量服务器 + Docker Compose + 本地 Postgres/MinIO/Redis。
+2. 生产化迁移：阿里云 SAE + RDS PostgreSQL + OSS + Tair/Redis + EventBridge/SchedulerX + SLS/ARMS。
+3. Google Cloud Run：仅作为海外部署或备选方案保留。
+
+因此本文中的 `gcloud`、Cloud Run、Cloud Scheduler 和 Cloud Monitoring 阻断项，不再阻塞当前阿里云第一阶段上线。
 
 ## 1. 当前环境检查结论
 

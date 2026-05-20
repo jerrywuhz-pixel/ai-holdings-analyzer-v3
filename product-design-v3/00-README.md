@@ -40,6 +40,7 @@
 | `32-fresh-v3-deployment-plan.md` | 3.0 全新部署方案：空库部署、首账号初始化、本地 P0、阿里云生产化和新代码目录复制计划 |
 | `33-gbrain-runtime-upgrade-plan.md` | GBrain 3.0 可用化方案：当前能力、上游同步、长期记忆边界、本地/阿里云部署与验收标准 |
 | `34-ima-reference-source-integration.md` | IMA 参考资料源集成方案：微信公众号/网页/笔记/知识库作为 OpenClaw 与 Hermes 的研究参考源 |
+| `35-implementation-review-2026-05-20.md` | 最新实现 review：阿里云轻量服务器、MiniMax live、OpenAI/Codex bridge、readiness gate、代码审查和 GitHub 同步边界 |
 | `prd/00-README.md` | PRD 索引：持仓核心、数据/券商/对账、交互/确认/Agent 体验 |
 | `system-analysis/00-README.md` | 系统分析索引：PRD 完成后的编码前架构分析入口 |
 | `system-analysis/04-architecture-integration-and-coding-entry.md` | 三份 PRD 与三份系统分析的架构整合、共享契约、编码任务切分和编码前确认结果 |
@@ -83,6 +84,18 @@
 - P0 不自动下单，Sell Put 允许生成草稿和待确认对象，但所有 broker tools 均为 read-only。
 
 完整确认记录以 `24-pre-development-confirmation-checklist.md` 的 `0.1 / 0.2 / 0.3` 确认记录为准。
+
+## 当前实现快照（2026-05-20）
+
+3.0 已完成 P0 主竖切和阿里云轻量服务器第一阶段部署验证。当前运行形态是：
+
+- 阿里云轻量服务器 / 宝塔面板 / Docker Compose 单机部署，WebApp、data-service、Postgres/pgvector、Redis、MinIO、GBrain/Hermes、OpenClaw 均在服务器内运行。
+- WebApp 已可通过公网 `http://149.129.240.111:3000/login` 进入登录页；域名、HTTPS、真实 SMTP 仍属于下一阶段生产化事项。
+- 本阶段使用本地 Postgres、MinIO 和本地登录兜底；正式生产仍推荐迁移到阿里云 RDS PostgreSQL、OSS、Tair/Redis、SLS/ARMS 或等价托管服务。
+- MiniMax M2.7 已通过统一 `model adapter` 走 Anthropic-compatible endpoint 进入 live 模式，负责日常文本/意图和轻量解释。
+- GPT-5.5 / OpenAI 深研路径已支持 API key 或系统级 `openai-codex` bridge 契约，但当前服务器尚未启用深研 live 授权，因此深研任务仍需要在正式验收前补齐。
+- `production_readiness.py` 已区分 `local`、`lightweight`、`production` 三类 profile；当前服务器以 `lightweight` profile 表达第一阶段可验收边界，不能等同于完整生产切流。
+- GitHub 同步目标以 `ai-holdings-analyzer-v3-fresh-deploy` 目录为准；当前工作目录不是 Git 仓库。
 
 ## 主要外部参考
 

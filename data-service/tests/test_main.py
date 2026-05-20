@@ -11,7 +11,7 @@ def test_health_returns_ok_and_version():
     assert response.status_code == 200, "Health endpoint should return 200"
     data = response.json()
     assert data["status"] == "ok"
-    assert data["version"] == "2.0.0"
+    assert data["version"] == "3.0.0-p0"
     # Phase 8 增强字段
     assert "gateway" in data
     assert "data_sources" in data
@@ -23,6 +23,6 @@ def test_root_returns_service_metadata():
     assert response.status_code == 200, "Root endpoint should return 200"
     data = response.json()
     assert data["service"] == "AI Holdings Data Service"
-    assert data["version"] == "2.0.0"
+    assert data["version"] == "3.0.0-p0"
     assert "docs" in data
     assert "health" in data

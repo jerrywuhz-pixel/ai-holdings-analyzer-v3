@@ -6,6 +6,13 @@ import {
   type P0ApiOverview,
   type P0ApiSnapshot,
 } from '@/lib/p0-api';
+import {
+  ensureUserAccount,
+  listManualPositions,
+  type AccountManualPositionSnapshot,
+  type AccountWorkspaceContext,
+} from '@/lib/account-store';
+import { getCurrentSession } from '@/lib/supabase';
 
 export type DemoState = 'ready' | 'loading' | 'error' | 'empty' | 'degraded';
 
@@ -480,6 +487,261 @@ function withView(workspace: WorkspaceSnapshot, viewId?: string) {
     };
   }
   return next;
+}
+
+function scopeForPortfolioView(view: AccountWorkspaceContext['portfolioViews'][number]) {
+  if (view.slug === 'option-income' || view.viewType === 'options_income') {
+    return 'Sell Put 与期权资金占用';
+  }
+  if (view.slug === 'long-term') {
+    return '股票 / ETF 长期账户';
+  }
+  return 'A 股 / 港股 / 美股 / ETF / 期权';
+}
+
+function applyAccountWorkspace(
+  workspace: WorkspaceSnapshot,
+  account: AccountWorkspaceContext,
+  viewId?: string
+) {
+  const views = account.portfolioViews.length
+    ? account.portfolioViews.map((view) => ({
+        id: view.id,
+        name: view.name,
+        baseCurrency: view.baseCurrency,
+        scope: scopeForPortfolioView(view),
+        sourceCount: view.sourceCount,
+        highImpactChangePending: false,
+      }))
+    : [
+        {
+          id: account.activePortfolioViewId || account.tenantId,
+          name: '全部资产',
+          baseCurrency: account.baseCurrency,
+          scope: 'A 股 / 港股 / 美股 / ETF / 期权',
+          sourceCount: account.assetSources.length,
+        },
+      ];
+  const matchedView =
+    account.portfolioViews.find((view) => view.id === viewId || view.slug === viewId) ??
+    account.portfolioViews.find((view) => view.isDefault) ??
+    account.portfolioViews[0];
+  const activeViewId = matchedView?.id || views[0]?.id || account.activePortfolioViewId;
+
+  workspace.chrome.views = views;
+  workspace.chrome.activeViewId = activeViewId;
+  workspace.holdings.metrics[0] = {
+    label: '资产视图',
+    value: matchedView?.name || views[0]?.name || '全部资产',
+    hint: `${matchedView?.baseCurrency || account.baseCurrency} · ${
+      matchedView ? scopeForPortfolioView(matchedView) : '当前账户空间'
+    }`,
+  };
+  workspace.data.summary[0] = {
+    label: '账户空间',
+    value: account.manualPositionCount ? `${account.manualPositionCount} 条持仓` : '已初始化',
+    hint: `account_id ${account.accountId.slice(0, 8)} · tenant_id ${account.tenantId.slice(0, 8)}`,
+    tone: account.manualPositionCount ? 'positive' : 'warning',
+  };
+  workspace.data.summary[1] = {
+    label: '资产来源',
+    value: String(account.assetSources.length),
+    hint: '券商、手工、买卖消息、截图和语音来源已按账户隔离',
+  };
+  workspace.data.summary[3] = {
+    label: '清单视图',
+    value: `${account.followView?.itemCount ?? 0} / ${account.listView?.itemCount ?? 0}`,
+    hint: '关注清单 / 清仓回溯',
+  };
+}
+
+function hasPortfolioData(live: P0ApiSnapshot) {
+  return Boolean(
+    live.equityPositions.length > 0 ||
+      live.optionPositions.length > 0 ||
+      (live.overview &&
+        ((live.overview.holdingsCount ?? 0) > 0 ||
+          (live.overview.equityCount ?? 0) > 0 ||
+          (live.overview.optionCount ?? 0) > 0 ||
+          Math.abs(live.overview.totalAssetValue ?? 0) > 0 ||
+          Math.abs(live.overview.grossMarketValue ?? 0) > 0))
+  );
+}
+
+function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: AccountWorkspaceContext) {
+  workspace.dashboard.metrics = [
+    { label: '总资产', value: '$0', hint: `当前以 ${account.baseCurrency} 展示，等待录入或同步` },
+    { label: '股票 / ETF', value: '0', hint: '尚未记录持仓' },
+    { label: '期权持仓', value: '0', hint: 'Sell Put 数据会独立展示' },
+    { label: '账户空间', value: '已初始化', hint: `account_id ${account.accountId.slice(0, 8)}` },
+    { label: '资产来源', value: String(account.assetSources.length), hint: '手工、消息、OCR、语音和券商来源已建好' },
+    { label: '待处理', value: '0', hint: '暂无待确认动作' },
+  ];
+  workspace.dashboard.holdingsPreview = [];
+  workspace.dashboard.optionsPreview = [];
+  workspace.dashboard.actions = [
+    {
+      id: 'account-empty-add-position',
+      title: '先录入一条持仓',
+      detail: '可以从数据与账户页手工录入股票 / ETF，系统会按当前账号生成持仓快照。',
+      severity: 'normal',
+      href: '/data',
+    },
+    {
+      id: 'account-empty-connect-futu',
+      title: '稍后连接富途 OpenD',
+      detail: '本地 OpenD 连接只读取持仓与现金，仍然按当前 tenant_id 隔离。',
+      severity: 'normal',
+      href: '/data',
+    },
+  ];
+  workspace.dashboard.riskRadar = [
+    {
+      id: 'account-empty-risk',
+      title: '暂无可分析持仓',
+      detail: '当前账号空间已经创建，录入或同步后才会生成风险雷达。',
+      level: 'low',
+      badge: '等待数据',
+    },
+  ];
+  workspace.holdings.metrics = [
+    { label: '资产视图', value: workspace.holdings.metrics[0]?.value || '全部资产', hint: workspace.holdings.metrics[0]?.hint || account.baseCurrency },
+    { label: '股票 / ETF', value: '0', hint: '没有当前持仓' },
+    { label: '期权持仓', value: '0', hint: '没有当前期权仓位' },
+    { label: '数据状态', value: '等待录入', hint: '暂无券商同步或手工持仓', tone: 'warning' },
+  ];
+  workspace.holdings.equity = [];
+  workspace.holdings.options = [];
+  workspace.holdings.riskRadar = workspace.dashboard.riskRadar;
+  workspace.holdings.sources = account.assetSources.map((source) => ({
+    id: source.id,
+    label: source.sourceName,
+    type: sourceLabel(source.sourceType),
+    priority: source.isActive ? `优先级 ${source.priority}` : '未启用',
+    confidence: source.sourceQuality,
+    freshness: source.lastSeenAt ? formatFreshness(source.lastSeenAt) : '等待数据',
+    lineage: `${source.provider} · ${source.sourceKey}`,
+  }));
+  workspace.sellPut.metrics = [
+    { label: '可用现金', value: '$0', hint: '等待券商或手工资金数据' },
+    { label: '现金担保', value: '$0', hint: '暂无 Sell Put 持仓' },
+    { label: '保证金占用', value: '$0', hint: '暂无期权保证金占用' },
+    { label: '7 天内到期', value: '0', hint: '暂无近到期期权' },
+    { label: '高注意', value: '0', hint: '暂无期权风险项' },
+    { label: '候选池', value: '0', hint: '录入关注清单或同步行情后生成候选' },
+  ];
+  workspace.sellPut.positions = [];
+  workspace.sellPut.candidates = [];
+  workspace.confirmations.items = [];
+  workspace.ops.jobs = [];
+  workspace.ops.deliveries = [];
+  workspace.ops.replayQueue = [];
+}
+
+function sourceLabel(sourceType: string) {
+  if (sourceType === 'manual') return '手工录入';
+  if (sourceType === 'message_trade_input') return '买卖消息';
+  if (sourceType === 'ocr') return '截图识别';
+  if (sourceType === 'voice_asr') return '语音识别';
+  if (sourceType === 'broker_api') return '券商只读连接';
+  return sourceType;
+}
+
+function buildManualP0Snapshot(
+  account: AccountWorkspaceContext,
+  manual: AccountManualPositionSnapshot,
+  baseUrl: string
+): P0ApiSnapshot {
+  const baseCurrency = account.baseCurrency || 'USD';
+  const totalAssetValue = manual.positions.reduce((sum, item) => sum + (item.marketValue ?? 0), 0);
+  const updatedAt = manual.updatedAt || new Date().toISOString();
+
+  return {
+    dataState: {
+      mode: 'live',
+      label: '手工持仓已接入',
+      detail: '当前页面展示的是本账号手工确认录入的持仓数据；金额按录入价格估算，仅供巡检和后续同步前使用。',
+      updatedAt,
+      baseUrl,
+      sourcePath: 'webapp_manual_positions',
+      baseCurrency,
+      fxSource: 'manual_input',
+      usesEstimatedFx: true,
+      valuationDetail: `手工录入数据已按 ${baseCurrency} 页面口径展示；未连接券商前仅供参考。`,
+    },
+    overview: {
+      currency: baseCurrency,
+      baseCurrency,
+      currencies: Array.from(new Set(manual.positions.map((item) => item.currency))),
+      totalAssetValue,
+      cashAvailable: 0,
+      marginUsed: 0,
+      cashSecured: 0,
+      holdingsCount: manual.positions.length,
+      equityCount: manual.positions.length,
+      optionCount: 0,
+      equityMarketValue: totalAssetValue,
+      optionMarketValue: 0,
+      grossMarketValue: totalAssetValue,
+      updatedAt,
+      fxSource: 'manual_input',
+      sourceQuality: 'user_confirmed',
+      usesEstimatedFx: true,
+    },
+    equityPositions: manual.positions.map((position, index) => ({
+      id: position.id || `manual-${position.symbol}-${index}`,
+      symbol: position.symbol,
+      name: position.name || position.symbol,
+      market: position.market,
+      currency: position.currency,
+      baseCurrency,
+      quantity: position.quantity,
+      marketValue: position.marketValue ?? undefined,
+      originalMarketValue: position.marketValue ?? undefined,
+      baseMarketValue: position.marketValue ?? undefined,
+      averageCost: position.averageCost ?? undefined,
+      originalAverageCost: position.averageCost ?? undefined,
+      baseAverageCost: position.averageCost ?? undefined,
+      marketPrice: position.marketPrice ?? undefined,
+      originalMarketPrice: position.marketPrice ?? undefined,
+      baseMarketPrice: position.marketPrice ?? undefined,
+      updatedAt: position.updatedAt,
+      source: '手工录入',
+      fxSource: 'manual_input',
+      sourceQuality: 'user_confirmed',
+    })),
+    optionPositions: [],
+    connections: [
+      {
+        id: 'manual-webapp',
+        provider: '手工录入',
+        accountLabel: '当前账号手工持仓',
+        authStatus: 'connected',
+        permissionScope: '用户确认录入',
+        lastSync: updatedAt,
+        updatedAt,
+        detail: '由 WebApp 手工录入生成，未自动连接券商。',
+      },
+    ],
+    syncEvents: [
+      {
+        id: 'manual-position-refresh',
+        title: '手工持仓已刷新',
+        status: 'success',
+        startedAt: updatedAt,
+        detail: `已记录 ${manual.positions.length} 条手工持仓，并限定在当前账号空间。`,
+      },
+    ],
+    assetSources: account.assetSources.map((source) => ({
+      id: source.id,
+      label: source.sourceName,
+      type: sourceLabel(source.sourceType),
+      priority: source.isActive ? `优先级 ${source.priority}` : '待连接',
+      confidence: source.sourceQuality,
+      freshness: source.lastSeenAt ? formatFreshness(source.lastSeenAt) : source.sourceKey === 'manual-webapp' ? formatFreshness(updatedAt) : '等待数据',
+      lineage: `${source.provider} · ${source.sourceKey}`,
+    })),
+  };
 }
 
 function applyLiveData(workspace: WorkspaceSnapshot, live: P0ApiSnapshot) {
@@ -1167,7 +1429,12 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
     };
   }
 
+  const session = await getCurrentSession();
+  const account = session ? await ensureUserAccount(session.user) : null;
   const workspace = withView(structuredClone(baseWorkspace), options?.viewId);
+  if (account) {
+    applyAccountWorkspace(workspace, account, options?.viewId);
+  }
 
   if (state === 'empty') {
     workspace.dashboard.metrics = workspace.dashboard.metrics.map((metric) =>
@@ -1194,9 +1461,19 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
   let liveData: P0ApiDataState | undefined;
 
   if (state === 'ready' || state === 'degraded') {
-    const live = await fetchP0ApiSnapshot();
-    liveData = live.dataState;
-    applyLiveData(workspace, live);
+    const live = await fetchP0ApiSnapshot({ tenantId: account?.tenantId });
+    let effectiveLive = live;
+    if (account && !hasPortfolioData(live)) {
+      const manual = await listManualPositions(account);
+      if (manual.positions.length > 0) {
+        effectiveLive = buildManualP0Snapshot(account, manual, live.dataState.baseUrl);
+      }
+    }
+    liveData = effectiveLive.dataState;
+    applyLiveData(workspace, effectiveLive);
+    if (account && !hasPortfolioData(effectiveLive)) {
+      applyAccountEmptyWorkspace(workspace, account);
+    }
   }
 
   if (state === 'degraded') {
@@ -1237,7 +1514,13 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
 }
 
 export async function getChromeSnapshot(): Promise<ChromeSnapshot> {
-  return structuredClone(baseWorkspace.chrome);
+  const session = await getCurrentSession();
+  const workspace = structuredClone(baseWorkspace);
+  if (session) {
+    const account = await ensureUserAccount(session.user);
+    applyAccountWorkspace(workspace, account);
+  }
+  return workspace.chrome;
 }
 
 export function findEquityBySymbol(workspace: WorkspaceSnapshot, symbol: string) {

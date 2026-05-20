@@ -3,6 +3,8 @@
 > 目标：面向国内网络环境，把原先 Google Cloud Run 部署假设替换为阿里云优先方案。  
 > 推荐路径：P0 使用阿里云 SAE + ACR + RDS PostgreSQL + OSS + Tair/Redis + EventBridge/SchedulerX + SLS/ARMS，避免自行维护 Kubernetes 集群。
 
+> 2026-05-20 更新：当前已先落地“阿里云轻量服务器 + 宝塔面板 + Docker Compose”的第一阶段部署，用于测试和演示。本文仍是正式生产化目标方案，轻量服务器不是最终 10 万级用户承载架构。
+
 ## 1. 设计原则
 
 1. **国内可访问优先**：服务、对象存储、日志和调度均放在阿里云大陆 Region，减少跨境网络依赖。
@@ -13,6 +15,19 @@
 6. **交易动作仍不自动下单**：部署形态不改变 P0 read-only / draft-only / confirmation-first 原则。
 
 ## 2. 推荐云产品映射
+
+### 2.1 当前第一阶段已落地形态
+
+| 能力 | 当前实现 | 与最终生产方案的关系 |
+| --- | --- | --- |
+| 计算 | 单台阿里云轻量服务器 / Docker Compose | 可用于 P0 测试；正式生产迁到 SAE 或 ECS/ACK 托管形态 |
+| 管理入口 | 宝塔面板 | 仅作为新手部署和临时运维入口；生产应减少面板依赖 |
+| 数据库 | 容器内 Postgres/pgvector | 可保留数据后迁移到 RDS PostgreSQL |
+| 对象存储 | MinIO 容器 | 可保留对象后迁移到 OSS |
+| 缓存 | Redis 容器 | 可迁移到 Tair/Redis |
+| 模型 | MiniMax M2.7 live light route；OpenAI/Codex deep route 未启用 | 生产前补 OpenAI API key 或系统级 `openai-codex` bridge |
+| readiness | `production_readiness.py --profile lightweight` | 只证明第一阶段可用；正式切流仍需 `--profile production` |
+| 域名 / HTTPS / SMTP | 暂未完成 | 正式对外前必须补齐 |
 
 | 当前能力 | Google Cloud 方案 | 阿里云推荐 | 说明 |
 | --- | --- | --- | --- |

@@ -45,12 +45,33 @@ function estimateTokens(text: string): number {
 
 function estimateCost(provider: ModelProviderId, inputTokens: number, outputTokens: number): number {
   const unitPrice =
-    provider === "openai" ? 0.00001 : provider === "minimax" ? 0.000004 : 0.0;
+    provider === "openai" || provider === "openai-codex" ? 0.00001 : provider === "minimax" ? 0.000004 : 0.0;
   return Number(((inputTokens + outputTokens) * unitPrice).toFixed(6));
 }
 
 function resolveOpenAIApiKey(): string {
   return process.env.OPENAI_API_KEY || process.env.GBRAIN_OPENAI_API_KEY || "";
+}
+
+function resolveOpenAICodexAuthProfile(): string {
+  return process.env.OPENAI_CODEX_AUTH_PROFILE || process.env.HERMES_AUTH_PROFILE_ID || process.env.OPENCLAW_AUTH_PROFILE || "";
+}
+
+function resolveOpenAICodexBridgeBaseUrl(): string {
+  return (
+    process.env.OPENAI_CODEX_BRIDGE_BASE_URL ||
+    process.env.HERMES_CODEX_GATEWAY_BASE_URL ||
+    process.env.OPENCLAW_CODEX_GATEWAY_BASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+}
+
+function resolveOpenAICodexBridgeApiKey(): string {
+  return process.env.OPENAI_CODEX_BRIDGE_API_KEY || process.env.HERMES_CODEX_GATEWAY_API_KEY || process.env.OPENCLAW_CODEX_GATEWAY_API_KEY || "";
+}
+
+function hasOpenAICodexAuthBridge(): boolean {
+  return resolveOpenAICodexAuthProfile() !== "" && resolveOpenAICodexBridgeBaseUrl() !== "";
 }
 
 function resolveMiniMaxApiKey(): string {
@@ -63,6 +84,7 @@ function liveModelsEnabled(): boolean {
 
 function hasProviderCredentials(provider: ModelProviderId): boolean {
   if (provider === "openai") return resolveOpenAIApiKey() !== "";
+  if (provider === "openai-codex") return hasOpenAICodexAuthBridge();
   if (provider === "minimax") return resolveMiniMaxApiKey() !== "";
   return false;
 }
@@ -72,11 +94,12 @@ function resolveRouteMode(provider: ModelProviderId): "stub" | "live" {
 }
 
 function resolveLightModel(): string {
-  return process.env.MINIMAX_MODEL || "text-01";
+  return process.env.MINIMAX_MODEL || process.env.HERMES_LIGHT_MODEL || "MiniMax-M2.7";
 }
 
 function resolveDeepModel(): string {
-  return process.env.HERMES_DEEP_MODEL || "gpt-5.5";
+  if (process.env.HERMES_DEEP_MODEL) return process.env.HERMES_DEEP_MODEL;
+  return resolveDeepProvider() === "openai-codex" ? "gpt-5.4" : "gpt-5.5";
 }
 
 function resolveOpenAIBaseUrl(): string {
@@ -85,6 +108,23 @@ function resolveOpenAIBaseUrl(): string {
 
 function resolveMiniMaxBaseUrl(): string {
   return (process.env.MINIMAX_OPENAI_BASE_URL || process.env.MINIMAX_BASE_URL || "https://api.minimax.io/v1").replace(/\/+$/, "");
+}
+
+function resolveMiniMaxApiFormat(): "openai" | "anthropic" {
+  const configured = (process.env.MINIMAX_API_FORMAT || "").toLowerCase();
+  if (configured === "anthropic" || configured === "openai") return configured;
+  return resolveMiniMaxBaseUrl().includes("/anthropic") ? "anthropic" : "openai";
+}
+
+function resolveDeepProvider(): ModelProviderId {
+  const configured = process.env.HERMES_DEEP_PROVIDER || process.env.MODEL_ADAPTER_FALLBACK_PROVIDER;
+  if (configured === "openai" || configured === "openai-codex" || configured === "minimax") {
+    return configured;
+  }
+  if (process.env.MODEL_AUTH_MODE === "openai_codex" || process.env.MODEL_AUTH_MODE === "hermes_auth_profile") {
+    return "openai-codex";
+  }
+  return "openai";
 }
 
 function buildStubText(
@@ -171,9 +211,64 @@ export class OpenAIStubProvider extends BaseStubProvider {
 abstract class HttpChatCompletionProvider extends BaseStubProvider {
   protected abstract apiKey(): string;
   protected abstract baseUrl(): string;
+  protected authProfile(): string {
+    return "";
+  }
+  protected authorizationHeader(): string | null {
+    return this.apiKey() ? `Bearer ${this.apiKey()}` : null;
+  }
+  protected missingCredentialsReason(): string {
+    return "missing_api_key";
+  }
+  protected requestModel(route: ModelRoute): string {
+    return route.model;
+  }
 
   protected endpoint(): string {
     return "/chat/completions";
+  }
+
+  protected requestUrl(route: ModelRoute): string {
+    void route;
+    return `${this.baseUrl()}${this.endpoint()}`;
+  }
+
+  protected requestHeaders(route: ModelRoute): Record<string, string> {
+    void route;
+    const authorization = this.authorizationHeader();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (authorization) {
+      headers.Authorization = authorization;
+    }
+    if (this.authProfile()) {
+      headers["X-Hermes-Auth-Profile"] = this.authProfile();
+    }
+    return headers;
+  }
+
+  protected requestBody(route: ModelRoute, invocation: ModelInvocation): Record<string, unknown> {
+    return {
+      model: this.requestModel(route),
+      messages: this.buildMessages(invocation),
+      temperature: invocation.temperature ?? 0.2,
+    };
+  }
+
+  protected parseResponse(
+    payload: Record<string, unknown>,
+    fallbackInputTokens: number,
+  ): { responseId: string; text: string; inputTokens: number; outputTokens: number } {
+    const choices = payload.choices as Array<{ message?: { content?: string }; text?: string; finish_reason?: string }> | undefined;
+    const usage = payload.usage as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
+    const text = choices?.[0]?.message?.content ?? choices?.[0]?.text ?? "";
+    return {
+      responseId: typeof payload.id === "string" ? payload.id : randomUUID(),
+      text,
+      inputTokens: usage?.prompt_tokens ?? fallbackInputTokens,
+      outputTokens: usage?.completion_tokens ?? estimateTokens(text),
+    };
   }
 
   private buildMessages(invocation: ModelInvocation): ModelMessage[] {
@@ -188,11 +283,14 @@ abstract class HttpChatCompletionProvider extends BaseStubProvider {
     if (route.mode !== "live") {
       return this.generateStub(route, invocation);
     }
-    if (!this.apiKey()) {
-      return this.generateStub(route, invocation, "missing_api_key");
+    if (!this.hasLiveCredentials()) {
+      return this.generateStub(route, invocation, this.missingCredentialsReason());
     }
     if (!liveModelsEnabled()) {
       return this.generateStub(route, invocation, "live_provider_disabled");
+    }
+    if (!this.baseUrl()) {
+      return this.generateStub(route, invocation, "missing_base_url");
     }
 
     const inputTokens = estimateTokens(invocation.prompt) + estimateTokens(invocation.systemPrompt ?? "");
@@ -200,17 +298,10 @@ abstract class HttpChatCompletionProvider extends BaseStubProvider {
     const timeout = setTimeout(() => controller.abort(), route.timeoutMs ?? 60_000);
 
     try {
-      const response = await fetch(`${this.baseUrl()}${this.endpoint()}`, {
+      const response = await fetch(this.requestUrl(route), {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: route.model,
-          messages: this.buildMessages(invocation),
-          temperature: invocation.temperature ?? 0.2,
-        }),
+        headers: this.requestHeaders(route),
+        body: JSON.stringify(this.requestBody(route, invocation)),
         signal: controller.signal,
       });
 
@@ -219,29 +310,23 @@ abstract class HttpChatCompletionProvider extends BaseStubProvider {
         throw new Error(`${this.id} provider HTTP ${response.status}: ${text.slice(0, 500)}`);
       }
 
-      const payload = (await response.json()) as {
-        id?: string;
-        choices?: Array<{ message?: { content?: string }; text?: string; finish_reason?: string }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-      };
-      const text = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? "";
-      if (!text.trim()) {
+      const payload = (await response.json()) as Record<string, unknown>;
+      const parsed = this.parseResponse(payload, inputTokens);
+      if (!parsed.text.trim()) {
         throw new Error(`${this.id} provider returned an empty response`);
       }
 
-      const resolvedInputTokens = payload.usage?.prompt_tokens ?? inputTokens;
-      const outputTokens = payload.usage?.completion_tokens ?? estimateTokens(text);
       return {
-        responseId: payload.id ?? randomUUID(),
+        responseId: parsed.responseId,
         provider: this.id,
         model: route.model,
-        text,
+        text: parsed.text,
         finishReason: "stop",
         stub: false,
         usage: {
-          inputTokens: resolvedInputTokens,
-          outputTokens,
-          estimatedCostUsd: estimateCost(this.id, resolvedInputTokens, outputTokens),
+          inputTokens: parsed.inputTokens,
+          outputTokens: parsed.outputTokens,
+          estimatedCostUsd: estimateCost(this.id, parsed.inputTokens, parsed.outputTokens),
         },
         attemptedRoutes: [`${this.id}:${route.model}`],
       };
@@ -263,6 +348,40 @@ export class OpenAIChatCompletionProvider extends HttpChatCompletionProvider {
   }
 }
 
+export class OpenAICodexBridgeProvider extends HttpChatCompletionProvider {
+  id: ModelProviderId = "openai-codex";
+
+  protected apiKey(): string {
+    return resolveOpenAICodexBridgeApiKey();
+  }
+
+  protected baseUrl(): string {
+    return resolveOpenAICodexBridgeBaseUrl();
+  }
+
+  protected authProfile(): string {
+    return resolveOpenAICodexAuthProfile();
+  }
+
+  protected authorizationHeader(): string | null {
+    return this.apiKey() ? `Bearer ${this.apiKey()}` : null;
+  }
+
+  protected override hasLiveCredentials(): boolean {
+    return hasOpenAICodexAuthBridge();
+  }
+
+  protected missingCredentialsReason(): string {
+    if (!this.authProfile()) return "missing_openai_codex_auth_profile";
+    if (!this.baseUrl()) return "missing_openai_codex_bridge_base_url";
+    return "missing_openai_codex_auth_bridge";
+  }
+
+  protected requestModel(route: ModelRoute): string {
+    return route.model.includes("/") ? route.model : `openai-codex/${route.model}`;
+  }
+}
+
 export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
   id: ModelProviderId = "minimax";
 
@@ -272,6 +391,64 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
 
   protected baseUrl(): string {
     return resolveMiniMaxBaseUrl();
+  }
+
+  protected endpoint(): string {
+    return resolveMiniMaxApiFormat() === "anthropic" ? "/v1/messages" : "/chat/completions";
+  }
+
+  protected requestHeaders(route: ModelRoute): Record<string, string> {
+    if (resolveMiniMaxApiFormat() !== "anthropic") {
+      return super.requestHeaders(route);
+    }
+    void route;
+    return {
+      "Content-Type": "application/json",
+      "X-Api-Key": this.apiKey(),
+    };
+  }
+
+  protected requestBody(route: ModelRoute, invocation: ModelInvocation): Record<string, unknown> {
+    if (resolveMiniMaxApiFormat() !== "anthropic") {
+      return super.requestBody(route, invocation);
+    }
+    const systemMessages = [
+      invocation.systemPrompt,
+      ...(invocation.messages ?? []).filter((message) => message.role === "system").map((message) => message.content),
+    ].filter((message): message is string => Boolean(message));
+    const messages = [
+      ...(invocation.messages ?? []).filter((message) => message.role !== "system"),
+      { role: "user", content: invocation.prompt } satisfies ModelMessage,
+    ];
+
+    return {
+      model: this.requestModel(route),
+      max_tokens: Number(process.env.MINIMAX_MAX_TOKENS || "2048"),
+      system: systemMessages.length > 0 ? systemMessages.join("\n\n") : undefined,
+      messages,
+      temperature: invocation.temperature ?? 1,
+    };
+  }
+
+  protected parseResponse(
+    payload: Record<string, unknown>,
+    fallbackInputTokens: number,
+  ): { responseId: string; text: string; inputTokens: number; outputTokens: number } {
+    if (resolveMiniMaxApiFormat() !== "anthropic") {
+      return super.parseResponse(payload, fallbackInputTokens);
+    }
+    const content = payload.content as Array<{ type?: string; text?: string }> | undefined;
+    const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+    const text = content
+      ?.map((part) => (part.type === "text" || !part.type ? part.text ?? "" : ""))
+      .filter(Boolean)
+      .join("\n") ?? "";
+    return {
+      responseId: typeof payload.id === "string" ? payload.id : randomUUID(),
+      text,
+      inputTokens: usage?.input_tokens ?? fallbackInputTokens,
+      outputTokens: usage?.output_tokens ?? estimateTokens(text),
+    };
   }
 }
 
@@ -345,6 +522,7 @@ export class ModelAdapter {
 export function buildDefaultModelAdapter(): ModelAdapter {
   return new ModelAdapter([
     new OpenAIChatCompletionProvider(),
+    new OpenAICodexBridgeProvider(),
     new MiniMaxChatCompletionProvider(),
     new FallbackTemplateProvider(),
   ]);
@@ -355,8 +533,8 @@ function shouldUseDeepResearchRoute(timeoutMs: number, complexity?: HermesComple
 }
 
 export function createDefaultHermesModelPolicy(timeoutMs: number, complexity?: HermesComplexity): ModelPolicy {
-  const primaryProvider: ModelProviderId = shouldUseDeepResearchRoute(timeoutMs, complexity) ? "openai" : "minimax";
-  const primaryModel = primaryProvider === "openai" ? resolveDeepModel() : resolveLightModel();
+  const primaryProvider: ModelProviderId = shouldUseDeepResearchRoute(timeoutMs, complexity) ? resolveDeepProvider() : "minimax";
+  const primaryModel = primaryProvider === "minimax" ? resolveLightModel() : resolveDeepModel();
 
   return {
     primary: {

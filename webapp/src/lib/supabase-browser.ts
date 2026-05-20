@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '@/lib/auth-cookies';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -11,10 +12,9 @@ function requireSupabaseEnv() {
   return { supabaseUrl, supabaseAnonKey };
 }
 
-export const ACCESS_TOKEN_COOKIE = 'ai_holdings_access_token';
-export const REFRESH_TOKEN_COOKIE = 'ai_holdings_refresh_token';
-
 export function createBrowserClient() {
   const env = requireSupabaseEnv();
   return createClient(env.supabaseUrl, env.supabaseAnonKey);
 }
+
+export { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE };
