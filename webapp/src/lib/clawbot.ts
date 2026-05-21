@@ -3,7 +3,10 @@ import crypto from 'crypto';
 export interface ClawbotQrSession {
   qrcode: string;
   qrcodeUrl: string | null;
+  sessionKey?: string;
   botToken?: string;
+  accountId?: string;
+  userId?: string;
   baseUrl?: string;
   getUpdatesBuf?: string;
   raw: unknown;
@@ -12,8 +15,11 @@ export interface ClawbotQrSession {
 export interface ClawbotQrStatus {
   status: string;
   botToken?: string;
+  accountId?: string;
+  userId?: string;
   baseUrl?: string;
   getUpdatesBuf?: string;
+  alreadyConnected?: boolean;
   raw: unknown;
 }
 
@@ -33,6 +39,7 @@ export interface BindingCandidate {
 const DEFAULT_CLAWBOT_API_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const LOCAL_DEV_PREFIX = 'local-dev:v1:';
 const AES_PREFIX = 'aes-256-gcm:v1:';
+const DEFAULT_ILINK_CLIENT_VERSION = '65536';
 
 function apiBaseUrl() {
   return (process.env.WECHAT_CLAWBOT_API_BASE_URL || DEFAULT_CLAWBOT_API_BASE_URL).replace(/\/+$/, '');
@@ -52,7 +59,13 @@ function clawbotHeaders(botToken?: string) {
     'Content-Type': 'application/json',
     AuthorizationType: 'ilink_bot_token',
     'X-WECHAT-UIN': randomWechatUin(),
+    'iLink-App-ClientVersion': process.env.WECHAT_ILINK_CLIENT_VERSION || DEFAULT_ILINK_CLIENT_VERSION,
   };
+
+  const ilinkAppId = process.env.WECHAT_ILINK_APP_ID;
+  if (ilinkAppId) {
+    headers['iLink-App-Id'] = ilinkAppId;
+  }
 
   if (botToken) {
     headers.Authorization = `Bearer ${botToken}`;
@@ -122,6 +135,7 @@ function qrcodeImageUrl(payload: unknown) {
 
   const content = pickString(payload, ['qrcode_img_content', 'qrcode_image_content', 'qr_code_image_content']);
   if (!content) return null;
+  if (content.startsWith('http://') || content.startsWith('https://')) return content;
   if (content.startsWith('data:image/')) return content;
   return `data:image/png;base64,${content}`;
 }
@@ -129,11 +143,15 @@ function qrcodeImageUrl(payload: unknown) {
 export async function requestClawbotQrSession(): Promise<ClawbotQrSession> {
   const url = new URL('/ilink/bot/get_bot_qrcode', `${apiBaseUrl()}/`);
   url.searchParams.set('bot_type', '3');
+  const sessionKey = crypto.randomUUID();
 
   const response = await fetch(url.toString(), {
-    method: 'GET',
+    method: 'POST',
     cache: 'no-store',
     headers: clawbotHeaders(),
+    body: JSON.stringify({
+      local_token_list: [],
+    }),
   });
   const payload = await parseJsonResponse(response);
   const qrcode = pickString(payload, ['qrcode', 'qr_code', 'qrcode_id']);
@@ -144,7 +162,10 @@ export async function requestClawbotQrSession(): Promise<ClawbotQrSession> {
   return {
     qrcode,
     qrcodeUrl: qrcodeImageUrl(payload),
+    sessionKey,
     botToken: pickString(payload, ['bot_token', 'botToken']),
+    accountId: pickString(payload, ['ilink_bot_id', 'bot_id', 'account_id']),
+    userId: pickString(payload, ['ilink_user_id', 'user_id', 'from_user_id']),
     baseUrl: pickString(payload, ['baseurl', 'base_url', 'baseUrl']),
     getUpdatesBuf: pickString(payload, ['get_updates_buf', 'getUpdatesBuf']),
     raw: payload,
@@ -165,8 +186,11 @@ export async function requestClawbotQrStatus(qrcode: string): Promise<ClawbotQrS
   return {
     status: pickString(payload, ['status', 'state']) || 'unknown',
     botToken: pickString(payload, ['bot_token', 'botToken']),
+    accountId: pickString(payload, ['ilink_bot_id', 'bot_id', 'account_id']),
+    userId: pickString(payload, ['ilink_user_id', 'user_id', 'from_user_id']),
     baseUrl: pickString(payload, ['baseurl', 'base_url', 'baseUrl']),
     getUpdatesBuf: pickString(payload, ['get_updates_buf', 'getUpdatesBuf']),
+    alreadyConnected: pickString(payload, ['status', 'state']) === 'binded_redirect',
     raw: payload,
   };
 }

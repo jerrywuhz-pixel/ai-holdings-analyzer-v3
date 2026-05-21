@@ -484,30 +484,58 @@ def _tenant_live_data(profile: str) -> ProductFeature:
 
 
 def _wechat_claw_binding(profile: str) -> ProductFeature:
+    shared_dependencies = [
+        repo_path_exists(
+            "channel_bindings_schema",
+            [
+                "supabase/migrations/000024_holdings_v3_p0_schema.sql",
+                "supabase/migrations/000029_wechat_clawbot_session_key.sql",
+            ],
+            "channel_bindings schema and WeChat QR session metadata migration exist",
+        ),
+        repo_file_contains(
+            "wechat_message_gateway",
+            "openclaw/gateway/routers/openclaw_gateway.py",
+            ["prefix=\"/api/openclaw\"", "/wechat/messages", "channel_binding_id"],
+            "OpenClaw gateway can resolve and persist channel binding context",
+        ),
+        repo_tree_contains(
+            "webapp_self_service_binding",
+            ["webapp/src"],
+            ["/api/onboarding/wechat/binding", "channel_bindings", "get_bot_qrcode"],
+            "WebApp has self-service QR binding and channel_bindings persistence for WeChat Claw",
+        ),
+    ]
+
+    if profile == "lightweight":
+        return ProductFeature(
+            id="wechat_claw_binding",
+            name="绑定微信 Claw 插件 / 消息路由",
+            description="轻量服务器阶段通过 Tencent OpenClaw Weixin 二维码连接微信 ClawBot，并写入当前 tenant 的 channel_binding。",
+            dependencies=shared_dependencies + [
+                configured_env_as("wechat_clawbot_api", "WECHAT_CLAWBOT_API_BASE_URL", profile=profile),
+                configured_env("ONBOARDING_CREDENTIAL_ENCRYPTION_KEY", profile=profile),
+                configured_env_as(
+                    "openclaw_delivery_mode",
+                    "OPENCLAW_DELIVERY_MODE",
+                    profile=profile,
+                    allowed={"log", "webhook"},
+                ),
+                configured_env("OPENCLAW_SKILL_KEY", profile=profile),
+            ],
+            actions=[
+                "轻量服务器阶段用 WebApp 二维码弹窗完成 ClawBot 授权，并确认 channel_bindings 写入。",
+                "正式消息回写切流前再把 OPENCLAW_DELIVERY_MODE 从 log 切到 webhook 并配置 webhook secret。",
+            ],
+        )
+
     return ProductFeature(
         id="wechat_claw_binding",
         name="绑定微信 Claw 插件 / 消息路由",
         description="用户可在 WebApp 注册初始化阶段绑定微信 ClawBot，OpenClaw 微信消息能回到正确 tenant 与 channel_binding。",
-        dependencies=[
-            repo_path_exists(
-                "channel_bindings_schema",
-                ["supabase/migrations/000024_holdings_v3_p0_schema.sql"],
-                "channel_bindings schema and RLS migration exist",
-            ),
-            repo_file_contains(
-                "wechat_message_gateway",
-                "openclaw/gateway/routers/openclaw_gateway.py",
-                ["prefix=\"/api/openclaw\"", "/wechat/messages", "channel_binding_id"],
-                "OpenClaw gateway can resolve and persist channel binding context",
-            ),
-            repo_tree_contains(
-                "webapp_self_service_binding",
-                ["webapp/src"],
-                ["channel_bindings"],
-                "WebApp has self-service channel_bindings and onboarding surfaces for WeChat Claw",
-            ),
-            configured_env("WECHAT_APP_ID", profile=profile),
-            configured_env("WECHAT_APP_SECRET", profile=profile),
+        dependencies=shared_dependencies + [
+            configured_env_as("wechat_clawbot_api", "WECHAT_CLAWBOT_API_BASE_URL", profile=profile),
+            configured_env("ONBOARDING_CREDENTIAL_ENCRYPTION_KEY", profile=profile),
             configured_env("OPENCLAW_DELIVERY_MODE", profile=profile, expected="webhook"),
             configured_env("OPENCLAW_DELIVERY_WEBHOOK_URL", profile=profile),
             configured_env("OPENCLAW_DELIVERY_WEBHOOK_SECRET", profile=profile),
@@ -515,8 +543,8 @@ def _wechat_claw_binding(profile: str) -> ProductFeature:
             configured_env("OPENCLAW_CRON_SECRET", profile=profile),
         ],
         actions=[
-            "配置 WECHAT_APP_ID/WECHAT_APP_SECRET 与 OpenClaw webhook delivery secret。",
-            "用注册初始化流程完成二维码授权、绑定码验证，再跑真实微信消息进入 tenant 解析的端到端烟测。",
+            "配置 WECHAT_CLAWBOT_API_BASE_URL、ClawBot token 加密密钥与 OpenClaw webhook delivery secret。",
+            "用注册初始化流程完成二维码授权，再跑真实微信消息进入 tenant 解析的端到端烟测。",
         ],
     )
 

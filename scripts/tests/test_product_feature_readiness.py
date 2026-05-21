@@ -178,6 +178,29 @@ def test_wechat_claw_binding_feature_passes_when_env_and_binding_ui_are_ready():
     assert _dependency(feature, "webapp_self_service_binding")["status"] == "pass"
 
 
+def test_wechat_claw_binding_lightweight_uses_clawbot_qr_without_wechat_app_secret():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **LIGHTWEIGHT_ENV,
+        "WECHAT_APP_ID": "",
+        "WECHAT_APP_SECRET": "",
+        "WECHAT_CLAWBOT_API_BASE_URL": "https://ilinkai.weixin.qq.com",
+        "OPENCLAW_DELIVERY_MODE": "log",
+        "OPENCLAW_DELIVERY_WEBHOOK_URL": "",
+        "OPENCLAW_DELIVERY_WEBHOOK_SECRET": "",
+        "OPENCLAW_CRON_SECRET": "",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "wechat_claw_binding")
+    assert feature["status"] == "pass"
+    assert _dependency(feature, "wechat_clawbot_api")["status"] == "pass"
+    assert _dependency(feature, "openclaw_delivery_mode")["status"] == "pass"
+
+
 def test_tenant_live_data_feature_passes_when_webapp_fetch_is_tenant_scoped():
     from scripts.product_feature_readiness import summarize_product_readiness
 

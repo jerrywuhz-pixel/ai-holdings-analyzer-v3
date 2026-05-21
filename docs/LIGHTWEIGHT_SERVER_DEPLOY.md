@@ -135,6 +135,17 @@ SMTP_PASSWORD=你的 SMTP 密码
 SMTP_FROM=AI 持仓分析系统 <no-reply@example.com>
 ```
 
+微信 ClawBot 绑定走 Tencent OpenClaw Weixin 的二维码连接协议，轻量服务器阶段不需要配置微信小程序 `WECHAT_APP_ID/WECHAT_APP_SECRET`。需要启用 ClawBot API 和凭证加密：
+
+```text
+WECHAT_CLAWBOT_API_BASE_URL=https://ilinkai.weixin.qq.com
+ONBOARDING_CREDENTIAL_ENCRYPTION_KEY=32位以上随机字符串
+OPENCLAW_DELIVERY_MODE=log
+OPENCLAW_SKILL_KEY=一串随机字符串
+```
+
+`OPENCLAW_DELIVERY_MODE=log` 可以完成绑定和路由写入验证；正式让系统通过微信回复消息前，再切到 `webhook` 并补齐 `OPENCLAW_DELIVERY_WEBHOOK_URL`、`OPENCLAW_DELIVERY_WEBHOOK_SECRET` 和 `OPENCLAW_CRON_SECRET`。
+
 ### 6. 预检
 
 ```bash
@@ -331,7 +342,7 @@ docker exec ai-holdings-server-postgres-1 psql -U postgres -d ai_holdings -Atc "
 http://你的服务器公网IP:3000
 ```
 
-首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
+首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。注册初始化的微信步骤会弹出扫码登录窗口；扫码确认后，WebApp 会写入 `channel_bindings` 并进入 Futu 连接步骤。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
 
 核心页面：
 
