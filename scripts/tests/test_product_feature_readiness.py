@@ -121,6 +121,26 @@ def test_lightweight_registration_feature_fails_without_local_auth_database():
     assert _dependency(feature, "local_auth_database_url")["status"] == "fail"
 
 
+def test_lightweight_registration_feature_accepts_compose_postgres_env():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **LIGHTWEIGHT_ENV,
+        "DATABASE_URL": "",
+        "WEBAPP_DATABASE_URL": "",
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "strong-postgres-password",
+        "POSTGRES_DB": "ai_holdings",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "webapp_registration_auth")
+    assert feature["status"] == "pass"
+    assert _dependency(feature, "local_auth_database_url")["status"] == "pass"
+
+
 def test_registration_onboarding_feature_passes_when_initialization_flow_exists():
     from scripts.product_feature_readiness import summarize_product_readiness
 

@@ -194,6 +194,30 @@ def all_configured_env(names: Iterable[str], *, profile: str, dependency_name: s
     )
 
 
+def local_auth_database_url(profile: str) -> DependencyResult:
+    direct = any_configured_env(
+        ["WEBAPP_DATABASE_URL", "DATABASE_URL"],
+        profile=profile,
+        dependency_name="local_auth_database_url",
+    )
+    if direct.status == "pass" or profile != "lightweight":
+        return direct
+
+    compose_postgres = all_configured_env(
+        ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"],
+        profile=profile,
+        dependency_name="local_auth_database_url",
+    )
+    if compose_postgres.status == "pass":
+        return DependencyResult(
+            "local_auth_database_url",
+            "env",
+            "pass",
+            "configured via docker-compose DATABASE_URL from POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB",
+        )
+    return direct
+
+
 def openai_deep_model_auth(profile: str) -> DependencyResult:
     if not _is_placeholder(_env("OPENAI_API_KEY")):
         return DependencyResult(
@@ -325,11 +349,7 @@ def _webapp_registration_auth(profile: str) -> ProductFeature:
             configured_env_as("local_auth_mode", "AUTH_MODE", profile=profile, expected="local"),
             configured_env("LOCAL_AUTH_ENABLED", profile=profile, expected="true"),
             configured_env("LOCAL_AUTH_REGISTRATION_ENABLED", profile=profile, expected="true"),
-            any_configured_env(
-                ["WEBAPP_DATABASE_URL", "DATABASE_URL"],
-                profile=profile,
-                dependency_name="local_auth_database_url",
-            ),
+            local_auth_database_url(profile),
             configured_env("AUTH_SESSION_SECRET", profile=profile),
             all_configured_env(
                 ["SMTP_HOST", "SMTP_FROM"],
