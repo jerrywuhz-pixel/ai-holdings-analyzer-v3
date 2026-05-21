@@ -221,6 +221,34 @@ CODEX_BRIDGE_PORT=8091 \
 ./scripts/openai-codex-auth-bridge.sh smoke
 ```
 
+当前轻量服务器采用方案 A：Mac mini 持有 Codex/ChatGPT 授权，阿里云只访问服务器本机
+`127.0.0.1:8091`，这一路径由 Mac mini 主动建立反向 SSH 隧道：
+
+```bash
+ALIYUN_HOST=149.129.240.111 \
+ALIYUN_SSH_PORT=22222 \
+ALIYUN_SSH_KEY="$HOME/.ssh/ai_holdings_aliyun_deploy_20260521" \
+./scripts/install-codex-deep-auth-launchd.sh install
+```
+
+安装后会生成两个 macOS LaunchAgents：
+
+- `ai.holdings.codex-bridge`：启动本机 OpenAI-compatible Codex auth bridge。
+- `ai.holdings.codex-tunnel`：建立 `阿里云 127.0.0.1:8091 -> Mac mini 127.0.0.1:8091` 的反向隧道。
+
+安装脚本会把 bridge 运行所需的最小源码同步到
+`$HOME/.ai-holdings-analyzer-v3/codex-bridge-src`，并把 launchd wrapper 和日志放到
+`$HOME/.ai-holdings-analyzer-v3/codex-deep-auth`。这样可以避开 macOS 对 `Documents`
+目录的后台进程访问限制。
+
+运行状态和端到端 smoke：
+
+```bash
+./scripts/install-codex-deep-auth-launchd.sh status
+./scripts/check-codex-deep-auth.sh status
+./scripts/check-codex-deep-auth.sh smoke
+```
+
 如果需要替代接入，也可以将 `CODEX_BRIDGE_MODE` 切到 `stub` 或 `http`：
 
 - `stub`：只验证云端链路，不调用真实 OpenAI/Codex。
@@ -244,7 +272,7 @@ MODEL_AUTH_MODE=openai_codex
 HERMES_DEEP_PROVIDER=openai-codex
 HERMES_DEEP_MODEL=gpt-5.5
 OPENAI_CODEX_AUTH_PROFILE=system-pro
-OPENAI_CODEX_BRIDGE_BASE_URL=http://mac-mini-lan-ip:8091/v1
+OPENAI_CODEX_BRIDGE_BASE_URL=http://127.0.0.1:8091/v1
 OPENAI_CODEX_BRIDGE_API_KEY=
 ```
 
