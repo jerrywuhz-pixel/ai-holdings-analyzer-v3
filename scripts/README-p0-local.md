@@ -556,13 +556,15 @@ For the single-server Aliyun first stage, use:
 
 ```bash
 python3 scripts/production_readiness.py --profile lightweight
+python3 scripts/product_feature_readiness.py --profile lightweight
 ```
 
-Lightweight profile still requires Web origins, artifact/historical storage, and MiniMax light-model routing, but allows local auth, log delivery, fallback FX, and missing deep OpenAI/Codex auth to remain warnings until production cutover.
+Lightweight profile still requires Web origins, artifact/historical storage, MiniMax light-model routing, and a working local registration path. It allows log delivery, fallback FX, and missing deep OpenAI/Codex auth to remain warnings until production cutover.
 On a lightweight server, pass the server env file explicitly:
 
 ```bash
 python3 scripts/production_readiness.py --profile lightweight --env-file .env.server
+python3 scripts/product_feature_readiness.py --profile lightweight --env-file .env.server
 ```
 
 The legacy Google Cloud Run deployment script remains as a historical fallback, but new 3.0 production work should prefer the Alibaba Cloud plan in `product-design-v3/28-aliyun-deployment-plan.md`. If you intentionally deploy the legacy Cloud Run path, run the deployment monitor:

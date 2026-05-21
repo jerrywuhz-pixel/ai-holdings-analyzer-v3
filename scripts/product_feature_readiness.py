@@ -145,6 +145,17 @@ def configured_env(
     return DependencyResult(name, "env", "pass", f"{name} is configured", required)
 
 
+def configured_env_as(dependency_name: str, name: str, **kwargs: Any) -> DependencyResult:
+    result = configured_env(name, **kwargs)
+    return DependencyResult(
+        dependency_name,
+        result.kind,
+        result.status,
+        result.detail,
+        result.required,
+    )
+
+
 def any_configured_env(names: Iterable[str], *, profile: str, dependency_name: str) -> DependencyResult:
     configured = [name for name in names if not _is_placeholder(_env(name))]
     if configured:
@@ -160,6 +171,26 @@ def any_configured_env(names: Iterable[str], *, profile: str, dependency_name: s
         "env",
         status,
         f"set one of: {', '.join(names)}",
+    )
+
+
+def all_configured_env(names: Iterable[str], *, profile: str, dependency_name: str, required: bool = True) -> DependencyResult:
+    missing = [name for name in names if _is_placeholder(_env(name))]
+    if not missing:
+        return DependencyResult(
+            dependency_name,
+            "env",
+            "pass",
+            f"configured via {', '.join(names)}",
+            required,
+        )
+    status = "warn" if profile == "local" or not required else "fail"
+    return DependencyResult(
+        dependency_name,
+        "env",
+        status,
+        f"set all of: {', '.join(missing)}",
+        required,
     )
 
 
@@ -267,31 +298,62 @@ def repo_tree_contains(
 
 
 def _webapp_registration_auth(profile: str) -> ProductFeature:
+    shared_dependencies = [
+        repo_file_contains(
+            "webapp_login_ui",
+            "webapp/src/app/login/LoginForm.tsx",
+            ["/api/auth/login"],
+            "WebApp login form calls the server-side login API",
+        ),
+        repo_file_contains(
+            "webapp_signup_ui",
+            "webapp/src/app/login/LoginForm.tsx",
+            ["/api/auth/register"],
+            "WebApp login form exposes the server-side sign-up flow",
+        ),
+        repo_path_exists(
+            "tenant_bootstrap_triggers",
+            [
+                "supabase/migrations/000006_auth_sync_trigger.sql",
+                "supabase/migrations/000024_holdings_v3_p0_schema.sql",
+            ],
+            "Supabase auth sync and tenant account bootstrap migrations exist",
+        ),
+    ]
+    if profile == "lightweight":
+        auth_dependencies = [
+            configured_env_as("local_auth_mode", "AUTH_MODE", profile=profile, expected="local"),
+            configured_env("LOCAL_AUTH_ENABLED", profile=profile, expected="true"),
+            configured_env("LOCAL_AUTH_REGISTRATION_ENABLED", profile=profile, expected="true"),
+            any_configured_env(
+                ["WEBAPP_DATABASE_URL", "DATABASE_URL"],
+                profile=profile,
+                dependency_name="local_auth_database_url",
+            ),
+            configured_env("AUTH_SESSION_SECRET", profile=profile),
+            all_configured_env(
+                ["SMTP_HOST", "SMTP_FROM"],
+                profile=profile,
+                dependency_name="smtp_verification_delivery",
+            ),
+            configured_env("WEBAPP_BASE_URL", profile=profile),
+        ]
+        return ProductFeature(
+            id="webapp_registration_auth",
+            name="WebApp 注册 / 登录 / tenant 初始化",
+            description="轻量服务器阶段使用本地 Auth 完成 WebApp 邮箱注册、验证码验证、登录与 tenant 初始化。",
+            dependencies=shared_dependencies + auth_dependencies,
+            actions=[
+                "轻量服务器使用 AUTH_MODE=local、LOCAL_AUTH_REGISTRATION_ENABLED=true 和数据库连接完成第一阶段注册验收。",
+                "上线前用真实邮箱完成注册、登录、onboarding tenant bootstrap 的烟测；正式切流仍需切换到 Supabase/Auth 或等价生产 Auth。",
+            ],
+        )
+
     return ProductFeature(
         id="webapp_registration_auth",
         name="WebApp 注册 / 登录 / tenant 初始化",
         description="用户可以通过 WebApp 邮箱密码注册或登录，并在注册初始化阶段确保 users 与 tenant_accounts 就绪。",
-        dependencies=[
-            repo_file_contains(
-                "webapp_login_ui",
-                "webapp/src/app/login/LoginForm.tsx",
-                ["/api/auth/login"],
-                "WebApp login form calls the server-side login API",
-            ),
-            repo_file_contains(
-                "webapp_signup_ui",
-                "webapp/src/app/login/LoginForm.tsx",
-                ["/api/auth/register"],
-                "WebApp login form exposes the server-side sign-up flow",
-            ),
-            repo_path_exists(
-                "tenant_bootstrap_triggers",
-                [
-                    "supabase/migrations/000006_auth_sync_trigger.sql",
-                    "supabase/migrations/000024_holdings_v3_p0_schema.sql",
-                ],
-                "Supabase auth sync and tenant account bootstrap migrations exist",
-            ),
+        dependencies=shared_dependencies + [
             configured_env("NEXT_PUBLIC_SUPABASE_URL", profile=profile),
             configured_env("NEXT_PUBLIC_SUPABASE_ANON_KEY", profile=profile),
             configured_env("SUPABASE_URL", profile=profile),
@@ -601,7 +663,7 @@ def summarize_product_readiness(*, profile: str) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check 3.0 product feature dependency readiness.")
-    parser.add_argument("--profile", choices=["local", "production"], default="production")
+    parser.add_argument("--profile", choices=["local", "lightweight", "production"], default="production")
     parser.add_argument("--env-file", default=str(ENV_FILE))
     parser.add_argument("--output", default="")
     return parser.parse_args()

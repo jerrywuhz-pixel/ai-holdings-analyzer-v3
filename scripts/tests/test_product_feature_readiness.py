@@ -52,6 +52,25 @@ PRODUCT_ENV = {
 }
 
 
+LIGHTWEIGHT_ENV = {
+    **PRODUCT_ENV,
+    "NEXT_PUBLIC_SUPABASE_URL": "",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "",
+    "SUPABASE_URL": "",
+    "SUPABASE_ANON_KEY": "",
+    "SUPABASE_SERVICE_ROLE_KEY": "",
+    "SUPABASE_JWT_SECRET": "",
+    "AUTH_MODE": "local",
+    "LOCAL_AUTH_ENABLED": "true",
+    "LOCAL_AUTH_REGISTRATION_ENABLED": "true",
+    "DATABASE_URL": "postgresql://app:password@postgres:5432/ai_holdings",
+    "WEBAPP_DATABASE_URL": "",
+    "AUTH_SESSION_SECRET": "local-session-secret",
+    "SMTP_HOST": "smtp.mailprovider.cn",
+    "SMTP_FROM": "no-reply@ai-holdings.cn",
+}
+
+
 def _feature(summary, feature_id):
     return next(feature for feature in summary["features"] if feature["id"] == feature_id)
 
@@ -70,6 +89,36 @@ def test_webapp_registration_feature_passes_when_signup_and_supabase_env_are_rea
     assert feature["status"] == "pass"
     assert _dependency(feature, "webapp_signup_ui")["status"] == "pass"
     assert _dependency(feature, "tenant_bootstrap_triggers")["status"] == "pass"
+
+
+def test_lightweight_registration_feature_passes_with_local_auth_and_smtp():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    with patch.dict(os.environ, LIGHTWEIGHT_ENV, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "webapp_registration_auth")
+    assert feature["status"] == "pass"
+    assert _dependency(feature, "local_auth_mode")["status"] == "pass"
+    assert _dependency(feature, "local_auth_database_url")["status"] == "pass"
+    assert _dependency(feature, "smtp_verification_delivery")["status"] == "pass"
+
+
+def test_lightweight_registration_feature_fails_without_local_auth_database():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **LIGHTWEIGHT_ENV,
+        "DATABASE_URL": "",
+        "WEBAPP_DATABASE_URL": "",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "webapp_registration_auth")
+    assert feature["status"] == "fail"
+    assert _dependency(feature, "local_auth_database_url")["status"] == "fail"
 
 
 def test_registration_onboarding_feature_passes_when_initialization_flow_exists():

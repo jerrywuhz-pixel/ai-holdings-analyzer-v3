@@ -317,6 +317,7 @@ curl -I http://127.0.0.1:3000
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8080/health
 python3 scripts/production_readiness.py --profile lightweight --env-file .env.server
+python3 scripts/product_feature_readiness.py --profile lightweight --env-file .env.server
 chmod +x scripts/verify-foundation-runtime.sh
 ./scripts/verify-foundation-runtime.sh
 chmod +x scripts/verify-openclaw-foundation.sh
@@ -330,7 +331,7 @@ docker exec ai-holdings-server-postgres-1 psql -U postgres -d ai_holdings -Atc "
 http://你的服务器公网IP:3000
 ```
 
-首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；未配置 SMTP 时验证码可从 WebApp 容器日志查看。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
+首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
 
 核心页面：
 
