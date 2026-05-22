@@ -212,6 +212,17 @@ def test_tenant_live_data_feature_passes_when_webapp_fetch_is_tenant_scoped():
     assert _dependency(feature, "tenant_scoped_fetch")["status"] == "pass"
 
 
+def test_stock_option_analysis_includes_ftshare_market_data_skill():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    with patch.dict(os.environ, PRODUCT_ENV, clear=True):
+        summary = summarize_product_readiness(profile="production")
+
+    feature = _feature(summary, "stock_option_query_analysis")
+    assert _dependency(feature, "ftshare_market_data_adapter")["status"] == "pass"
+    assert _dependency(feature, "ftshare_market_data_skill")["status"] == "pass"
+
+
 def test_ai_analysis_accepts_system_codex_bridge_without_openai_api_key():
     from scripts.product_feature_readiness import summarize_product_readiness
 

@@ -146,6 +146,19 @@ OPENCLAW_SKILL_KEY=一串随机字符串
 
 `OPENCLAW_DELIVERY_MODE=log` 可以完成绑定和路由写入验证；正式让系统通过微信回复消息前，再切到 `webhook` 并补齐 `OPENCLAW_DELIVERY_WEBHOOK_URL`、`OPENCLAW_DELIVERY_WEBHOOK_SECRET` 和 `OPENCLAW_CRON_SECRET`。
 
+FTShare 行情源通过 ClawHub/OpenClaw skill 接入，已安装到 `openclaw/skills/ftshare-market-data`。轻量服务器的 data-service 会通过只读挂载读取该 skill，默认路径如下：
+
+```text
+FTSHARE_MARKET_DATA_SKILL_DIR=/app/skills/ftshare-market-data
+FTSHARE_MARKET_DATA_TIMEOUT_SECONDS=10
+```
+
+验证 A 股兜底行情源：
+
+```bash
+curl "http://127.0.0.1:8000/api/quote/SH600519?source=ftshare"
+```
+
 ### 6. 预检
 
 ```bash

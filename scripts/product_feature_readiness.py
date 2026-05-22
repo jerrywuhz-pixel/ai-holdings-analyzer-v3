@@ -612,6 +612,17 @@ def _stock_and_option_analysis(profile: str) -> ProductFeature:
                 "Data service exposes Sell Put analysis endpoints",
             ),
             configured_env("TUSHARE_TOKEN", profile=profile),
+            repo_file_contains(
+                "ftshare_market_data_adapter",
+                "data-service/src/adapters/ftshare.py",
+                ["FtShareMarketDataAdapter", "stock-security-info"],
+                "Data service wraps the ClawHub ftshare-market-data skill",
+            ),
+            repo_path_exists(
+                "ftshare_market_data_skill",
+                ["openclaw/skills/ftshare-market-data/run.py"],
+                "ClawHub ftshare-market-data skill is installed under OpenClaw skills",
+            ),
             any_configured_env(
                 ["FX_RATES_JSON", "FX_RATE_ENDPOINT"],
                 profile=profile,
@@ -621,7 +632,7 @@ def _stock_and_option_analysis(profile: str) -> ProductFeature:
             configured_env("BROKER_SNAPSHOT_MAX_STALENESS_SECONDS", profile=profile, required=False),
         ],
         actions=[
-            "生产环境补齐 Tushare / 长桥 / 腾讯财经数据源策略，明确 A 股、港股、美股兜底顺序。",
+            "生产环境补齐 Tushare / FTShare / 长桥 / 腾讯财经数据源策略，明确 A 股、港股、美股兜底顺序。",
             "Sell Put 分析必须依赖新鲜期权链和保证金快照，过期时只给 observation，不给 actionable 建议。",
         ],
     )

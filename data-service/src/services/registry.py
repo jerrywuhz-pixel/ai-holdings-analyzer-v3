@@ -1,13 +1,14 @@
 """
 数据源注册与健康检测服务
 
-统一管理多个行情数据源（Yahoo Finance / Tushare / AkShare），
+统一管理多个行情数据源（Yahoo Finance / Tushare / FTShare / AkShare），
 实现智能路由、Redis 缓存集成和健康检查。
 """
 
 import asyncio
 from typing import Any, Dict, List, Optional
 
+from adapters.ftshare import FtShareMarketDataAdapter
 from adapters.yahoo import YahooFinanceAdapter
 from adapters.tushare import TushareAdapter
 from adapters.akshare import AkShareAdapter
@@ -24,7 +25,7 @@ class DataSourceRegistry:
     """
 
     # 各市场的默认数据源优先级（越靠前越优先）
-    _CN_PRIORITY = ["tushare", "yahoo", "akshare"]
+    _CN_PRIORITY = ["tushare", "ftshare", "yahoo", "akshare"]
     _HK_PRIORITY = ["longbridge", "yahoo", "tushare", "akshare"]
     _US_PRIORITY = ["yahoo", "longbridge", "tushare", "akshare"]
 
@@ -32,6 +33,7 @@ class DataSourceRegistry:
         self._adapters = {
             "yahoo": YahooFinanceAdapter(),
             "tushare": TushareAdapter(),
+            "ftshare": FtShareMarketDataAdapter(),
             "akshare": AkShareAdapter(),
             "longbridge": LongbridgeAdapter(),
         }
@@ -70,7 +72,7 @@ class DataSourceRegistry:
 
         Args:
             symbol: 业务层股票代码，如 "SH600519"、"AAPL"
-            prefer: 强制指定数据源（"yahoo" / "tushare" / "akshare" / "longbridge"），可选
+            prefer: 强制指定数据源（"yahoo" / "tushare" / "ftshare" / "akshare" / "longbridge"），可选
 
         Returns:
             标准化行情字典（可能携带 source_fallback / cached / stale 字段）
@@ -213,6 +215,7 @@ class DataSourceRegistry:
         checks = [
             _check_one("yahoo", "AAPL"),
             _check_one("tushare", "SH600519"),
+            _check_one("ftshare", "SH600519"),
             _check_one("akshare", "SH600519"),
             _check_one("longbridge", "HK00700"),
         ]

@@ -83,6 +83,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      FTSHARE_MARKET_DATA_SKILL_DIR: ${FTSHARE_MARKET_DATA_SKILL_DIR:-/app/skills/ftshare-market-data}
+      FTSHARE_MARKET_DATA_TIMEOUT_SECONDS: ${FTSHARE_MARKET_DATA_TIMEOUT_SECONDS:-10}
       OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-minio}
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
@@ -123,6 +125,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./data-service/src:/app/src:ro
+      - ./openclaw/skills/ftshare-market-data:/app/skills/ftshare-market-data:ro
       - historical_cache:/app/.historical-cache
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 

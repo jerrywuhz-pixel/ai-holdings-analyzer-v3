@@ -96,6 +96,8 @@ services:
       FX_RATES_JSON: ${FX_RATES_JSON:-}
       FX_RATE_ENDPOINT: ${FX_RATE_ENDPOINT:-}
       FX_RATE_API_KEY: ${FX_RATE_API_KEY:-}
+      FTSHARE_MARKET_DATA_SKILL_DIR: ${FTSHARE_MARKET_DATA_SKILL_DIR:-/app/skills/ftshare-market-data}
+      FTSHARE_MARKET_DATA_TIMEOUT_SECONDS: ${FTSHARE_MARKET_DATA_TIMEOUT_SECONDS:-10}
       HERMES_WORKER_MODE: ${HERMES_WORKER_MODE:-stub}
       FUTU_CONNECTOR_MODE: ${FUTU_CONNECTOR_MODE:-local_mock}
       FUTU_CONNECTOR_BASE_URL: ${FUTU_CONNECTOR_BASE_URL:-http://host.docker.internal:8765}
@@ -119,6 +121,7 @@ services:
       retries: 5
       start_period: 20s
     volumes:
+      - ./openclaw/skills/ftshare-market-data:/app/skills/ftshare-market-data:ro
       - historical_cache:/app/.historical-cache
 
   gbrain:

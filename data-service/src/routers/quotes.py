@@ -39,6 +39,7 @@ class SearchResponse(BaseModel):
 class HealthResponse(BaseModel):
     yahoo: bool
     tushare: bool
+    ftshare: bool
     akshare: bool
     longbridge: bool
 
@@ -95,7 +96,7 @@ async def get_quote_history(
 @router.get("/quote/{symbol}")
 async def get_quote(
     symbol: str,
-    source: Optional[str] = Query(None, description="Preferred data source: yahoo / tushare / akshare / longbridge"),
+    source: Optional[str] = Query(None, description="Preferred data source: yahoo / tushare / ftshare / akshare / longbridge"),
 ) -> dict[str, Any]:
     """
     获取单只股票实时行情。

@@ -147,6 +147,7 @@ ssh user@server "cd /opt/ai-holdings && docker-compose -f docker-compose.yml up 
 | `OPENAI_API_KEY`          | OpenAI API 密钥          | —            |
 | `YAHOO_FINANCE_ENABLED`   | 启用 Yahoo Finance 数据源 | `true`       |
 | `TUSHARE_TOKEN`           | Tushare Pro API Token    | —            |
+| `FTSHARE_MARKET_DATA_SKILL_DIR` | ClawHub `ftshare-market-data` skill 路径 | `/app/skills/ftshare-market-data` |
 | `AKSHARE_ENABLED`         | 启用 AkShare 备用数据源   | `false`      |
 | `DATA_SERVICE_PORT`       | 本地服务端口             | `8000`       |
 | `WEBAPP_PORT`             | WebApp 本地端口          | `3000`       |
@@ -170,6 +171,8 @@ ssh user@server "cd /opt/ai-holdings && docker-compose -f docker-compose.yml up 
 1. 访问 [Tushare Pro](https://tushare.pro) 注册账号
 2. 进入「个人主页」→「接口 TOKEN」
 3. 复制 Token 并填入 `.env` 的 `TUSHARE_TOKEN`
+
+FTShare 市场数据作为 ClawHub/OpenClaw skill 安装在 `openclaw/skills/ftshare-market-data`。Docker Compose 会把它只读挂载到 data-service 的 `/app/skills/ftshare-market-data`，用于 A 股 `source=ftshare` 查询和 Tushare 失败后的 CN 行情兜底。
 
 ### Yahoo Finance（美股/港股/基金）
 
