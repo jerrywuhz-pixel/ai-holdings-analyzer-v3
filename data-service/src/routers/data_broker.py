@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from adapters.futu import (
     ConnectorModeRequest,
@@ -30,7 +30,12 @@ from services.broker_sync import (
     create_supabase_broker_sync_repository_from_env,
     _summarize_account_snapshot,
 )
-from services.sell_put import SellPutAnalysisRequest, SellPutAnalysisService
+from services.sell_put import (
+    SellPutAnalysisRequest,
+    SellPutAnalysisService,
+    default_broker_snapshot_staleness_seconds,
+    default_sell_put_market_staleness_seconds,
+)
 from services.tenant_auth import ensure_tenant_match, get_authenticated_tenant_id_if_required
 
 router = APIRouter(tags=["data-broker"])
@@ -55,8 +60,8 @@ class FutuSellPutAnalyzeRequest(BaseModel):
     max_days_to_expiry: Optional[int] = 60
     connector_mode: ConnectorModeRequest = "auto"
     allow_mock_fallback: bool = False
-    max_market_staleness_seconds: int = 60
-    max_broker_staleness_seconds: int = 300
+    max_market_staleness_seconds: int = Field(default_factory=default_sell_put_market_staleness_seconds)
+    max_broker_staleness_seconds: int = Field(default_factory=default_broker_snapshot_staleness_seconds)
 
 
 class ConnectorPollRequest(BaseModel):

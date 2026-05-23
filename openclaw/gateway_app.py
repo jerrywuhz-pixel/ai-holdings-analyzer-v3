@@ -20,19 +20,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from openclaw.gateway.confirmation_center import (
     ConfirmationCenterService,
     InMemoryConfirmationRepository,
+    PostgresConfirmationRepository,
     SupabaseConfirmationRepository,
 )
 from openclaw.gateway.confirmation_dispatcher import (
     ConfirmationPostDecisionDispatcher,
     InMemoryPostConfirmationTaskRepository,
+    PostgresPostConfirmationTaskRepository,
     SupabasePostConfirmationTaskRepository,
 )
 from openclaw.gateway.heartbeat_reporter import HeartbeatReporter
 from openclaw.gateway.middleware import GatewayDataMiddleware
 from openclaw.gateway.outbox import (
     DeliveryOutboxService,
-    InMemoryOutboxRepository,
-    SupabaseOutboxRepository,
+    create_outbox_repository_from_env,
 )
 from openclaw.gateway.routers import miniprogram, openclaw_gateway, wechat_auth
 from openclaw.gateway.runtime_status import (
@@ -108,13 +109,21 @@ async def lifespan(app: FastAPI):
     )
     app.state.webapp_base_url = os.getenv("WEBAPP_BASE_URL", "http://localhost:3000")
 
-    if app.state.supabase is not None:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    repository_mode = os.getenv("OPENCLAW_GATEWAY_REPOSITORY", "postgres").strip().lower()
+    use_postgres_repository = bool(database_url and repository_mode in {"postgres", "direct_postgres", "auto"})
+
+    if use_postgres_repository:
+        confirmation_repository = PostgresConfirmationRepository(database_url)
+        outbox_repository = create_outbox_repository_from_env(app.state.supabase)
+        post_confirmation_repository = PostgresPostConfirmationTaskRepository(database_url)
+    elif app.state.supabase is not None:
         confirmation_repository = SupabaseConfirmationRepository(app.state.supabase)
-        outbox_repository = SupabaseOutboxRepository(app.state.supabase)
+        outbox_repository = create_outbox_repository_from_env(app.state.supabase)
         post_confirmation_repository = SupabasePostConfirmationTaskRepository(app.state.supabase)
     else:
         confirmation_repository = InMemoryConfirmationRepository()
-        outbox_repository = InMemoryOutboxRepository()
+        outbox_repository = create_outbox_repository_from_env()
         post_confirmation_repository = InMemoryPostConfirmationTaskRepository()
 
     app.state.post_confirmation_task_repository = post_confirmation_repository

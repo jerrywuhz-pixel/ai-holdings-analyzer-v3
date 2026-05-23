@@ -544,6 +544,29 @@ def _wechat_claw_binding(profile: str) -> ProductFeature:
             ["/api/onboarding/wechat/binding", "channel_bindings", "get_bot_qrcode"],
             "WebApp has self-service QR binding and channel_bindings persistence for WeChat Claw",
         ),
+        repo_path_exists(
+            "webapp_delivery_webhook",
+            ["webapp/src/app/api/openclaw/delivery/wechat/route.ts"],
+            "WebApp exposes the signed OpenClaw delivery webhook for WeChat replies",
+        ),
+        repo_file_contains(
+            "clawbot_sendmessage_adapter",
+            "webapp/src/lib/clawbot.ts",
+            ["sendClawbotTextMessage", "sendmessage", "context_token"],
+            "WebApp can send text replies through Tencent iLink sendmessage with context_token",
+        ),
+        repo_file_contains(
+            "openclaw_delivery_worker_service",
+            "docker-compose.server.yml",
+            ["openclaw-outbox-worker", "openclaw.gateway.outbox_worker"],
+            "Lightweight compose runs the OpenClaw outbox delivery worker",
+        ),
+        repo_file_contains(
+            "post_confirmation_worker_service",
+            "docker-compose.server.yml",
+            ["openclaw-post-confirmation-worker", "openclaw.gateway.post_confirmation_worker"],
+            "Lightweight compose runs post-confirmation job processing",
+        ),
     ]
 
     if profile == "lightweight":
@@ -558,13 +581,15 @@ def _wechat_claw_binding(profile: str) -> ProductFeature:
                     "openclaw_delivery_mode",
                     "OPENCLAW_DELIVERY_MODE",
                     profile=profile,
-                    allowed={"log", "webhook"},
+                    expected="webhook",
                 ),
+                configured_http_url("OPENCLAW_DELIVERY_WEBHOOK_URL", profile=profile),
+                configured_env("OPENCLAW_DELIVERY_WEBHOOK_SECRET", profile=profile),
                 configured_env("OPENCLAW_SKILL_KEY", profile=profile),
             ],
             actions=[
                 "轻量服务器阶段用 WebApp 二维码弹窗完成 ClawBot 授权，并确认 channel_bindings 写入。",
-                "正式消息回写切流前再把 OPENCLAW_DELIVERY_MODE 从 log 切到 webhook 并配置 webhook secret。",
+                "正式消息回写使用 WebApp /api/openclaw/delivery/wechat 适配 Tencent iLink sendmessage。",
             ],
         )
 

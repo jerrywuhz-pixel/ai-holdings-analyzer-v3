@@ -29,6 +29,11 @@ export interface ClawbotUpdates {
   raw: unknown;
 }
 
+export interface ClawbotSendMessageResult {
+  providerMessageId?: string;
+  raw: unknown;
+}
+
 export interface BindingCandidate {
   fromUserId: string | null;
   toUserId: string | null;
@@ -40,6 +45,8 @@ const DEFAULT_CLAWBOT_API_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const LOCAL_DEV_PREFIX = 'local-dev:v1:';
 const AES_PREFIX = 'aes-256-gcm:v1:';
 const DEFAULT_ILINK_CLIENT_VERSION = '65536';
+const DEFAULT_CHANNEL_VERSION = '1.0.2';
+const DEFAULT_BOT_AGENT = 'openclaw';
 
 function apiBaseUrl() {
   return (process.env.WECHAT_CLAWBOT_API_BASE_URL || DEFAULT_CLAWBOT_API_BASE_URL).replace(/\/+$/, '');
@@ -72,6 +79,13 @@ function clawbotHeaders(botToken?: string) {
   }
 
   return headers;
+}
+
+function clawbotBaseInfo() {
+  return {
+    channel_version: process.env.WECHAT_CLAWBOT_CHANNEL_VERSION || DEFAULT_CHANNEL_VERSION,
+    bot_agent: process.env.WECHAT_CLAWBOT_BOT_AGENT || DEFAULT_BOT_AGENT,
+  };
 }
 
 async function parseJsonResponse(response: Response) {
@@ -207,7 +221,7 @@ export async function requestClawbotUpdates(
     headers: clawbotHeaders(botToken),
     body: JSON.stringify({
       get_updates_buf: getUpdatesBuf || '',
-      base_info: { channel_version: '1.0.2' },
+      base_info: clawbotBaseInfo(),
     }),
   });
   const payload = await parseJsonResponse(response);
@@ -216,6 +230,52 @@ export async function requestClawbotUpdates(
     messages: pickArray(payload, ['msgs', 'messages', 'updates']),
     getUpdatesBuf: pickString(payload, ['get_updates_buf', 'getUpdatesBuf']),
     raw: payload,
+  };
+}
+
+export async function sendClawbotTextMessage({
+  baseUrl,
+  botToken,
+  toUserId,
+  contextToken,
+  text,
+}: {
+  baseUrl?: string | null;
+  botToken: string;
+  toUserId: string;
+  contextToken: string;
+  text: string;
+}): Promise<ClawbotSendMessageResult> {
+  const url = new URL('/ilink/bot/sendmessage', `${normalizeBaseUrl(baseUrl)}/`);
+  const payload = {
+    msg: {
+      to_user_id: toUserId,
+      message_type: 2,
+      message_state: 2,
+      context_token: contextToken,
+      item_list: [
+        {
+          type: 1,
+          text_item: {
+            text,
+          },
+        },
+      ],
+    },
+    base_info: clawbotBaseInfo(),
+  };
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    cache: 'no-store',
+    headers: clawbotHeaders(botToken),
+    body: JSON.stringify(payload),
+  });
+  const result = await parseJsonResponse(response);
+
+  return {
+    providerMessageId: pickString(result, ['provider_message_id', 'message_id', 'msg_id']),
+    raw: result,
   };
 }
 

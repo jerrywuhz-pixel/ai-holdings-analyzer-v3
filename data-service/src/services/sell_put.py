@@ -4,6 +4,7 @@ from __future__ import annotations
 Sell Put data-query / scoring input service.
 """
 
+import os
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -24,6 +25,22 @@ from services.sell_put_rules import (
     resolve_thresholds,
 )
 from adapters.futu import FutuAccountSnapshot
+
+
+def env_positive_int(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, "").strip())
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def default_sell_put_market_staleness_seconds() -> int:
+    return env_positive_int("SELL_PUT_FRESHNESS_SECONDS", 60)
+
+
+def default_broker_snapshot_staleness_seconds() -> int:
+    return env_positive_int("BROKER_SNAPSHOT_MAX_STALENESS_SECONDS", 300)
 
 
 class SellPutQuoteInput(BaseModel):
@@ -66,8 +83,8 @@ class SellPutAnalysisRequest(BaseModel):
     quote: SellPutQuoteInput
     option_candidates: list[SellPutOptionCandidateInput]
     account_snapshot: Optional[FutuAccountSnapshot] = None
-    max_market_staleness_seconds: int = 60
-    max_broker_staleness_seconds: int = 300
+    max_market_staleness_seconds: int = Field(default_factory=default_sell_put_market_staleness_seconds)
+    max_broker_staleness_seconds: int = Field(default_factory=default_broker_snapshot_staleness_seconds)
     market_state: MarketState = "normal"
     assignment_intent: AssignmentIntent = "avoid_assignment"
     threshold_overrides: Optional[SellPutThresholdOverrides] = None

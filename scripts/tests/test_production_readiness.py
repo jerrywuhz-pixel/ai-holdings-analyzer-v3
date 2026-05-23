@@ -36,6 +36,8 @@ LIGHTWEIGHT_ENV = {
     "FX_RATES_SOURCE": "fallback_estimate",
     "CORS_ALLOWED_ORIGINS": "http://149.129.240.111:3000",
     "WEBAPP_BASE_URL": "http://149.129.240.111:3000",
+    "OBSERVABILITY_BACKEND": "docker_logs",
+    "LOG_RETENTION_DAYS": "14",
 }
 
 
@@ -73,6 +75,23 @@ def test_lightweight_profile_passes_with_local_auth_minimax_and_log_delivery():
     assert "openclaw_webhook_delivery" in warned
     assert "live_model_provider" in warned
     assert "fx_rates" in warned
+    assert "observability" not in warned
+
+
+def test_lightweight_observability_accepts_aliyun_sls_without_sentry():
+    env = dict(LIGHTWEIGHT_ENV)
+    env.pop("SENTRY_DSN", None)
+    env["OBSERVABILITY_BACKEND"] = ""
+    env["LOG_RETENTION_DAYS"] = ""
+    env["ALIYUN_SLS_PROJECT"] = "ai-holdings-log-project"
+    env["ALIYUN_SLS_LOGSTORE"] = "ai-holdings-runtime"
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize(run_checks(profile="lightweight"), profile="lightweight")
+
+    assert summary["status"] == "pass"
+    observability = next(check for check in summary["checks"] if check["name"] == "observability")
+    assert observability["status"] == "pass"
 
 
 def test_lightweight_profile_fails_without_minimax_light_model():

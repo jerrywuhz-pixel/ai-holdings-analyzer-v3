@@ -33,3 +33,23 @@ def test_onboarding_state_does_not_require_supabase_admin_client():
     assert "postgres" in source
     assert "createAdminClient" not in source
     assert "ensureOnboardingSchema" in source
+
+
+def test_openclaw_delivery_webhook_sends_via_tencent_ilink_sendmessage():
+    route = read("webapp/src/app/api/openclaw/delivery/wechat/route.ts")
+    clawbot = read("webapp/src/lib/clawbot.ts")
+    compose = read("docker-compose.server.yml")
+
+    assert "x-openclaw-delivery-signature" in route
+    assert "OPENCLAW_DELIVERY_WEBHOOK_SECRET" in route
+    assert "wechat_bot_credentials" in route
+    assert "channel_bindings" in route
+    assert "decryptCredential" in route
+    assert "sendClawbotTextMessage" in route
+    assert "sendmessage" in clawbot
+    assert "base_info: clawbotBaseInfo()" in clawbot
+    assert "context_token" in clawbot
+    assert "to_user_id" in clawbot
+    assert "openclaw-outbox-worker" in compose
+    assert "openclaw.gateway.outbox_worker" in compose
+    assert "openclaw-post-confirmation-worker" in compose

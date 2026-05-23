@@ -212,9 +212,11 @@ def test_wechat_claw_binding_feature_passes_when_env_and_binding_ui_are_ready():
     feature = _feature(summary, "wechat_claw_binding")
     assert feature["status"] == "pass"
     assert _dependency(feature, "webapp_self_service_binding")["status"] == "pass"
+    assert _dependency(feature, "webapp_delivery_webhook")["status"] == "pass"
+    assert _dependency(feature, "clawbot_sendmessage_adapter")["status"] == "pass"
 
 
-def test_wechat_claw_binding_lightweight_uses_clawbot_qr_without_wechat_app_secret():
+def test_wechat_claw_binding_lightweight_requires_signed_delivery_webhook():
     from scripts.product_feature_readiness import summarize_product_readiness
 
     env = {
@@ -222,9 +224,9 @@ def test_wechat_claw_binding_lightweight_uses_clawbot_qr_without_wechat_app_secr
         "WECHAT_APP_ID": "",
         "WECHAT_APP_SECRET": "",
         "WECHAT_CLAWBOT_API_BASE_URL": "https://ilinkai.weixin.qq.com",
-        "OPENCLAW_DELIVERY_MODE": "log",
-        "OPENCLAW_DELIVERY_WEBHOOK_URL": "",
-        "OPENCLAW_DELIVERY_WEBHOOK_SECRET": "",
+        "OPENCLAW_DELIVERY_MODE": "webhook",
+        "OPENCLAW_DELIVERY_WEBHOOK_URL": "http://webapp:3000/api/openclaw/delivery/wechat",
+        "OPENCLAW_DELIVERY_WEBHOOK_SECRET": "delivery-secret",
         "OPENCLAW_CRON_SECRET": "",
     }
 
@@ -235,6 +237,8 @@ def test_wechat_claw_binding_lightweight_uses_clawbot_qr_without_wechat_app_secr
     assert feature["status"] == "pass"
     assert _dependency(feature, "wechat_clawbot_api")["status"] == "pass"
     assert _dependency(feature, "openclaw_delivery_mode")["status"] == "pass"
+    assert _dependency(feature, "OPENCLAW_DELIVERY_WEBHOOK_URL")["status"] == "pass"
+    assert _dependency(feature, "OPENCLAW_DELIVERY_WEBHOOK_SECRET")["status"] == "pass"
 
 
 def test_tenant_live_data_feature_passes_when_webapp_fetch_is_tenant_scoped():

@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -184,6 +185,149 @@ class SupabaseOutboxRepository:
             return response.data or []
 
         return await asyncio.to_thread(_query)
+
+
+class PostgresOutboxRepository:
+    def __init__(self, database_url: str) -> None:
+        self._database_url = database_url
+
+    async def create_or_get(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg import connect, sql
+        from psycopg.rows import dict_row
+        from psycopg.types.json import Jsonb
+
+        columns = [
+            "id",
+            "tenant_id",
+            "channel_binding_id",
+            "openclaw_account_id",
+            "content_type",
+            "content",
+            "content_snapshot_hash",
+            "priority",
+            "dedupe_key",
+            "status",
+            "attempt_count",
+            "next_retry_at",
+            "target_conversation",
+            "context_token",
+            "confirmation_session_id",
+            "source_run_id",
+            "asset_source_refs",
+            "data_snapshot_refs",
+            "held_reason",
+            "created_at",
+            "updated_at",
+        ]
+
+        def _value(column: str) -> Any:
+            value = payload.get(column)
+            if column in {"content", "asset_source_refs", "data_snapshot_refs"}:
+                return Jsonb(value if value is not None else ([] if column.endswith("_refs") else {}))
+            return value
+
+        def _insert() -> dict[str, Any]:
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    query = sql.SQL(
+                        """
+                        INSERT INTO public.delivery_outbox ({columns})
+                        VALUES ({placeholders})
+                        ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+                        RETURNING *
+                        """
+                    ).format(
+                        columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+                        placeholders=sql.SQL(", ").join(sql.Placeholder() for _ in columns),
+                    )
+                    cur.execute(query, [_value(column) for column in columns])
+                    row = cur.fetchone()
+                    if row:
+                        return dict(row)
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM public.delivery_outbox
+                        WHERE tenant_id = %s AND dedupe_key = %s
+                        LIMIT 1
+                        """,
+                        [payload["tenant_id"], payload["dedupe_key"]],
+                    )
+                    existing = cur.fetchone()
+                    if not existing:
+                        raise RuntimeError("delivery_outbox insert conflict but existing row was not found")
+                    return dict(existing)
+
+        return await asyncio.to_thread(_insert)
+
+    async def update(self, delivery_id: str, updates: dict[str, Any]) -> None:
+        from psycopg import connect, sql
+        from psycopg.types.json import Jsonb
+
+        normalized: list[Any] = []
+        for value in updates.values():
+            if isinstance(value, (dict, list)):
+                normalized.append(Jsonb(value))
+            else:
+                normalized.append(value)
+
+        def _update() -> None:
+            with connect(self._database_url) as conn:
+                with conn.cursor() as cur:
+                    query = sql.SQL("UPDATE public.delivery_outbox SET {updates} WHERE id = %s").format(
+                        updates=sql.SQL(", ").join(
+                            sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
+                            for column in updates
+                        )
+                    )
+                    cur.execute(query, [*normalized, delivery_id])
+
+        await asyncio.to_thread(_update)
+
+    async def get(self, delivery_id: str) -> dict[str, Any] | None:
+        from psycopg import connect
+        from psycopg.rows import dict_row
+
+        def _query() -> dict[str, Any] | None:
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM public.delivery_outbox WHERE id = %s LIMIT 1", [delivery_id])
+                    row = cur.fetchone()
+                    return dict(row) if row else None
+
+        return await asyncio.to_thread(_query)
+
+    async def list_retry_ready(self, now: datetime, limit: int = 50) -> list[dict[str, Any]]:
+        from psycopg import connect
+        from psycopg.rows import dict_row
+
+        def _query() -> list[dict[str, Any]]:
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM public.delivery_outbox
+                        WHERE status IN ('retrying', 'pending')
+                          AND (next_retry_at IS NULL OR next_retry_at <= %s)
+                        ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC
+                        LIMIT %s
+                        """,
+                        [now, limit],
+                    )
+                    return [dict(row) for row in cur.fetchall()]
+
+        return await asyncio.to_thread(_query)
+
+
+def create_outbox_repository_from_env(supabase_client: Any | None = None) -> OutboxRepository:
+    repository_mode = os.getenv("OPENCLAW_OUTBOX_REPOSITORY", "postgres").strip().lower()
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url and repository_mode in {"postgres", "direct_postgres", "auto"}:
+        return PostgresOutboxRepository(database_url)
+    if supabase_client is not None:
+        return SupabaseOutboxRepository(supabase_client)
+    return InMemoryOutboxRepository()
 
 
 class DeliveryOutboxService:

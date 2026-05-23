@@ -248,6 +248,9 @@ services:
       OPENCLAW_DELIVERY_WEBHOOK_URL: ${OPENCLAW_DELIVERY_WEBHOOK_URL:-}
       OPENCLAW_DELIVERY_WEBHOOK_SECRET: ${OPENCLAW_DELIVERY_WEBHOOK_SECRET:-}
       OPENCLAW_DELIVERY_TIMEOUT_SECONDS: ${OPENCLAW_DELIVERY_TIMEOUT_SECONDS:-10}
+      OPENCLAW_GATEWAY_REPOSITORY: ${OPENCLAW_GATEWAY_REPOSITORY:-postgres}
+      OPENCLAW_OUTBOX_REPOSITORY: ${OPENCLAW_OUTBOX_REPOSITORY:-postgres}
+      OPENCLAW_POST_CONFIRMATION_REPOSITORY: ${OPENCLAW_POST_CONFIRMATION_REPOSITORY:-postgres}
       HERMES_WORKER_MODE: ${HERMES_WORKER_MODE:-stub}
       HERMES_LIGHT_MODEL: ${HERMES_LIGHT_MODEL:-MiniMax-M2.7}
       MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M2.7}
@@ -288,6 +291,57 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  openclaw-outbox-worker:
+    build:
+      context: .
+      dockerfile: openclaw/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.server
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      OPENCLAW_DELIVERY_MODE: ${OPENCLAW_DELIVERY_MODE:-webhook}
+      OPENCLAW_DELIVERY_WEBHOOK_URL: ${OPENCLAW_DELIVERY_WEBHOOK_URL:-}
+      OPENCLAW_DELIVERY_WEBHOOK_SECRET: ${OPENCLAW_DELIVERY_WEBHOOK_SECRET:-}
+      OPENCLAW_DELIVERY_TIMEOUT_SECONDS: ${OPENCLAW_DELIVERY_TIMEOUT_SECONDS:-10}
+      OPENCLAW_OUTBOX_REPOSITORY: ${OPENCLAW_OUTBOX_REPOSITORY:-postgres}
+      OPENCLAW_OUTBOX_WORKER_LIMIT: ${OPENCLAW_OUTBOX_WORKER_LIMIT:-50}
+      OPENCLAW_OUTBOX_WORKER_POLL_INTERVAL_SECONDS: ${OPENCLAW_OUTBOX_WORKER_POLL_INTERVAL_SECONDS:-2}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    command: ["python", "-m", "openclaw.gateway.outbox_worker"]
+    depends_on:
+      openclaw:
+        condition: service_healthy
+      webapp:
+        condition: service_healthy
+
+  openclaw-post-confirmation-worker:
+    build:
+      context: .
+      dockerfile: openclaw/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.server
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      WEBAPP_BASE_URL: ${WEBAPP_BASE_URL:-http://localhost:3000}
+      OPENCLAW_DELIVERY_MODE: ${OPENCLAW_DELIVERY_MODE:-webhook}
+      OPENCLAW_DELIVERY_WEBHOOK_URL: ${OPENCLAW_DELIVERY_WEBHOOK_URL:-}
+      OPENCLAW_DELIVERY_WEBHOOK_SECRET: ${OPENCLAW_DELIVERY_WEBHOOK_SECRET:-}
+      OPENCLAW_OUTBOX_REPOSITORY: ${OPENCLAW_OUTBOX_REPOSITORY:-postgres}
+      OPENCLAW_POST_CONFIRMATION_REPOSITORY: ${OPENCLAW_POST_CONFIRMATION_REPOSITORY:-postgres}
+      POST_CONFIRMATION_WORKER_BATCH_LIMIT: ${POST_CONFIRMATION_WORKER_BATCH_LIMIT:-20}
+      POST_CONFIRMATION_WORKER_POLL_INTERVAL_SECONDS: ${POST_CONFIRMATION_WORKER_POLL_INTERVAL_SECONDS:-5}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    command: ["python", "-m", "openclaw.gateway.post_confirmation_worker"]
+    depends_on:
+      openclaw:
+        condition: service_healthy
 
   webapp:
     build:

@@ -717,6 +717,157 @@ class SupabaseConfirmationRepository:
         await asyncio.to_thread(_update)
 
 
+class PostgresConfirmationRepository:
+    def __init__(self, database_url: str) -> None:
+        self._database_url = database_url
+
+    @staticmethod
+    def _adapt(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            from psycopg.types.json import Jsonb
+
+            return Jsonb(value)
+        return value
+
+    async def create_pending_action(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._insert("pending_actions", payload)
+
+    async def create_confirmation_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._insert("confirmation_sessions", payload)
+
+    async def append_event(self, payload: dict[str, Any]) -> None:
+        await self._insert("confirmation_events", payload)
+
+    async def get_active_session(
+        self,
+        tenant_id: str,
+        *,
+        session_hint: str | None = None,
+        channel_binding_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        return await self._get_session(
+            tenant_id,
+            session_hint=session_hint,
+            channel_binding_id=channel_binding_id,
+            active_only=True,
+        )
+
+    async def get_session_by_hint(
+        self,
+        tenant_id: str,
+        *,
+        session_hint: str,
+        channel_binding_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        return await self._get_session(
+            tenant_id,
+            session_hint=session_hint,
+            channel_binding_id=channel_binding_id,
+            active_only=False,
+        )
+
+    async def get_pending_action(self, pending_action_id: str) -> dict[str, Any] | None:
+        from psycopg import connect
+        from psycopg.rows import dict_row
+
+        def _query() -> dict[str, Any] | None:
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM public.pending_actions WHERE id = %s LIMIT 1", [pending_action_id])
+                    row = cur.fetchone()
+                    return dict(row) if row else None
+
+        return await asyncio.to_thread(_query)
+
+    async def update_pending_action(self, pending_action_id: str, updates: dict[str, Any]) -> None:
+        await self._update("pending_actions", pending_action_id, updates)
+
+    async def update_confirmation_session(
+        self,
+        confirmation_session_id: str,
+        updates: dict[str, Any],
+    ) -> None:
+        await self._update("confirmation_sessions", confirmation_session_id, updates)
+
+    async def _insert(self, table: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg import connect, sql
+        from psycopg.rows import dict_row
+
+        def _insert() -> dict[str, Any]:
+            columns = list(payload.keys())
+            query = sql.SQL("INSERT INTO public.{table} ({columns}) VALUES ({values}) RETURNING *").format(
+                table=sql.Identifier(table),
+                columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+                values=sql.SQL(", ").join(sql.Placeholder() for _ in columns),
+            )
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, [self._adapt(payload[column]) for column in columns])
+                    row = cur.fetchone()
+                    return dict(row) if row else dict(payload)
+
+        return await asyncio.to_thread(_insert)
+
+    async def _update(self, table: str, record_id: str, updates: dict[str, Any]) -> None:
+        from psycopg import connect, sql
+
+        def _update() -> None:
+            query = sql.SQL("UPDATE public.{table} SET {updates} WHERE id = %s").format(
+                table=sql.Identifier(table),
+                updates=sql.SQL(", ").join(
+                    sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
+                    for column in updates
+                ),
+            )
+            with connect(self._database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, [*[self._adapt(value) for value in updates.values()], record_id])
+
+        await asyncio.to_thread(_update)
+
+    async def _get_session(
+        self,
+        tenant_id: str,
+        *,
+        session_hint: str | None,
+        channel_binding_id: str | None,
+        active_only: bool,
+    ) -> dict[str, Any] | None:
+        from psycopg import connect, sql
+        from psycopg.rows import dict_row
+
+        fields = ["session_token"]
+        if session_hint and _is_uuid_like(session_hint):
+            fields.extend(["id", "pending_action_id"])
+        if not session_hint:
+            fields = [""]
+
+        def _query() -> dict[str, Any] | None:
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    for field in fields:
+                        clauses = [sql.SQL("tenant_id = {}").format(sql.Placeholder())]
+                        params: list[Any] = [tenant_id]
+                        if active_only:
+                            clauses.append(sql.SQL("session_status = 'active'"))
+                        if channel_binding_id:
+                            clauses.append(sql.SQL("channel_binding_id = {}").format(sql.Placeholder()))
+                            params.append(channel_binding_id)
+                        if field:
+                            clauses.append(sql.SQL("{} = {}").format(sql.Identifier(field), sql.Placeholder()))
+                            params.append(session_hint)
+                        query = sql.SQL(
+                            "SELECT * FROM public.confirmation_sessions WHERE {where} ORDER BY created_at DESC LIMIT 1"
+                        ).format(where=sql.SQL(" AND ").join(clauses))
+                        cur.execute(query, params)
+                        row = cur.fetchone()
+                        if row:
+                            return dict(row)
+            return None
+
+        return await asyncio.to_thread(_query)
+
+
 class ConfirmationCenterService:
     def __init__(
         self,

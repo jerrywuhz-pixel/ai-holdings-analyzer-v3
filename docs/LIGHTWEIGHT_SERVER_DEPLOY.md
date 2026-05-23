@@ -140,11 +140,25 @@ SMTP_FROM=AI 持仓分析系统 <no-reply@example.com>
 ```text
 WECHAT_CLAWBOT_API_BASE_URL=https://ilinkai.weixin.qq.com
 ONBOARDING_CREDENTIAL_ENCRYPTION_KEY=32位以上随机字符串
-OPENCLAW_DELIVERY_MODE=log
+OPENCLAW_DELIVERY_MODE=webhook
+OPENCLAW_DELIVERY_WEBHOOK_URL=http://127.0.0.1:3000/api/openclaw/delivery/wechat
+OPENCLAW_DELIVERY_WEBHOOK_SECRET=一串随机字符串
+OPENCLAW_GATEWAY_REPOSITORY=postgres
+OPENCLAW_OUTBOX_REPOSITORY=postgres
+OPENCLAW_POST_CONFIRMATION_REPOSITORY=postgres
 OPENCLAW_SKILL_KEY=一串随机字符串
 ```
 
-`OPENCLAW_DELIVERY_MODE=log` 可以完成绑定和路由写入验证；正式让系统通过微信回复消息前，再切到 `webhook` 并补齐 `OPENCLAW_DELIVERY_WEBHOOK_URL`、`OPENCLAW_DELIVERY_WEBHOOK_SECRET` 和 `OPENCLAW_CRON_SECRET`。
+微信回复链路使用 OpenClaw outbox webhook 调 WebApp 的腾讯 iLink 发送适配器。正式让系统通过微信回复消息前，配置：
+
+```text
+OPENCLAW_DELIVERY_MODE=webhook
+OPENCLAW_DELIVERY_WEBHOOK_URL=http://127.0.0.1:3000/api/openclaw/delivery/wechat
+OPENCLAW_DELIVERY_WEBHOOK_SECRET=一串随机字符串
+OPENCLAW_CRON_SECRET=一串随机字符串
+```
+
+`/api/openclaw/delivery/wechat` 会校验 `X-OpenClaw-Delivery-Signature`，从当前 tenant 的 `wechat_bot_credentials` 解密 `bot_token`，并使用 Tencent iLink `/ilink/bot/sendmessage` 携带 `to_user_id` 与 `context_token` 完成真实微信回复。轻量服务器的 host-network 部署让 OpenClaw 通过 `http://127.0.0.1:3000/...` 访问 WebApp；若改回 Docker bridge 网络，则可改成 `http://webapp:3000/...`。
 
 用户本地 Futu connector 走云端 poll/upload 控制面。轻量服务器正式让用户同步持仓前，至少配置：
 
@@ -157,6 +171,22 @@ FUTU_CONNECTOR_PAIRING_TOKEN=一串随机字符串
 ```
 
 如果使用宝塔/Nginx 只反代了 WebApp，还需要把 `/api/v3/connectors/` 代理到 `http://127.0.0.1:8000/api/v3/connectors/`，否则用户本地 connector 会被 WebApp 登录中间件重定向。
+
+Sell Put 与期权分析的新鲜度阈值建议显式配置，避免默认值和生产预期漂移：
+
+```text
+SELL_PUT_FRESHNESS_SECONDS=180
+BROKER_SNAPSHOT_MAX_STALENESS_SECONDS=900
+```
+
+轻量服务器第一阶段观测后端可以使用 Docker/宝塔日志留存，后续可切换 Sentry 或阿里云日志服务 SLS：
+
+```text
+OBSERVABILITY_BACKEND=docker_logs
+LOG_RETENTION_DAYS=14
+# 或配置 ALIYUN_SLS_PROJECT / ALIYUN_SLS_LOGSTORE
+# 或配置 SENTRY_DSN
+```
 
 FTShare 行情源通过 ClawHub/OpenClaw skill 接入，已安装到 `openclaw/skills/ftshare-market-data`。轻量服务器的 data-service 会通过只读挂载读取该 skill，默认路径如下：
 

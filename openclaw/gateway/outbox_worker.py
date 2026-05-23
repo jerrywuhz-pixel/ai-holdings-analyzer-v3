@@ -21,9 +21,8 @@ import httpx
 from openclaw.gateway.outbox import (
     DeliveryOutboxService,
     DeliveryOutboxWorker,
-    InMemoryOutboxRepository,
     LoggingDeliverySender,
-    SupabaseOutboxRepository,
+    create_outbox_repository_from_env,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,13 +120,12 @@ class WebhookDeliverySender:
 def create_outbox_worker_from_env() -> DeliveryOutboxWorker:
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_client = None
     if supabase_url and supabase_key:
         from supabase import create_client
 
-        repository = SupabaseOutboxRepository(create_client(supabase_url, supabase_key))
-    else:
-        logger.warning("Supabase not configured; outbox worker will use in-memory repository")
-        repository = InMemoryOutboxRepository()
+        supabase_client = create_client(supabase_url, supabase_key)
+    repository = create_outbox_repository_from_env(supabase_client)
 
     mode = os.getenv("OPENCLAW_DELIVERY_MODE", "disabled").strip().lower()
     if mode == "webhook":

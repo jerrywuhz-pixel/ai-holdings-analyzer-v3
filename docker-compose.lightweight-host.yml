@@ -42,6 +42,14 @@ services:
     extra_hosts: !reset []
     command: ["sh", "-c", "uvicorn gateway_app:app --host 127.0.0.1 --port ${PORT:-8080} --workers 2"]
 
+  openclaw-outbox-worker:
+    network_mode: host
+    extra_hosts: !reset []
+
+  openclaw-post-confirmation-worker:
+    network_mode: host
+    extra_hosts: !reset []
+
   webapp:
     network_mode: host
     ports: !reset []

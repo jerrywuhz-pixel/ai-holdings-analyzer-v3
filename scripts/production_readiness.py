@@ -145,14 +145,7 @@ def run_checks(*, profile: str) -> list[CheckResult]:
             "Portfolio base-currency conversion has an auditable FX source label",
             profile=profile,
         ),
-        _check_required(
-            "monitoring",
-            "sentry",
-            ["SENTRY_DSN"],
-            "Sentry DSN configured for runtime error monitoring",
-            profile=profile,
-            soft_profiles={"local", "lightweight"},
-        ),
+        _observability_check(profile=profile),
         _check_required(
             "web",
             "public_origins",
@@ -282,6 +275,38 @@ def _fx_source_check(*, profile: str) -> CheckResult:
         "warn" if profile == "local" else "fail",
         "set FX_RATES_JSON or FX_RATE_ENDPOINT before production release",
         ["FX_RATES_JSON or FX_RATE_ENDPOINT"],
+    )
+
+
+def _observability_check(*, profile: str) -> CheckResult:
+    has_sentry = not _is_placeholder(_env("SENTRY_DSN"))
+    sls_missing = _missing(["ALIYUN_SLS_PROJECT", "ALIYUN_SLS_LOGSTORE"])
+    has_aliyun_sls = not sls_missing
+    backend = _env("OBSERVABILITY_BACKEND").lower()
+    log_retention = _env("LOG_RETENTION_DAYS")
+    lightweight_log_backend = backend in {"docker_logs", "bt_panel_logs", "local_file"} and not _is_placeholder(log_retention)
+
+    if has_sentry:
+        return CheckResult("monitoring", "observability", "pass", "Sentry DSN configured for runtime error monitoring")
+    if has_aliyun_sls:
+        return CheckResult("monitoring", "observability", "pass", "Alibaba Cloud SLS project/logstore configured")
+    if profile == "lightweight" and lightweight_log_backend:
+        return CheckResult(
+            "monitoring",
+            "observability",
+            "pass",
+            f"lightweight observability uses {backend} with LOG_RETENTION_DAYS={log_retention}",
+        )
+
+    missing = ["SENTRY_DSN or ALIYUN_SLS_PROJECT+ALIYUN_SLS_LOGSTORE"]
+    if profile == "lightweight":
+        missing.append("or OBSERVABILITY_BACKEND+LOG_RETENTION_DAYS")
+    return CheckResult(
+        "monitoring",
+        "observability",
+        "warn" if profile in {"local", "lightweight"} else "fail",
+        "configure Sentry, Alibaba Cloud SLS, or an explicit lightweight log retention backend",
+        missing,
     )
 
 

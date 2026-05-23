@@ -70,6 +70,52 @@ class SupabasePostConfirmationTaskRepository:
         return await asyncio.to_thread(_upsert_like_insert)
 
 
+class PostgresPostConfirmationTaskRepository:
+    def __init__(self, database_url: str) -> None:
+        self._database_url = database_url
+
+    @staticmethod
+    def _adapt(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            from psycopg.types.json import Jsonb
+
+            return Jsonb(value)
+        return value
+
+    async def enqueue(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg import connect, sql
+        from psycopg.rows import dict_row
+
+        dedupe_key = str(payload["config"]["dedupe_key"])
+
+        def _insert() -> dict[str, Any]:
+            with connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM public.job_runs
+                        WHERE config @> %s::jsonb
+                        LIMIT 1
+                        """,
+                        [json.dumps({"dedupe_key": dedupe_key})],
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        return dict(existing)
+
+                    columns = list(payload.keys())
+                    query = sql.SQL("INSERT INTO public.job_runs ({columns}) VALUES ({values}) RETURNING *").format(
+                        columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+                        values=sql.SQL(", ").join(sql.Placeholder() for _ in columns),
+                    )
+                    cur.execute(query, [self._adapt(payload[column]) for column in columns])
+                    row = cur.fetchone()
+                    return dict(row) if row else dict(payload)
+
+        return await asyncio.to_thread(_insert)
+
+
 class ConfirmationPostDecisionDispatcher:
     def __init__(
         self,
