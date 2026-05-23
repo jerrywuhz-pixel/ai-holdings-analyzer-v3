@@ -502,8 +502,8 @@ export function isOnboardingComplete(state: OnboardingState) {
 }
 
 export function nextOnboardingPath(state: OnboardingState) {
-  if (isOnboardingComplete(state)) return '/';
-  if (!state.checks.profile) return '/onboarding/profile';
+  if (isOnboardingComplete(state)) return '/dashboard';
+  if (!state.checks.profile) return '/onboarding/welcome';
   if (!state.checks.wechat) return '/onboarding/wechat';
   if (!state.checks.broker) return '/onboarding/broker';
   return '/onboarding/review';

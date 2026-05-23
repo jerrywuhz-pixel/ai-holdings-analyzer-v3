@@ -24,7 +24,7 @@ export default async function OnboardingDonePage() {
           <p>Futu Connector: <span className="break-all font-mono text-white">{state.brokerConnector?.id || '-'}</span></p>
         </div>
         <Link
-          href="/"
+          href="/dashboard"
           className="mt-5 inline-flex rounded-xl bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-400"
         >
           进入总览

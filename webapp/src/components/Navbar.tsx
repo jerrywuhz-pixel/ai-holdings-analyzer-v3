@@ -4,11 +4,11 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 const navLinks = [
-  { href: '/', label: '总览' },
-  { href: '/positions', label: '持仓' },
-  { href: '/profit-taking', label: '止盈' },
-  { href: '/transactions', label: '交易' },
-  { href: '/weekly', label: '周报' },
+  { href: '/dashboard', label: '总览' },
+  { href: '/holdings', label: '持仓' },
+  { href: '/sell-put', label: 'Sell Put' },
+  { href: '/confirmations', label: '确认' },
+  { href: '/data', label: '数据' },
 ];
 
 export default function Navbar() {
@@ -20,7 +20,7 @@ export default function Navbar() {
         <div className="flex h-16 items-center justify-between">
           {/* Left: Project name */}
           <div className="flex items-center">
-            <Link href="/" className="text-xl font-bold tracking-tight">
+            <Link href="/dashboard" className="text-xl font-bold tracking-tight">
               AI 持仓分析
             </Link>
           </div>

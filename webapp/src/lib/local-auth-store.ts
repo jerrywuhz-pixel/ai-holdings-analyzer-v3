@@ -165,6 +165,42 @@ export async function createLocalRegistration({
   return { email: normalizedEmail, code, expiresAt };
 }
 
+export async function resendLocalRegistrationCode(email: string): Promise<LocalRegistrationResult> {
+  if (!localRegistrationEnabled()) {
+    throw new Error('本地注册暂未开启');
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  await ensureLocalAuthSchema();
+  const sql = getSql();
+  const rows = await sql<{ email: string }[]>`
+    SELECT email
+    FROM public.local_auth_email_verifications
+    WHERE email = ${normalizedEmail}
+    LIMIT 1
+  `;
+
+  if (!rows[0]) {
+    throw new Error('没有待确认的注册申请，请重新注册');
+  }
+
+  const code = generateCode();
+  const ttlMinutes = Number(process.env.AUTH_VERIFICATION_TTL_MINUTES || DEFAULT_TTL_MINUTES);
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+
+  await sql`
+    UPDATE public.local_auth_email_verifications
+    SET
+      code_hash = ${hashCode(normalizedEmail, code)},
+      expires_at = ${expiresAt},
+      attempts = 0,
+      updated_at = now()
+    WHERE email = ${normalizedEmail}
+  `;
+
+  return { email: normalizedEmail, code, expiresAt };
+}
+
 export async function verifyLocalRegistration({
   email,
   code,

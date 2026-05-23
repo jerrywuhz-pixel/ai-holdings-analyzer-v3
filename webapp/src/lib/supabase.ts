@@ -287,7 +287,7 @@ export async function requireAdmin() {
   const session = await requireUser();
   if (session.provider === 'local') {
     if (session.user.role !== 'admin') {
-      redirect('/');
+      redirect('/dashboard');
     }
     return { session, supabaseAdmin: createLocalDataClient() };
   }
@@ -299,7 +299,7 @@ export async function requireAdmin() {
     .maybeSingle();
 
   if (error || data?.role !== 'admin') {
-    redirect('/');
+    redirect('/dashboard');
   }
 
   return { session, supabaseAdmin: createAdminClient() };

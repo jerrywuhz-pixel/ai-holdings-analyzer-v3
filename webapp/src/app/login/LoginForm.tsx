@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type AuthMode = 'login' | 'register' | 'verify';
@@ -16,9 +16,29 @@ export default function LoginForm({ authModeLabel }: { authModeLabel: string }) 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [showInsecureWarning, setShowInsecureWarning] = useState(false);
+
+  useEffect(() => {
+    const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+    setShowInsecureWarning(window.location.protocol !== 'https:' && !isLocalhost);
+
+    const modeParam = new URLSearchParams(window.location.search).get('mode');
+    if (modeParam === 'register') {
+      setMode('register');
+    }
+  }, []);
 
   function goToOnboarding() {
-    router.push('/onboarding');
+    router.push('/onboarding/welcome');
+  }
+
+  function getSafeNextPath() {
+    const nextPath = new URLSearchParams(window.location.search).get('next');
+    if (!nextPath || !nextPath.startsWith('/') || nextPath.startsWith('//') || nextPath === '/login') {
+      return null;
+    }
+    return nextPath === '/' ? '/dashboard' : nextPath;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -63,7 +83,9 @@ export default function LoginForm({ authModeLabel }: { authModeLabel: string }) 
     if (result.status === 'verification_required') {
       setMode('verify');
       setNotice(
-        result.message ||
+        [result.message, result.debugCode ? `测试验证码：${result.debugCode}` : null]
+          .filter(Boolean)
+          .join(' ') ||
           (result.delivery === 'email_sent'
             ? '验证码已发送到邮箱，请输入验证码完成注册。'
             : '验证码已生成，请按页面提示完成确认。')
@@ -71,15 +93,45 @@ export default function LoginForm({ authModeLabel }: { authModeLabel: string }) 
       return;
     }
 
-    const nextPath = new URLSearchParams(window.location.search).get('next');
-    if (result.user?.provider === 'local') {
-      router.push(nextPath?.startsWith('/') ? nextPath : '/');
-    } else if (nextPath?.startsWith('/') && nextPath !== '/') {
-      router.push(nextPath);
+    const nextPath = getSafeNextPath();
+    if (mode === 'login') {
+      router.push(nextPath ?? '/dashboard');
     } else {
       goToOnboarding();
     }
     router.refresh();
+  }
+
+  async function handleResendVerification() {
+    setError('');
+    setNotice('');
+    if (!email) {
+      setError('请输入邮箱');
+      return;
+    }
+
+    setResendLoading(true);
+    const response = await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setResendLoading(false);
+
+    if (!response.ok) {
+      setError(result.error || '重新发送失败，请稍后再试');
+      return;
+    }
+
+    setNotice(
+      [result.message, result.debugCode ? `测试验证码：${result.debugCode}` : null]
+        .filter(Boolean)
+        .join(' ') ||
+        (result.delivery === 'email_sent'
+          ? '验证码已重新发送到邮箱。'
+          : '验证码已重新生成，请按页面提示完成确认。')
+    );
   }
 
   function switchMode(nextMode: AuthMode) {
@@ -208,17 +260,29 @@ export default function LoginForm({ authModeLabel }: { authModeLabel: string }) 
               : '确认并登录'}
       </button>
       {mode === 'verify' ? (
-        <button
-          type="button"
-          onClick={() => switchMode('register')}
-          className="mt-3 w-full text-sm text-gray-500 transition hover:text-gray-900"
-        >
-          修改邮箱或重新发送验证码
-        </button>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={handleResendVerification}
+            disabled={resendLoading}
+            className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 transition hover:border-gray-300 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {resendLoading ? '发送中...' : '重新发送验证码'}
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode('register')}
+            className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 transition hover:border-gray-300 hover:text-gray-900"
+          >
+            修改邮箱
+          </button>
+        </div>
       ) : null}
-      <p className="mt-4 text-xs leading-5 text-gray-500">
-        当前服务器暂未启用 HTTPS，登录信息请仅用于测试部署；绑定域名和证书后再作为长期入口使用。
-      </p>
+      {showInsecureWarning ? (
+        <p className="mt-4 text-xs leading-5 text-gray-500">
+          当前入口未启用 HTTPS，登录信息请仅用于测试部署；绑定域名和证书后再作为长期入口使用。
+        </p>
+      ) : null}
     </form>
   );
 }

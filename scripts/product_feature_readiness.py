@@ -275,6 +275,25 @@ def repo_file_contains(
     return DependencyResult(name, "repo", "pass", detail)
 
 
+def repo_file_contains_any(
+    name: str,
+    relative_path: str,
+    patterns: list[str],
+    detail: str,
+) -> DependencyResult:
+    text = _read_repo_file(relative_path)
+    if not text:
+        return DependencyResult(name, "repo", "fail", f"{relative_path} is missing")
+    if any(pattern in text for pattern in patterns):
+        return DependencyResult(name, "repo", "pass", detail)
+    return DependencyResult(
+        name,
+        "repo",
+        "fail",
+        f"{detail}; missing one of code marker(s): {', '.join(patterns)}",
+    )
+
+
 def repo_path_exists(name: str, relative_paths: list[str], detail: str) -> DependencyResult:
     found = [path for path in relative_paths if (PROJECT_ROOT / path).exists()]
     if found:
@@ -400,10 +419,10 @@ def _registration_onboarding_initialization(profile: str) -> ProductFeature:
                 ["supabase/migrations/000028_onboarding_registration_flow.sql"],
                 "Onboarding sessions, tenant settings, WeChat auth, bot credentials, and audit schema exist",
             ),
-            repo_file_contains(
+            repo_file_contains_any(
                 "register_redirects_to_onboarding",
                 "webapp/src/app/login/LoginForm.tsx",
-                ["router.push('/onboarding')"],
+                ["router.push('/onboarding')", "router.push('/onboarding/welcome')"],
                 "Registration and login enter the onboarding gate before the app home",
             ),
             repo_path_exists(

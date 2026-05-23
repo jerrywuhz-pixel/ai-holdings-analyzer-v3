@@ -32,6 +32,15 @@ try:
 except ImportError:
     _HAS_SUPABASE = False
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+    _HAS_PSYCOPG = True
+except ImportError:
+    psycopg = None
+    dict_row = None
+    _HAS_PSYCOPG = False
+
 
 class _InMemoryCache:
     """Simple TTL cache for when Redis is unavailable."""
@@ -71,8 +80,22 @@ class HealthCache:
     DATA_SOURCE_TTL = 60      # seconds
     HEARTBEAT_TTL = 30        # seconds
 
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(
+        self,
+        redis_url: Optional[str] = None,
+        database_url: Optional[str] = None,
+    ):
         self._redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self._database_url = (
+            database_url
+            if database_url is not None
+            else (
+                os.getenv("HEALTH_DATABASE_URL")
+                or os.getenv("DATABASE_URL")
+                or os.getenv("GBRAIN_DATABASE_URL")
+                or ""
+            )
+        )
         self._redis: Optional[Any] = None
         self._memory = _InMemoryCache()
         self._supabase: Optional[Any] = None
@@ -105,6 +128,17 @@ class HealthCache:
         if cached is not None:
             return json.loads(cached)
 
+        # Lightweight-server path: prefer the local Postgres database that backs
+        # the stack. Supabase REST remains the compatibility fallback.
+        postgres_data = await self._fetch_data_source_health_postgres()
+        if postgres_data is not None:
+            await self._cache_set(
+                cache_key,
+                json.dumps(postgres_data, default=str),
+                self.DATA_SOURCE_TTL,
+            )
+            return postgres_data
+
         # Fetch from Supabase
         client = self._get_supabase()
         if client is None:
@@ -118,7 +152,7 @@ class HealthCache:
             )
             data = resp.data or []
             # Cache the result
-            await self._cache_set(cache_key, json.dumps(data), self.DATA_SOURCE_TTL)
+            await self._cache_set(cache_key, json.dumps(data, default=str), self.DATA_SOURCE_TTL)
             return data
         except Exception as exc:
             logger.error("Failed to fetch data source health: %s", exc)
@@ -133,6 +167,11 @@ class HealthCache:
             data = json.loads(cached)
             return data if data else None
 
+        postgres_data = await self._fetch_heartbeat_postgres()
+        if postgres_data is not None:
+            await self._cache_set(cache_key, json.dumps(postgres_data or [], default=str), self.HEARTBEAT_TTL)
+            return postgres_data or None
+
         client = self._get_supabase()
         if client is None:
             return None
@@ -146,11 +185,72 @@ class HealthCache:
                 .limit(1)
             )
             data = resp.data[0] if resp.data else None
-            await self._cache_set(cache_key, json.dumps(data or []), self.HEARTBEAT_TTL)
+            await self._cache_set(cache_key, json.dumps(data or [], default=str), self.HEARTBEAT_TTL)
             return data
         except Exception as exc:
             logger.error("Failed to fetch heartbeat: %s", exc)
             return None
+
+    async def _fetch_data_source_health_postgres(self) -> Optional[list[dict[str, Any]]]:
+        if not self._database_url or not _HAS_PSYCOPG:
+            return None
+
+        try:
+            return await asyncio.to_thread(self._fetch_data_source_health_postgres_sync)
+        except Exception as exc:
+            logger.error("Failed to fetch data source health from Postgres: %s", exc)
+            return None
+
+    def _fetch_data_source_health_postgres_sync(self) -> list[dict[str, Any]]:
+        assert psycopg is not None
+        assert dict_row is not None
+        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT source_name, status, priority_cn, priority_hk, priority_us
+                    FROM public.data_source_health
+                    ORDER BY priority_cn ASC NULLS LAST, source_name ASC
+                    """
+                )
+                return [dict(row) for row in cur.fetchall()]
+
+    async def _fetch_heartbeat_postgres(self) -> Optional[dict[str, Any]]:
+        if not self._database_url or not _HAS_PSYCOPG:
+            return None
+
+        try:
+            return await asyncio.to_thread(self._fetch_heartbeat_postgres_sync)
+        except Exception as exc:
+            logger.error("Failed to fetch heartbeat from Postgres: %s", exc)
+            return None
+
+    def _fetch_heartbeat_postgres_sync(self) -> Optional[dict[str, Any]]:
+        assert psycopg is not None
+        assert dict_row is not None
+        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                      id::text AS id,
+                      deployment_mode,
+                      instance_id,
+                      gateway_status,
+                      last_cron_run_at,
+                      active_skills,
+                      claw_plugin_status,
+                      memory_usage_mb,
+                      cpu_usage_percent,
+                      reported_at,
+                      created_at
+                    FROM public.openclaw_heartbeat
+                    ORDER BY reported_at DESC
+                    LIMIT 1
+                    """
+                )
+                row = cur.fetchone()
+                return dict(row) if row else None
 
     async def get_gateway_status(self) -> dict[str, Any]:
         """

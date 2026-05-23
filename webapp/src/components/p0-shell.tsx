@@ -8,7 +8,7 @@ import { ChromeSnapshot } from '@/lib/p0';
 import type { AppUser } from '@/lib/supabase';
 
 const desktopNav = [
-  { href: '/', label: '总览' },
+  { href: '/dashboard', label: '总览' },
   { href: '/holdings', label: '持仓' },
   { href: '/sell-put', label: 'Sell Put' },
   { href: '/confirmations', label: '确认中心' },
@@ -19,7 +19,7 @@ const desktopNav = [
 ];
 
 const mobileTabs = [
-  { href: '/', label: '总览' },
+  { href: '/dashboard', label: '总览' },
   { href: '/holdings', label: '持仓' },
   { href: '/sell-put', label: 'Sell Put' },
   { href: '/confirmations', label: '确认' },
@@ -30,6 +30,8 @@ const mobileTabs = [
 function isActive(pathname: string, href: string) {
   return href === '/' ? pathname === href : pathname.startsWith(href);
 }
+
+const standalonePaths = new Set(['/', '/features', '/pricing', '/onboarding/welcome']);
 
 export default function AppShell({
   chrome,
@@ -44,7 +46,7 @@ export default function AppShell({
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
-  if (pathname.startsWith('/login')) {
+  if (pathname.startsWith('/login') || standalonePaths.has(pathname)) {
     return <main>{children}</main>;
   }
 

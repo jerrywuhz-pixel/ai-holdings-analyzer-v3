@@ -156,6 +156,24 @@ def test_registration_onboarding_feature_passes_when_initialization_flow_exists(
     assert _dependency(feature, "onboarding_review_gate")["status"] == "pass"
 
 
+def test_registration_onboarding_accepts_welcome_entrypoint(monkeypatch):
+    import scripts.product_feature_readiness as readiness
+
+    original_read = readiness._read_repo_file
+
+    def read_repo_file(relative_path: str) -> str:
+        if relative_path == "webapp/src/app/login/LoginForm.tsx":
+            return "router.push('/onboarding/welcome')"
+        return original_read(relative_path)
+
+    monkeypatch.setattr(readiness, "_read_repo_file", read_repo_file)
+    with patch.dict(os.environ, PRODUCT_ENV, clear=True):
+        summary = readiness.summarize_product_readiness(profile="production")
+
+    feature = _feature(summary, "registration_onboarding_initialization")
+    assert _dependency(feature, "register_redirects_to_onboarding")["status"] == "pass"
+
+
 def test_futu_user_local_sync_feature_passes_when_control_plane_and_env_are_ready():
     from scripts.product_feature_readiness import summarize_product_readiness
 

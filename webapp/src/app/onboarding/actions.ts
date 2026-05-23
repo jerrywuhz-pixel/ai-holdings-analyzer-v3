@@ -113,6 +113,6 @@ export async function finishOnboarding() {
     completed_at: new Date().toISOString(),
   });
 
-  revalidatePath('/');
+  revalidatePath('/dashboard');
   redirect('/onboarding/done');
 }
