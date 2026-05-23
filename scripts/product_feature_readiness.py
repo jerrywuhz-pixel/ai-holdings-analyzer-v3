@@ -8,6 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +155,25 @@ def configured_env_as(dependency_name: str, name: str, **kwargs: Any) -> Depende
         result.detail,
         result.required,
     )
+
+
+def configured_http_url(name: str, *, profile: str, required: bool = True) -> DependencyResult:
+    result = configured_env(name, profile=profile, required=required)
+    if result.status != "pass":
+        return result
+
+    value = _env(name)
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        status = "warn" if profile == "local" or not required else "fail"
+        return DependencyResult(
+            name,
+            "env",
+            status,
+            f"{name} must be an absolute http(s) URL for user-local connectors",
+            required,
+        )
+    return result
 
 
 def any_configured_env(names: Iterable[str], *, profile: str, dependency_name: str) -> DependencyResult:
@@ -601,8 +621,8 @@ def _futu_user_local_sync(profile: str) -> ProductFeature:
             ),
             configured_env("FUTU_CONNECTOR_MODE", profile=profile, expected="user_local_polling"),
             configured_env("FUTU_CONNECTOR_READ_ONLY", profile=profile, expected="true"),
-            configured_env("FUTU_CONNECTOR_POLL_ENDPOINT", profile=profile),
-            configured_env("FUTU_CONNECTOR_UPLOAD_ENDPOINT", profile=profile),
+            configured_http_url("FUTU_CONNECTOR_POLL_ENDPOINT", profile=profile),
+            configured_http_url("FUTU_CONNECTOR_UPLOAD_ENDPOINT", profile=profile),
             configured_env("FUTU_CONNECTOR_PAIRING_TOKEN", profile=profile),
         ],
         actions=[
@@ -681,6 +701,43 @@ def _ai_analysis(profile: str) -> ProductFeature:
 
 
 def _aliyun_cloud_foundation(profile: str) -> ProductFeature:
+    if profile == "lightweight":
+        region = _env("ALIYUN_REGION")
+        icp_required = region.lower().startswith("cn-")
+        icp = configured_env("ICP_BEIAN_NUMBER", profile=profile, required=icp_required)
+        if not icp_required and icp.status != "pass":
+            icp = DependencyResult(
+                "ICP_BEIAN_NUMBER",
+                "env",
+                "pass",
+                "ICP_BEIAN_NUMBER is not required for non-mainland Aliyun regions",
+                False,
+            )
+
+        return ProductFeature(
+            id="aliyun_cloud_foundation",
+            name="阿里云轻量服务器基础设施 / 域名",
+            description="轻量服务器生产流量运行在阿里云 SWAS/ECS 单机栈，依赖域名、HTTPS、本机 Postgres/Redis/MinIO 和 Docker Compose 健康状态。",
+            dependencies=[
+                configured_env("ALIYUN_REGION", profile=profile),
+                any_configured_env(
+                    ["ALIYUN_SWAS_INSTANCE_ID", "ALIYUN_ECS_INSTANCE_ID", "ALIYUN_LIGHTWEIGHT_INSTANCE_ID"],
+                    profile=profile,
+                    dependency_name="ALIYUN_SWAS_INSTANCE_ID",
+                ),
+                configured_env("ALIYUN_DOMAIN_NAME", profile=profile),
+                configured_env("ALIYUN_SSL_CERTIFICATE_ID", profile=profile),
+                configured_env("POSTGRES_HOST", profile=profile),
+                configured_env("REDIS_HOST", profile=profile),
+                configured_env("MINIO_HOST", profile=profile),
+                icp,
+            ],
+            actions=[
+                "轻量服务器用 Docker Compose 与 Nginx/宝塔承载第一阶段生产流量；SAE/ACR/OSS/EventBridge 属于后续托管化迁移门槛。",
+                "大陆 Region 必须补 ICP 备案号；非大陆 Region 以域名 HTTPS 和云资源健康为第一阶段门槛。",
+            ],
+        )
+
     return ProductFeature(
         id="aliyun_cloud_foundation",
         name="阿里云生产基础设施 / 备案",

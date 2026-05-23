@@ -185,6 +185,24 @@ def test_futu_user_local_sync_feature_passes_when_control_plane_and_env_are_read
     assert _dependency(feature, "cloud_connector_poll_upload")["status"] == "pass"
 
 
+def test_futu_user_local_sync_rejects_relative_control_plane_urls():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **PRODUCT_ENV,
+        "FUTU_CONNECTOR_POLL_ENDPOINT": "/broker/futu/poll",
+        "FUTU_CONNECTOR_UPLOAD_ENDPOINT": "/broker/futu/upload",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "futu_user_local_sync")
+    assert feature["status"] == "fail"
+    assert _dependency(feature, "FUTU_CONNECTOR_POLL_ENDPOINT")["status"] == "fail"
+    assert _dependency(feature, "FUTU_CONNECTOR_UPLOAD_ENDPOINT")["status"] == "fail"
+
+
 def test_wechat_claw_binding_feature_passes_when_env_and_binding_ui_are_ready():
     from scripts.product_feature_readiness import summarize_product_readiness
 
@@ -260,6 +278,56 @@ def test_ai_analysis_accepts_system_codex_bridge_without_openai_api_key():
     feature = _feature(summary, "ai_research_analysis")
     assert feature["status"] == "pass"
     assert _dependency(feature, "openai_deep_model_auth")["status"] == "pass"
+
+
+def test_lightweight_aliyun_foundation_uses_swas_not_sae_stack():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **LIGHTWEIGHT_ENV,
+        "ALIYUN_REGION": "ap-southeast-5",
+        "ALIYUN_SWAS_INSTANCE_ID": "swas-instance-id",
+        "ALIYUN_DOMAIN_NAME": "11office.top",
+        "ALIYUN_SSL_CERTIFICATE_ID": "cert-id",
+        "POSTGRES_HOST": "127.0.0.1",
+        "REDIS_HOST": "127.0.0.1",
+        "MINIO_HOST": "127.0.0.1",
+        "ICP_BEIAN_NUMBER": "",
+        "ALIYUN_ACCOUNT_ID": "",
+        "ALIYUN_ACR_REGISTRY": "",
+        "ALIYUN_SAE_NAMESPACE_ID": "",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "aliyun_cloud_foundation")
+    assert feature["status"] == "pass"
+    assert _dependency(feature, "ALIYUN_SWAS_INSTANCE_ID")["status"] == "pass"
+    assert _dependency(feature, "ICP_BEIAN_NUMBER")["status"] == "pass"
+
+
+def test_lightweight_mainland_aliyun_requires_icp():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **LIGHTWEIGHT_ENV,
+        "ALIYUN_REGION": "cn-shanghai",
+        "ALIYUN_SWAS_INSTANCE_ID": "swas-instance-id",
+        "ALIYUN_DOMAIN_NAME": "11office.top",
+        "ALIYUN_SSL_CERTIFICATE_ID": "cert-id",
+        "POSTGRES_HOST": "127.0.0.1",
+        "REDIS_HOST": "127.0.0.1",
+        "MINIO_HOST": "127.0.0.1",
+        "ICP_BEIAN_NUMBER": "",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "aliyun_cloud_foundation")
+    assert feature["status"] == "fail"
+    assert _dependency(feature, "ICP_BEIAN_NUMBER")["status"] == "fail"
 
 
 def test_placeholder_values_are_treated_as_missing_in_production():

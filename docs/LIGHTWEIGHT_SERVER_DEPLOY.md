@@ -146,6 +146,18 @@ OPENCLAW_SKILL_KEY=一串随机字符串
 
 `OPENCLAW_DELIVERY_MODE=log` 可以完成绑定和路由写入验证；正式让系统通过微信回复消息前，再切到 `webhook` 并补齐 `OPENCLAW_DELIVERY_WEBHOOK_URL`、`OPENCLAW_DELIVERY_WEBHOOK_SECRET` 和 `OPENCLAW_CRON_SECRET`。
 
+用户本地 Futu connector 走云端 poll/upload 控制面。轻量服务器正式让用户同步持仓前，至少配置：
+
+```text
+FUTU_CONNECTOR_MODE=user_local_polling
+FUTU_CONNECTOR_READ_ONLY=true
+FUTU_CONNECTOR_POLL_ENDPOINT=https://你的域名/api/v3/connectors/poll
+FUTU_CONNECTOR_UPLOAD_ENDPOINT=https://你的域名/api/v3/connectors/upload
+FUTU_CONNECTOR_PAIRING_TOKEN=一串随机字符串
+```
+
+如果使用宝塔/Nginx 只反代了 WebApp，还需要把 `/api/v3/connectors/` 代理到 `http://127.0.0.1:8000/api/v3/connectors/`，否则用户本地 connector 会被 WebApp 登录中间件重定向。
+
 FTShare 行情源通过 ClawHub/OpenClaw skill 接入，已安装到 `openclaw/skills/ftshare-market-data`。轻量服务器的 data-service 会通过只读挂载读取该 skill，默认路径如下：
 
 ```text
