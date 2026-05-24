@@ -214,9 +214,10 @@ chmod +x scripts/server-preflight.sh
 docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 ```
 
+默认 `docker-compose.server.yml` 使用 Docker service DNS：`POSTGRES_HOST=postgres`、
+`REDIS_HOST=redis`、`MINIO_HOST=minio`、`DATA_SERVICE_URL=http://data-service:8000`。
 如果服务器镜像或面板防火墙完全阻断 Docker bridge（典型表现是容器内访问
-`postgres:5432`、`host.docker.internal:5432`、外部 DNS 都报 `No route to host`），
-改用 host-network 覆盖文件：
+`postgres:5432`、`minio:9000`、外部 DNS 都报 `No route to host`），改用 host-network 覆盖文件：
 
 ```bash
 POSTGRES_HOST=127.0.0.1
@@ -465,19 +466,22 @@ docker compose --env-file .env.server \
 # 如果 gbrain 处于 restarting，先看数据库连接日志
 docker compose --env-file .env.server -f docker-compose.server.yml logs --tail=120 gbrain
 
-# 如果日志是 ECONNREFUSED / No route to host postgres:5432，通常是宿主机
-# Docker bridge 禁用了容器互通。确认 .env.server 使用 host-gateway 连接：
+# 如果日志是 ECONNREFUSED / No route to host postgres:5432，先确认 .env.server
+# 使用 compose 内部服务名：
 # INTERNAL_HOST_BIND=172.17.0.1
-# POSTGRES_HOST=host.docker.internal
+# POSTGRES_HOST=postgres
 # POSTGRES_PORT=5432
 # POSTGRES_HOST_PORT=5432
-# REDIS_HOST=host.docker.internal
+# REDIS_HOST=redis
 # REDIS_PORT=6379
 # REDIS_HOST_PORT=6379
-# MINIO_HOST=host.docker.internal
+# MINIO_HOST=minio
 # MINIO_PORT=9000
 # MINIO_HOST_PORT=9000
-# DATA_SERVICE_URL=http://host.docker.internal:8000
+# DATA_SERVICE_URL=http://data-service:8000
+#
+# 如果容器 DNS 和 bridge 网络都被宿主机策略阻断，再切换
+# docker-compose.lightweight-host.yml 并使用 127.0.0.1。
 #
 # 轻量服务器冷启动或 Postgres 短暂不可达时，也可调大启动重试窗口：
 # GBRAIN_DATABASE_CONNECT_RETRIES=12

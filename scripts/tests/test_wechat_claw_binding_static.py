@@ -59,3 +59,11 @@ def test_openclaw_delivery_webhook_is_not_blocked_by_login_middleware():
     middleware = read("webapp/src/middleware.ts")
 
     assert "'/api/openclaw/delivery'" in middleware
+
+
+def test_openclaw_workers_do_not_inherit_http_gateway_healthcheck():
+    compose = read("docker-compose.server.yml")
+
+    assert "openclaw-outbox-worker:" in compose
+    assert "openclaw-post-confirmation-worker:" in compose
+    assert "os.kill(1, 0)" in compose

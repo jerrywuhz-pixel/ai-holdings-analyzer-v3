@@ -312,6 +312,12 @@ services:
       OPENCLAW_OUTBOX_WORKER_POLL_INTERVAL_SECONDS: ${OPENCLAW_OUTBOX_WORKER_POLL_INTERVAL_SECONDS:-2}
       SENTRY_DSN: ${SENTRY_DSN:-}
     command: ["python", "-m", "openclaw.gateway.outbox_worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os; os.kill(1, 0)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       openclaw:
         condition: service_healthy
@@ -339,6 +345,12 @@ services:
       POST_CONFIRMATION_WORKER_POLL_INTERVAL_SECONDS: ${POST_CONFIRMATION_WORKER_POLL_INTERVAL_SECONDS:-5}
       SENTRY_DSN: ${SENTRY_DSN:-}
     command: ["python", "-m", "openclaw.gateway.post_confirmation_worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os; os.kill(1, 0)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       openclaw:
         condition: service_healthy
