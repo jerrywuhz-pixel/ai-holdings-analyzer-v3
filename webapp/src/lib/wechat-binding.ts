@@ -237,7 +237,7 @@ export async function startWechatBindingSession(user: AppUser) {
   const localTokenList = credential?.bot_token_ciphertext ? [decryptCredential(credential.bot_token_ciphertext)] : [];
   const qr = await requestClawbotQrSession(localTokenList);
   const bindCode = generateBindCode();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   const now = nowIso();
   const botTokenCiphertext = qr.botToken ? encryptCredential(qr.botToken) : null;
 

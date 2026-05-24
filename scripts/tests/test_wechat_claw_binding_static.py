@@ -53,6 +53,13 @@ def test_bind_redirect_requires_existing_clawbot_credential():
     assert "status.alreadyConnected && credential" in binding
 
 
+def test_wechat_binding_session_uses_upstream_five_minute_qr_ttl():
+    binding = read("webapp/src/lib/wechat-binding.ts")
+
+    assert "Date.now() + 5 * 60 * 1000" in binding
+    assert "Date.now() + 10 * 60 * 1000" not in binding
+
+
 def test_wechat_onboarding_uses_modal_api_flow():
     page = read("webapp/src/app/onboarding/wechat/page.tsx")
     component = read("webapp/src/components/wechat-binding-panel.tsx")
