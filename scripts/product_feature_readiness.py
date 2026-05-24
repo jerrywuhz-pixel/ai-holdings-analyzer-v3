@@ -649,9 +649,10 @@ def _futu_user_local_sync(profile: str) -> ProductFeature:
             configured_http_url("FUTU_CONNECTOR_POLL_ENDPOINT", profile=profile),
             configured_http_url("FUTU_CONNECTOR_UPLOAD_ENDPOINT", profile=profile),
             configured_env("FUTU_CONNECTOR_PAIRING_TOKEN", profile=profile),
+            configured_env("BROKER_SYNC_REPOSITORY", profile=profile, allowed={"postgres", "supabase"}),
         ],
         actions=[
-            "设置 FUTU_CONNECTOR_MODE=user_local_polling、poll/upload URL 与每个用户本地 connector 的 pairing token。",
+            "设置 FUTU_CONNECTOR_MODE=user_local_polling、poll/upload URL、pairing token 与 BROKER_SYNC_REPOSITORY。",
             "把当前 local_dev_direct 烟测扩展成 user_local_polling 云端端到端烟测。",
         ],
     )

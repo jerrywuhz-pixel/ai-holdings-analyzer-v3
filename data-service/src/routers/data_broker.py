@@ -27,7 +27,7 @@ from services.margin import MarginEstimator, SellPutMarginEstimateRequest
 from services.broker_sync import (
     FutuBrokerSyncRequest,
     FutuBrokerSyncService,
-    create_supabase_broker_sync_repository_from_env,
+    create_broker_sync_repository_from_env,
     _summarize_account_snapshot,
 )
 from services.sell_put import (
@@ -186,7 +186,7 @@ async def upload_connector_snapshot(
 
     persistence = None
     if payload.persist:
-        repository = create_supabase_broker_sync_repository_from_env()
+        repository = create_broker_sync_repository_from_env()
         request = FutuBrokerSyncRequest(
             tenant_id=payload.tenant_id,
             broker_connection_id=snapshot.broker_connection_id,

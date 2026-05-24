@@ -168,9 +168,10 @@ FUTU_CONNECTOR_READ_ONLY=true
 FUTU_CONNECTOR_POLL_ENDPOINT=https://你的域名/api/v3/connectors/poll
 FUTU_CONNECTOR_UPLOAD_ENDPOINT=https://你的域名/api/v3/connectors/upload
 FUTU_CONNECTOR_PAIRING_TOKEN=一串随机字符串
+BROKER_SYNC_REPOSITORY=postgres
 ```
 
-如果使用宝塔/Nginx 只反代了 WebApp，还需要把 `/api/v3/connectors/` 代理到 `http://127.0.0.1:8000/api/v3/connectors/`，否则用户本地 connector 会被 WebApp 登录中间件重定向。
+如果使用宝塔/Nginx 只反代了 WebApp，还需要把 `/api/v3/connectors/` 代理到 data-service。默认 Docker bridge 部署下 data-service 监听在 `172.17.0.1:8000`；host-network 覆盖部署才是 `127.0.0.1:8000`。这个路径必须直达 data-service，否则用户本地 connector 会被 WebApp 登录中间件重定向或在 Nginx 层返回 502。
 
 Sell Put 与期权分析的新鲜度阈值建议显式配置，避免默认值和生产预期漂移：
 
