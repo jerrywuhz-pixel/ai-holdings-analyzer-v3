@@ -45,9 +45,10 @@ export interface BindingCandidate {
 const DEFAULT_CLAWBOT_API_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const LOCAL_DEV_PREFIX = 'local-dev:v1:';
 const AES_PREFIX = 'aes-256-gcm:v1:';
-const DEFAULT_ILINK_CLIENT_VERSION = '65536';
-const DEFAULT_CHANNEL_VERSION = '1.0.2';
-const DEFAULT_BOT_AGENT = 'openclaw';
+const DEFAULT_ILINK_APP_ID = 'bot';
+const DEFAULT_ILINK_CLIENT_VERSION = '132099';
+const DEFAULT_CHANNEL_VERSION = '2.4.3';
+const DEFAULT_BOT_AGENT = 'OpenClaw';
 
 function apiBaseUrl() {
   return (process.env.WECHAT_CLAWBOT_API_BASE_URL || DEFAULT_CLAWBOT_API_BASE_URL).replace(/\/+$/, '');
@@ -62,18 +63,27 @@ function randomWechatUin() {
   return Buffer.from(value, 'utf8').toString('base64');
 }
 
+function clawbotCommonHeaders() {
+  const headers: Record<string, string> = {
+    'iLink-App-Id': process.env.WECHAT_ILINK_APP_ID || DEFAULT_ILINK_APP_ID,
+    'iLink-App-ClientVersion': process.env.WECHAT_ILINK_CLIENT_VERSION || DEFAULT_ILINK_CLIENT_VERSION,
+  };
+
+  const routeTag = process.env.WECHAT_ILINK_ROUTE_TAG;
+  if (routeTag) {
+    headers.SKRouteTag = routeTag;
+  }
+
+  return headers;
+}
+
 function clawbotHeaders(botToken?: string) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     AuthorizationType: 'ilink_bot_token',
     'X-WECHAT-UIN': randomWechatUin(),
-    'iLink-App-ClientVersion': process.env.WECHAT_ILINK_CLIENT_VERSION || DEFAULT_ILINK_CLIENT_VERSION,
+    ...clawbotCommonHeaders(),
   };
-
-  const ilinkAppId = process.env.WECHAT_ILINK_APP_ID;
-  if (ilinkAppId) {
-    headers['iLink-App-Id'] = ilinkAppId;
-  }
 
   if (botToken) {
     headers.Authorization = `Bearer ${botToken}`;
@@ -200,7 +210,7 @@ export async function requestClawbotQrStatus(
   const response = await fetch(url.toString(), {
     method: 'GET',
     cache: 'no-store',
-    headers: clawbotHeaders(),
+    headers: clawbotCommonHeaders(),
   });
   const payload = await parseJsonResponse(response);
   const status = pickString(payload, ['status', 'state']) || 'unknown';

@@ -11,6 +11,10 @@ def read(path: str) -> str:
 def test_clawbot_qr_start_matches_tencent_openclaw_weixin_protocol():
     source = read("webapp/src/lib/clawbot.ts")
 
+    assert "DEFAULT_ILINK_APP_ID = 'bot'" in source
+    assert "DEFAULT_ILINK_CLIENT_VERSION = '132099'" in source
+    assert "DEFAULT_CHANNEL_VERSION = '2.4.3'" in source
+    assert "DEFAULT_BOT_AGENT = 'OpenClaw'" in source
     assert "method: 'POST'" in source
     assert "get_bot_qrcode" in source
     assert "local_token_list" in source
@@ -27,6 +31,12 @@ def test_clawbot_qr_status_handles_redirect_and_pair_code_flow():
     assert "redirect_host" in clawbot
     assert "redirectHost" in clawbot
     assert "verify_code" in clawbot
+    status_block = clawbot.split("export async function requestClawbotQrStatus", 1)[1].split(
+        "export async function requestClawbotUpdates",
+        1,
+    )[0]
+    assert "headers: clawbotCommonHeaders()" in status_block
+    assert "clawbotHeaders()" not in status_block
     assert "requestClawbotQrStatus(authSession.qrcode, {" in binding
     assert "baseUrl: authSession.base_url" in binding
     assert "status.redirectHost" in binding
@@ -51,6 +61,8 @@ def test_wechat_onboarding_uses_modal_api_flow():
     assert "扫码登录" in component
     assert "/api/onboarding/wechat/binding" in component
     assert "重新生成" in component
+    assert "window.setTimeout(poll" in component
+    assert "setInterval" not in component
 
 
 def test_onboarding_state_does_not_require_supabase_admin_client():

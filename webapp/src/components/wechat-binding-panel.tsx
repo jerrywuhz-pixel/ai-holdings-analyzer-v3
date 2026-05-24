@@ -74,6 +74,7 @@ export function WechatBindingPanel({
 
   const isAuthorized = auth?.status === 'authorized' || auth?.status === 'conversation_pending' || auth?.status === 'conversation_verified';
   const isBound = Boolean(binding);
+  const authId = auth?.id;
   const needsPairCode = Boolean(auth?.error_message?.includes('验证码'));
   const modalTitle = isBound ? '微信已连接' : '扫码登录';
   const modalHint = isBound
@@ -110,22 +111,37 @@ export function WechatBindingPanel({
   }
 
   useEffect(() => {
-    if (!modalOpen || !auth || binding || needsPairCode) return;
-    const timer = window.setInterval(() => {
-      postBinding('refresh', auth.id)
-        .then((payload) => {
+    if (!modalOpen || !authId || binding || needsPairCode) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function poll() {
+      try {
+        const payload = await postBinding('refresh', authId);
+        if (!cancelled) {
           if (payload.auth !== undefined) setAuth(payload.auth || null);
           if (payload.binding) {
             setBinding(payload.binding);
             setMessage('微信 ClawBot 已完成绑定');
           }
-        })
-        .catch((err) => {
+        }
+      } catch (err) {
+        if (!cancelled) {
           setError(err instanceof Error ? err.message : '刷新微信扫码状态失败');
-        });
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [auth, binding, modalOpen, needsPairCode]);
+        }
+      } finally {
+        if (!cancelled) {
+          timer = window.setTimeout(poll, 5000);
+        }
+      }
+    }
+
+    timer = window.setTimeout(poll, 500);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [authId, binding, modalOpen, needsPairCode]);
 
   return (
     <>
