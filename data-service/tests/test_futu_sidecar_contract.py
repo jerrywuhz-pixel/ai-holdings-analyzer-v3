@@ -108,6 +108,14 @@ def test_futu_sidecar_parses_futu_us_option_strike_scale():
     assert parsed["strike"] == 400.0
 
 
+def test_futu_sidecar_parses_compact_us_option_strike_scale():
+    parsed = sidecar_server._parse_option_symbol("AAOX260618P45000")
+
+    assert parsed["option_type"] == "put"
+    assert parsed["expiry"] == "2026-06-18"
+    assert parsed["strike"] == 45.0
+
+
 def test_futu_sidecar_maps_position_security_name():
     mapped = sidecar_server._map_position_record(
         {
@@ -125,6 +133,109 @@ def test_futu_sidecar_maps_position_security_name():
     assert mapped["symbol"] == "00700"
     assert mapped["name"] == "腾讯控股"
     assert mapped["market"] == "HK"
+
+
+def test_futu_sidecar_real_position_query_uses_configured_account_selector():
+    class FakeTrdEnv:
+        REAL = "REAL"
+
+    class FakeTrdMarket:
+        US = "US"
+
+    class FakeSdk:
+        RET_OK = 0
+        TrdEnv = FakeTrdEnv
+        TrdMarket = FakeTrdMarket
+
+    class FakeTradeContext:
+        def __init__(self):
+            self.position_kwargs = None
+
+        def position_list_query(self, **kwargs):
+            self.position_kwargs = kwargs
+            return (
+                FakeSdk.RET_OK,
+                [
+                    {
+                        "code": "US.AAPL",
+                        "position_market": "US",
+                        "qty": 10,
+                        "average_cost": 100,
+                        "nominal_price": 120,
+                    }
+                ],
+            )
+
+    settings = sidecar_server.FutuSidecarSettings(
+        mode="real",
+        trade_market="US",
+        trade_env="REAL",
+        account_id=12345678,
+        account_index=2,
+    )
+    reader = sidecar_server.FutuSdkSidecarReader.__new__(sidecar_server.FutuSdkSidecarReader)
+    reader._settings = settings
+    reader._sdk = FakeSdk
+    ctx = FakeTradeContext()
+
+    positions = reader._read_positions(ctx)
+
+    assert positions[0]["symbol"] == "AAPL"
+    assert ctx.position_kwargs == {
+        "trd_env": "REAL",
+        "acc_id": 12345678,
+        "acc_index": 2,
+        "refresh_cache": False,
+        "position_market": "US",
+    }
+
+
+def test_futu_sidecar_diagnostic_falls_back_to_account_index_when_acc_id_is_rejected():
+    class FakeTrdEnv:
+        REAL = "REAL"
+
+    class FakeTrdMarket:
+        US = "US"
+
+    class FakeSdk:
+        RET_OK = 0
+        TrdEnv = FakeTrdEnv
+        TrdMarket = FakeTrdMarket
+
+    class FakeTradeContext:
+        def __init__(self):
+            self.calls = []
+
+        def position_list_query(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs["acc_id"] == 12345678:
+                return 1, "ERROR. Nonexisting acc_id 12345678!"
+            return FakeSdk.RET_OK, [{"code": "US.AAPL", "qty": 10}]
+
+    settings = sidecar_server.FutuSidecarSettings(
+        mode="real",
+        trade_market="US",
+        trade_env="REAL",
+        account_id=12345678,
+        account_index=2,
+    )
+    reader = sidecar_server.FutuSdkSidecarReader.__new__(sidecar_server.FutuSdkSidecarReader)
+    reader._settings = settings
+    reader._sdk = FakeSdk
+    ctx = FakeTradeContext()
+
+    position_count, error = reader._diagnostic_position_count(
+        ctx,
+        acc_id=12345678,
+        acc_index=2,
+        trade_market="US",
+    )
+
+    assert position_count == 1
+    assert error is None
+    assert ctx.calls[0]["acc_id"] == 12345678
+    assert ctx.calls[1]["acc_id"] == 0
+    assert ctx.calls[1]["acc_index"] == 2
 
 
 def test_futu_sidecar_account_diagnostics_returns_minimal_masked_payload(monkeypatch):

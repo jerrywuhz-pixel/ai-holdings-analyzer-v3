@@ -368,6 +368,30 @@ You can also let the host-start script launch the sidecar:
 START_FUTU_SIDECAR=true FUTU_SIDECAR_MODE=mock ./scripts/start-local-services.sh
 ```
 
+For the Mac mini native deployment that uses `.env.server` and the
+`.runtime/native/venv-py` runtime, use the native launch wrappers instead of
+the generic dev script:
+
+```bash
+./scripts/local-native-futu-sidecar.sh
+./scripts/local-native-data-service.sh
+./scripts/local-native-webapp.sh
+```
+
+`local-native-data-service.sh` intentionally overrides the Docker-oriented
+`FUTU_CONNECTOR_BASE_URL=http://host.docker.internal:8765` value and uses
+`FUTU_CONNECTOR_MODE=local_connector` with
+`http://127.0.0.1:8765`. This keeps Mac native verification connected to the
+local read-only sidecar, while cloud production continues to use
+`user_local_polling` through the poll/upload control plane.
+
+If `local-native-futu-sidecar.sh` reports a missing Futu SDK, install the
+connector dependency into the native runtime:
+
+```bash
+uv pip install --python .runtime/native/venv-py/bin/python -r local_connectors/requirements.txt
+```
+
 The sidecar exposes only:
 
 - `GET /health`

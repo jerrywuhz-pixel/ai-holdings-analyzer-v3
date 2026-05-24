@@ -3,6 +3,7 @@ import { ACCESS_TOKEN_COOKIE, LOCAL_SESSION_COOKIE } from '@/lib/auth-cookies';
 
 const PUBLIC_PREFIXES = [
   '/api/auth',
+  '/api/openclaw/delivery',
   '/_next',
   '/favicon.svg',
   '/favicon.ico',

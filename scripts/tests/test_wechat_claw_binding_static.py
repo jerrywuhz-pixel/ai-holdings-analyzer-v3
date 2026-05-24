@@ -53,3 +53,9 @@ def test_openclaw_delivery_webhook_sends_via_tencent_ilink_sendmessage():
     assert "openclaw-outbox-worker" in compose
     assert "openclaw.gateway.outbox_worker" in compose
     assert "openclaw-post-confirmation-worker" in compose
+
+
+def test_openclaw_delivery_webhook_is_not_blocked_by_login_middleware():
+    middleware = read("webapp/src/middleware.ts")
+
+    assert "'/api/openclaw/delivery'" in middleware
