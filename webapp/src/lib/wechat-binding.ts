@@ -62,6 +62,12 @@ async function latestAuthorizedCredential(tenantId: string) {
   return rows[0] || null;
 }
 
+function redirectHostToBaseUrl(redirectHost?: string | null) {
+  const host = redirectHost?.trim();
+  if (!host) return '';
+  return `https://${host.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
+}
+
 async function storeWechatCredential(
   tenantId: string,
   authSessionId: string,
@@ -227,7 +233,9 @@ async function loadAuthSession(user: AppUser, authSessionId: string) {
 export async function startWechatBindingSession(user: AppUser) {
   const session = await ensureOnboardingSession(user);
   const sql = sqlClient();
-  const qr = await requestClawbotQrSession();
+  const credential = await latestAuthorizedCredential(user.id);
+  const localTokenList = credential?.bot_token_ciphertext ? [decryptCredential(credential.bot_token_ciphertext)] : [];
+  const qr = await requestClawbotQrSession(localTokenList);
   const bindCode = generateBindCode();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const now = nowIso();
@@ -296,19 +304,38 @@ export async function startWechatBindingSession(user: AppUser) {
   };
 }
 
-export async function refreshWechatBindingStatus(user: AppUser, authSessionId: string) {
+export async function refreshWechatBindingStatus(
+  user: AppUser,
+  authSessionId: string,
+  options: { verifyCode?: string | null } = {}
+) {
   const authSession = await loadAuthSession(user, authSessionId);
   const sql = sqlClient();
-  const status = await requestClawbotQrStatus(authSession.qrcode);
+  const credential = await latestAuthorizedCredential(user.id);
+  const status = await requestClawbotQrStatus(authSession.qrcode, {
+    baseUrl: authSession.base_url,
+    verifyCode: options.verifyCode,
+  });
   const normalizedStatus = status.status.toLowerCase();
   const now = nowIso();
   const botToken = status.botToken;
-  const baseUrl = status.baseUrl || authSession.base_url || '';
+  const redirectBaseUrl = redirectHostToBaseUrl(status.redirectHost);
+  const baseUrl = status.baseUrl || redirectBaseUrl || authSession.base_url || '';
   const accountId = status.accountId || authSession.openclaw_account_id || '';
-  const authorized = Boolean(botToken) || ['confirmed', 'authorized', 'success', 'binded_redirect'].includes(normalizedStatus);
+  const hasStoredCredential = Boolean(authSession.bot_token_ciphertext || credential?.bot_token_ciphertext);
+  const authorized =
+    Boolean(botToken) ||
+    ((normalizedStatus === 'authorized' || normalizedStatus === 'success') && hasStoredCredential) ||
+    (normalizedStatus === 'confirmed' && Boolean(botToken || authSession.bot_token_ciphertext)) ||
+    Boolean(status.alreadyConnected && credential);
   const failed = ['expired', 'failed', 'revoked', 'cancelled', 'canceled', 'verify_code_blocked'].includes(normalizedStatus);
   let botTokenCiphertext = authSession.bot_token_ciphertext;
   let binding: Record<string, any> | null = null;
+  const errorMessage = failed
+    ? `Clawbot status: ${status.status}`
+    : normalizedStatus === 'need_verifycode'
+      ? '请输入手机微信显示的数字验证码'
+      : null;
 
   if (botToken) {
     botTokenCiphertext = await storeWechatCredential(
@@ -330,7 +357,7 @@ export async function refreshWechatBindingStatus(user: AppUser, authSessionId: s
       get_updates_buf = ${status.getUpdatesBuf || authSession.get_updates_buf || null},
       confirmed_at = ${authorized ? now : authSession.confirmed_at},
       last_checked_at = ${now},
-      error_message = ${failed ? `Clawbot status: ${status.status}` : null},
+      error_message = ${errorMessage},
       updated_at = now()
     WHERE id = ${authSession.id}
   `;
@@ -346,13 +373,13 @@ export async function refreshWechatBindingStatus(user: AppUser, authSessionId: s
       WHERE tenant_id = ${user.id}
     `;
 
-    if (accountId || status.alreadyConnected) {
+    if (accountId) {
       binding = await upsertWechatBinding({
         user,
         authSessionId: authSession.id,
-        accountId: accountId || `clawbot:${authSession.id}`,
+        accountId,
         channelUserRef: status.userId || null,
-        source: status.alreadyConnected ? 'qrcode_already_connected' : 'qrcode_confirmed',
+        source: 'qrcode_confirmed',
       });
     }
   }

@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const action = String(body?.action || 'start');
   const authSessionId = String(body?.authSessionId || '').trim();
+  const verifyCode = String(body?.verifyCode || '').trim();
 
   try {
     if (action === 'start') {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'refresh') {
-      const result = await refreshWechatBindingStatus(user, authSessionId);
+      const result = await refreshWechatBindingStatus(user, authSessionId, { verifyCode });
       return NextResponse.json({ status: result.binding ? 'bound' : 'pending', ...result });
     }
 

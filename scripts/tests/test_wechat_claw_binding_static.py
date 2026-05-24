@@ -15,6 +15,32 @@ def test_clawbot_qr_start_matches_tencent_openclaw_weixin_protocol():
     assert "get_bot_qrcode" in source
     assert "local_token_list" in source
     assert "qrcode_img_content" in source
+    assert "localTokenList.slice(0, 10)" in source
+
+
+def test_clawbot_qr_status_handles_redirect_and_pair_code_flow():
+    clawbot = read("webapp/src/lib/clawbot.ts")
+    binding = read("webapp/src/lib/wechat-binding.ts")
+    route = read("webapp/src/app/api/onboarding/wechat/binding/route.ts")
+    component = read("webapp/src/components/wechat-binding-panel.tsx")
+
+    assert "redirect_host" in clawbot
+    assert "redirectHost" in clawbot
+    assert "verify_code" in clawbot
+    assert "requestClawbotQrStatus(authSession.qrcode, {" in binding
+    assert "baseUrl: authSession.base_url" in binding
+    assert "status.redirectHost" in binding
+    assert "need_verifycode" in binding
+    assert "verifyCode" in route
+    assert "pairCode" in component
+    assert "请输入手机微信显示的数字验证码" in component
+
+
+def test_bind_redirect_requires_existing_clawbot_credential():
+    binding = read("webapp/src/lib/wechat-binding.ts")
+
+    assert "const credential = await latestAuthorizedCredential(user.id)" in binding
+    assert "status.alreadyConnected && credential" in binding
 
 
 def test_wechat_onboarding_uses_modal_api_flow():

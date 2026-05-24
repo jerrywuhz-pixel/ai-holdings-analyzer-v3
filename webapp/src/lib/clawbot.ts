@@ -18,6 +18,7 @@ export interface ClawbotQrStatus {
   accountId?: string;
   userId?: string;
   baseUrl?: string;
+  redirectHost?: string;
   getUpdatesBuf?: string;
   alreadyConnected?: boolean;
   raw: unknown;
@@ -154,7 +155,7 @@ function qrcodeImageUrl(payload: unknown) {
   return `data:image/png;base64,${content}`;
 }
 
-export async function requestClawbotQrSession(): Promise<ClawbotQrSession> {
+export async function requestClawbotQrSession(localTokenList: string[] = []): Promise<ClawbotQrSession> {
   const url = new URL('/ilink/bot/get_bot_qrcode', `${apiBaseUrl()}/`);
   url.searchParams.set('bot_type', '3');
   const sessionKey = crypto.randomUUID();
@@ -164,7 +165,7 @@ export async function requestClawbotQrSession(): Promise<ClawbotQrSession> {
     cache: 'no-store',
     headers: clawbotHeaders(),
     body: JSON.stringify({
-      local_token_list: [],
+      local_token_list: localTokenList.slice(0, 10),
     }),
   });
   const payload = await parseJsonResponse(response);
@@ -186,9 +187,15 @@ export async function requestClawbotQrSession(): Promise<ClawbotQrSession> {
   };
 }
 
-export async function requestClawbotQrStatus(qrcode: string): Promise<ClawbotQrStatus> {
-  const url = new URL('/ilink/bot/get_qrcode_status', `${apiBaseUrl()}/`);
+export async function requestClawbotQrStatus(
+  qrcode: string,
+  options: { baseUrl?: string | null; verifyCode?: string | null } = {}
+): Promise<ClawbotQrStatus> {
+  const url = new URL('/ilink/bot/get_qrcode_status', `${normalizeBaseUrl(options.baseUrl)}/`);
   url.searchParams.set('qrcode', qrcode);
+  if (options.verifyCode?.trim()) {
+    url.searchParams.set('verify_code', options.verifyCode.trim());
+  }
 
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -196,15 +203,17 @@ export async function requestClawbotQrStatus(qrcode: string): Promise<ClawbotQrS
     headers: clawbotHeaders(),
   });
   const payload = await parseJsonResponse(response);
+  const status = pickString(payload, ['status', 'state']) || 'unknown';
 
   return {
-    status: pickString(payload, ['status', 'state']) || 'unknown',
+    status,
     botToken: pickString(payload, ['bot_token', 'botToken']),
     accountId: pickString(payload, ['ilink_bot_id', 'bot_id', 'account_id']),
     userId: pickString(payload, ['ilink_user_id', 'user_id', 'from_user_id']),
     baseUrl: pickString(payload, ['baseurl', 'base_url', 'baseUrl']),
+    redirectHost: pickString(payload, ['redirect_host', 'redirectHost']),
     getUpdatesBuf: pickString(payload, ['get_updates_buf', 'getUpdatesBuf']),
-    alreadyConnected: pickString(payload, ['status', 'state']) === 'binded_redirect',
+    alreadyConnected: status.toLowerCase() === 'binded_redirect',
     raw: payload,
   };
 }
