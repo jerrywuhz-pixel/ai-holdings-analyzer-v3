@@ -900,7 +900,8 @@ def _days_to_expiry(expiry: str) -> Optional[int]:
 def _expiry_window(request: OptionChainRequest) -> tuple[str, str]:
     today = date.today()
     start_days = request.min_days_to_expiry if request.min_days_to_expiry is not None else 0
-    end_days = request.max_days_to_expiry if request.max_days_to_expiry is not None else 60
+    end_days = request.max_days_to_expiry if request.max_days_to_expiry is not None else 29
+    end_days = min(end_days, start_days + 29)
     return (today + timedelta(days=start_days)).isoformat(), (today + timedelta(days=end_days)).isoformat()
 
 

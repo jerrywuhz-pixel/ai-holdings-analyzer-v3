@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from datetime import date
 
 from fastapi.testclient import TestClient
 
@@ -98,6 +99,18 @@ def test_futu_sidecar_option_chain_contract_returns_sell_put_fields(monkeypatch)
     assert data["contracts"][0]["implied_volatility"] is not None
     assert data["contracts"][0]["open_interest"] is not None
     assert data["lineage"]["account_context"]["security_firm"] == "FUTUINC"
+
+
+def test_futu_sidecar_default_option_window_respects_futu_30_day_limit():
+    request = sidecar_server.OptionChainRequest(
+        tenant_id="tenant-1",
+        broker_connection_id="bc-futu-1",
+        underlying_symbol="AAPL",
+    )
+
+    start, end = sidecar_server._expiry_window(request)
+
+    assert (date.fromisoformat(end) - date.fromisoformat(start)).days <= 29
 
 
 def test_futu_sidecar_parses_futu_us_option_strike_scale():
