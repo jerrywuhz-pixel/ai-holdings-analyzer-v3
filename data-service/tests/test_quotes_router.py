@@ -277,3 +277,34 @@ def test_search_fallback_to_registry():
     assert data["results"][0]["market"] == "CN"
     assert data["results"][0]["exchange"] == "SH"
     assert data["results"][0]["type"] == "EQUITY"
+
+
+def test_search_fallback_to_exact_resolver_when_provider_search_is_empty():
+    """Yahoo search can be rate-limited; exact symbol search should still return resolver output."""
+    mock_info = SymbolInfo(
+        symbol="AAPL",
+        name_en="Apple Inc.",
+        market="US",
+        exchange="NASDAQ",
+        provider_symbols={"yahoo": "AAPL"},
+        aliases=[],
+    )
+
+    with patch(
+        "routers.quotes._registry.search_symbols",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        with patch("routers.quotes.resolver_search", new_callable=AsyncMock, return_value=[]):
+            with patch("routers.quotes.resolve_symbol", new_callable=AsyncMock, return_value=mock_info):
+                response = client.get("/api/search?q=AAPL&market=US")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert len(data["results"]) == 1
+    assert data["results"][0]["symbol"] == "AAPL"
+    assert data["results"][0]["name"] == "Apple Inc."
+    assert data["results"][0]["market"] == "US"
+    assert data["results"][0]["exchange"] == "NASDAQ"
+    assert data["results"][0]["type"] == "EQUITY"

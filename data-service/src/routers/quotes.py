@@ -38,6 +38,7 @@ class SearchResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     yahoo: bool
+    stooq: bool
     tushare: bool
     ftshare: bool
     akshare: bool
@@ -177,6 +178,18 @@ async def search_symbols(
                 }
                 for r in registry_results
             ]
+        if not results:
+            resolved = await resolve_symbol(q)
+            if resolved is not None and (not market or resolved.market == market.upper()):
+                results = [
+                    {
+                        "symbol": resolved.symbol,
+                        "name": resolved.name_zh or resolved.name_en or resolved.symbol,
+                        "market": resolved.market,
+                        "exchange": resolved.exchange,
+                        "type": "EQUITY",
+                    }
+                ]
         return {"ok": True, "results": results}
     except HTTPException:
         raise

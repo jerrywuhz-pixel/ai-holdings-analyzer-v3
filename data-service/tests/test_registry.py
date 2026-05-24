@@ -84,6 +84,27 @@ async def test_get_quote_selects_yahoo_for_us_symbol(registry):
 
 
 @pytest.mark.asyncio
+async def test_get_quote_falls_back_to_stooq_when_yahoo_rate_limited(registry):
+    """Yahoo 限流时，美股行情回退到 no-key Stooq 源，避免用户查询直接失败。"""
+    mock_quote = {"symbol": "AAPL", "price": 308.82, "market": "US", "source": "stooq"}
+
+    with patch.object(registry._cache, "get", new_callable=AsyncMock, return_value=None):
+        with patch.object(registry._adapters["yahoo"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("429 Too Many Requests")):
+            with patch.object(registry._adapters["stooq"], "fetch_quote", new_callable=AsyncMock, return_value=mock_quote) as mock_stooq:
+                with patch.object(registry._cache, "set", new_callable=AsyncMock) as mock_cache_set:
+                    result = await registry.get_quote("AAPL")
+
+    assert result["symbol"] == "AAPL"
+    assert result["price"] == 308.82
+    assert result["source"] == "stooq"
+    assert result["source_fallback"] is True
+    assert result["cached"] is False
+    assert result["stale"] is False
+    mock_stooq.assert_awaited_once_with("AAPL")
+    mock_cache_set.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_get_quote_cache_hit_returns_directly(registry):
     """缓存命中时直接返回缓存值（带 enriched metadata），不请求数据源，也不写入缓存。"""
     mock_quote = {"symbol": "AAPL", "price": 191.24}
@@ -121,21 +142,24 @@ async def test_get_quote_cache_miss_fetches_and_writes_cache(registry):
 
 @pytest.mark.asyncio
 async def test_health_check_returns_status_dict(registry):
-    """health_check 返回各数据源布尔状态（含 ftshare / longbridge）。"""
+    """health_check 返回各数据源布尔状态（含 stooq / ftshare / longbridge）。"""
     with patch.object(registry._adapters["yahoo"], "fetch_quote", new_callable=AsyncMock, return_value={"price": 1}) as mock_yahoo:
-        with patch.object(registry._adapters["tushare"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("fail")) as mock_tushare:
-            with patch.object(registry._adapters["akshare"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("fail")) as mock_akshare:
-                with patch.object(registry._adapters["longbridge"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("fail")) as mock_longbridge:
-                    with patch.object(registry._adapters["ftshare"], "fetch_quote", new_callable=AsyncMock, return_value={"price": 1}) as mock_ftshare:
-                        result = await registry.health_check()
+        with patch.object(registry._adapters["stooq"], "fetch_quote", new_callable=AsyncMock, return_value={"price": 1}) as mock_stooq:
+            with patch.object(registry._adapters["tushare"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("fail")) as mock_tushare:
+                with patch.object(registry._adapters["akshare"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("fail")) as mock_akshare:
+                    with patch.object(registry._adapters["longbridge"], "fetch_quote", new_callable=AsyncMock, side_effect=RuntimeError("fail")) as mock_longbridge:
+                        with patch.object(registry._adapters["ftshare"], "fetch_quote", new_callable=AsyncMock, return_value={"price": 1}) as mock_ftshare:
+                            result = await registry.health_check()
 
     assert isinstance(result, dict)
     assert result["yahoo"] is True
+    assert result["stooq"] is True
     assert result["tushare"] is False
     assert result["ftshare"] is True
     assert result["akshare"] is False
     assert result["longbridge"] is False
     mock_yahoo.assert_awaited_once_with("AAPL")
+    mock_stooq.assert_awaited_once_with("AAPL")
     mock_tushare.assert_awaited_once_with("SH600519")
     mock_ftshare.assert_awaited_once_with("SH600519")
     mock_akshare.assert_awaited_once_with("SH600519")
