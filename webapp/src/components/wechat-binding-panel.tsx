@@ -111,7 +111,7 @@ export function WechatBindingPanel({
   }
 
   useEffect(() => {
-    if (!modalOpen || !authId || binding || needsPairCode) return;
+    if (!modalOpen || !authId || binding || needsPairCode || isAuthorized) return;
     let cancelled = false;
     let timer: number | undefined;
 
@@ -141,7 +141,7 @@ export function WechatBindingPanel({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [authId, binding, modalOpen, needsPairCode]);
+  }, [authId, binding, isAuthorized, modalOpen, needsPairCode]);
 
   return (
     <>

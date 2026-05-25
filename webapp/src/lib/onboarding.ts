@@ -464,6 +464,7 @@ export async function getOnboardingState(): Promise<OnboardingState> {
       WHERE tenant_id = ${user.id}
         AND channel = 'openclaw_wechat'
         AND binding_status = 'active'
+        AND COALESCE(binding_metadata->>'context_token', '') <> ''
       ORDER BY updated_at DESC
       LIMIT 1
     `,

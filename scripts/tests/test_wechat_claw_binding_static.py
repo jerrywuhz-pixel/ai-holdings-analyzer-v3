@@ -60,6 +60,26 @@ def test_wechat_binding_session_uses_upstream_five_minute_qr_ttl():
     assert "Date.now() + 10 * 60 * 1000" not in binding
 
 
+def test_wechat_qr_authorization_does_not_prematurely_complete_route_binding():
+    binding = read("webapp/src/lib/wechat-binding.ts")
+    component = read("webapp/src/components/wechat-binding-panel.tsx")
+    onboarding = read("webapp/src/lib/onboarding.ts")
+
+    refresh_block = binding.split("export async function refreshWechatBindingStatus", 1)[1].split(
+        "export async function verifyWechatBindingConversation",
+        1,
+    )[0]
+
+    assert "loadVerifiedWechatBinding" in binding
+    assert "requestClawbotQrStatus" in refresh_block
+    assert "conversation_verified_at" in refresh_block.split("requestClawbotQrStatus", 1)[0]
+    assert "source: 'qrcode_confirmed'" not in refresh_block
+    assert "candidate.contextToken" in binding
+    assert "缺少微信会话上下文" in binding
+    assert "|| isAuthorized" in component
+    assert "binding_metadata->>'context_token'" in onboarding
+
+
 def test_wechat_onboarding_uses_modal_api_flow():
     page = read("webapp/src/app/onboarding/wechat/page.tsx")
     component = read("webapp/src/components/wechat-binding-panel.tsx")

@@ -158,7 +158,7 @@ OPENCLAW_DELIVERY_WEBHOOK_SECRET=一串随机字符串
 OPENCLAW_CRON_SECRET=一串随机字符串
 ```
 
-`/api/openclaw/delivery/wechat` 会校验 `X-OpenClaw-Delivery-Signature`，从当前 tenant 的 `wechat_bot_credentials` 解密 `bot_token`，并使用 Tencent iLink `/ilink/bot/sendmessage` 携带 `to_user_id` 与 `context_token` 完成真实微信回复。轻量服务器的 host-network 部署让 OpenClaw 通过 `http://127.0.0.1:3000/...` 访问 WebApp；若改回 Docker bridge 网络，则可改成 `http://webapp:3000/...`。
+`/api/openclaw/delivery/wechat` 会校验 `X-OpenClaw-Delivery-Signature`，从当前 tenant 的 `wechat_bot_credentials` 解密 `bot_token`，并使用 Tencent iLink `/ilink/bot/sendmessage` 携带 `to_user_id` 与 `context_token` 完成真实微信回复。扫码授权只表示 bot token 可用；生产可回复绑定必须在同一个 ClawBot 对话里发送 WebApp 显示的绑定码，等 `/ilink/bot/getupdates` 拉到带 `context_token` 的消息后才写入可用的 `channel_bindings`。轻量服务器的 host-network 部署让 OpenClaw 通过 `http://127.0.0.1:3000/...` 访问 WebApp；若改回 Docker bridge 网络，则可改成 `http://webapp:3000/...`。
 
 用户本地 Futu connector 走云端 poll/upload 控制面。轻量服务器正式让用户同步持仓前，至少配置：
 
@@ -399,7 +399,7 @@ docker exec ai-holdings-server-postgres-1 psql -U postgres -d ai_holdings -Atc "
 http://你的服务器公网IP:3000
 ```
 
-首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。注册初始化的微信步骤会弹出扫码登录窗口；扫码确认后，WebApp 会写入 `channel_bindings` 并进入 Futu 连接步骤。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
+首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。注册初始化的微信步骤会弹出扫码登录窗口；扫码确认后先进入已授权状态，用户需要向 ClawBot 发送 WebApp 显示的绑定码，验证通过且写入带 `context_token` 的 `channel_bindings` 后再进入 Futu 连接步骤。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
 
 核心页面：
 

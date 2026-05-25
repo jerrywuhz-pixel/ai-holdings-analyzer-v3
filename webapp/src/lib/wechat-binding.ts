@@ -230,6 +230,28 @@ async function loadAuthSession(user: AppUser, authSessionId: string) {
   return authSession;
 }
 
+async function loadVerifiedWechatBinding(user: AppUser, authSessionId: string) {
+  await ensureOnboardingSchema();
+  const sql = sqlClient();
+  const rows = await sql<Record<string, any>[]>`
+    SELECT * FROM public.channel_bindings
+    WHERE tenant_id = ${user.id}
+      AND channel = 'openclaw_wechat'
+      AND binding_status = 'active'
+      AND COALESCE(binding_metadata->>'context_token', '') <> ''
+      AND (
+        binding_metadata->>'auth_session_id' = ${authSessionId}
+        OR is_primary = true
+      )
+    ORDER BY
+      CASE WHEN binding_metadata->>'auth_session_id' = ${authSessionId} THEN 0 ELSE 1 END,
+      is_primary DESC,
+      updated_at DESC
+    LIMIT 1
+  `;
+  return rows[0] || null;
+}
+
 export async function startWechatBindingSession(user: AppUser) {
   const session = await ensureOnboardingSession(user);
   const sql = sqlClient();
@@ -311,7 +333,57 @@ export async function refreshWechatBindingStatus(
 ) {
   const authSession = await loadAuthSession(user, authSessionId);
   const sql = sqlClient();
+  const verifiedBinding = await loadVerifiedWechatBinding(user, authSession.id);
+  if (authSession.conversation_verified_at || authSession.status === 'conversation_verified') {
+    if (verifiedBinding) {
+      const now = nowIso();
+      await sql`
+        UPDATE public.wechat_clawbot_auth_sessions
+        SET
+          status = 'conversation_verified',
+          last_checked_at = ${now},
+          error_message = null,
+          updated_at = now()
+        WHERE id = ${authSession.id}
+          AND tenant_id = ${user.id}
+      `;
+      const updatedAuth = await loadAuthSession(user, authSession.id);
+      return {
+        auth: safeWechatAuth(updatedAuth),
+        binding: safeWechatBinding(verifiedBinding),
+      };
+    }
+  }
+
   const credential = await latestAuthorizedCredential(user.id);
+  const hasStoredCredential = Boolean(authSession.bot_token_ciphertext || credential?.bot_token_ciphertext);
+  const hasConfirmedCredential =
+    hasStoredCredential &&
+    Boolean(
+      authSession.confirmed_at ||
+        authSession.status === 'authorized' ||
+        authSession.status === 'conversation_pending'
+    );
+  if (hasConfirmedCredential) {
+    const now = nowIso();
+    const nextStatus = authSession.status === 'conversation_pending' ? 'conversation_pending' : 'authorized';
+    await sql`
+      UPDATE public.wechat_clawbot_auth_sessions
+      SET
+        status = ${nextStatus},
+        last_checked_at = ${now},
+        error_message = null,
+        updated_at = now()
+      WHERE id = ${authSession.id}
+        AND tenant_id = ${user.id}
+    `;
+    const updatedAuth = await loadAuthSession(user, authSession.id);
+    return {
+      auth: safeWechatAuth(updatedAuth),
+      binding: null,
+    };
+  }
+
   const status = await requestClawbotQrStatus(authSession.qrcode, {
     baseUrl: authSession.base_url,
     verifyCode: options.verifyCode,
@@ -321,8 +393,6 @@ export async function refreshWechatBindingStatus(
   const botToken = status.botToken;
   const redirectBaseUrl = redirectHostToBaseUrl(status.redirectHost);
   const baseUrl = status.baseUrl || redirectBaseUrl || authSession.base_url || '';
-  const accountId = status.accountId || authSession.openclaw_account_id || '';
-  const hasStoredCredential = Boolean(authSession.bot_token_ciphertext || credential?.bot_token_ciphertext);
   const authorized =
     Boolean(botToken) ||
     ((normalizedStatus === 'authorized' || normalizedStatus === 'success') && hasStoredCredential) ||
@@ -330,7 +400,6 @@ export async function refreshWechatBindingStatus(
     Boolean(status.alreadyConnected && credential);
   const failed = ['expired', 'failed', 'revoked', 'cancelled', 'canceled', 'verify_code_blocked'].includes(normalizedStatus);
   let botTokenCiphertext = authSession.bot_token_ciphertext;
-  let binding: Record<string, any> | null = null;
   const errorMessage = failed
     ? `Clawbot status: ${status.status}`
     : normalizedStatus === 'need_verifycode'
@@ -372,29 +441,19 @@ export async function refreshWechatBindingStatus(
         updated_at = now()
       WHERE tenant_id = ${user.id}
     `;
-
-    if (accountId) {
-      binding = await upsertWechatBinding({
-        user,
-        authSessionId: authSession.id,
-        accountId,
-        channelUserRef: status.userId || null,
-        source: 'qrcode_confirmed',
-      });
-    }
   }
 
   await auditOnboardingEvent(user.id, authSession.onboarding_session_id, 'wechat_qr_status_checked', {
     auth_session_id: authSession.id,
     status: status.status,
     authorized,
-    account_id_present: Boolean(accountId),
+    account_id_present: Boolean(status.accountId),
   });
 
   const updatedAuth = await loadAuthSession(user, authSession.id);
   return {
     auth: safeWechatAuth(updatedAuth),
-    binding: safeWechatBinding(binding),
+    binding: null,
   };
 }
 
@@ -445,10 +504,38 @@ export async function verifyWechatBindingConversation(user: AppUser, authSession
     };
   }
 
+  if (!candidate.contextToken || !candidate.fromUserId) {
+    await sql`
+      UPDATE public.wechat_clawbot_auth_sessions
+      SET
+        status = 'conversation_pending',
+        get_updates_buf = ${updates.getUpdatesBuf || authSession.get_updates_buf || null},
+        last_checked_at = ${now},
+        error_message = '收到绑定码，但缺少微信会话上下文，请在当前 ClawBot 对话里重新发送绑定码',
+        updated_at = now()
+      WHERE id = ${authSession.id}
+    `;
+
+    const updatedAuth = await loadAuthSession(user, authSession.id);
+    return {
+      auth: safeWechatAuth(updatedAuth),
+      binding: null,
+      pending: true,
+    };
+  }
+
+  const credentialMetadata =
+    credential?.credential_metadata && typeof credential.credential_metadata === 'object'
+      ? credential.credential_metadata
+      : {};
+  const credentialAccountId =
+    typeof credentialMetadata.account_id === 'string' && credentialMetadata.account_id.trim()
+      ? credentialMetadata.account_id.trim()
+      : null;
   const binding = await upsertWechatBinding({
     user,
     authSessionId: authSession.id,
-    accountId: candidate.toUserId || `clawbot:${authSession.id}`,
+    accountId: candidate.toUserId || credentialAccountId || `clawbot:${authSession.id}`,
     channelUserRef: candidate.fromUserId,
     contextToken: candidate.contextToken,
     source: 'bind_code_message',
