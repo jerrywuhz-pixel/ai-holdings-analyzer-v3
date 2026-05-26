@@ -33,6 +33,7 @@ def test_futu_sidecar_health_is_read_only(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["permission_scope"] == "read_only"
+    assert payload["supports"]["quotes"] is True
     assert payload["supports"]["positions"] is True
     assert payload["supports"]["option_chain"] is True
     assert payload["supports"]["account_diagnostics"] is True
@@ -111,6 +112,28 @@ def test_futu_sidecar_default_option_window_respects_futu_30_day_limit():
     start, end = sidecar_server._expiry_window(request)
 
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days <= 29
+
+
+def test_futu_sidecar_quotes_contract_returns_read_only_payload(monkeypatch):
+    _set_deterministic_mock_env(monkeypatch)
+
+    response = client.post(
+        "/api/v1/quotes",
+        json={
+            "symbols": ["AAPL"],
+            "market": "US",
+            "permission_scope": "read_only",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["connector_mode"] == "local_connector"
+    assert data["permission_scope"] == "read_only"
+    assert data["source_key"] == "futu_openapi"
+    assert data["quotes"][0]["symbol"] == "AAPL"
+    assert data["quotes"][0]["price"] == 191.2
+    assert data["lineage"]["provider"] == "futu_opend_sidecar_mock"
 
 
 def test_futu_sidecar_parses_futu_us_option_strike_scale():

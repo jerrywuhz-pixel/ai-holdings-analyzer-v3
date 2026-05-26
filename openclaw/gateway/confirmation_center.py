@@ -28,6 +28,24 @@ LOW_CONFIDENCE_ASR_THRESHOLD = 0.72
 LOW_CONFIDENCE_OCR_THRESHOLD = 0.72
 NO_FACT_WRITE_TEXT = "当前没有改动持仓，也没有下单。"
 WEBAPP_CONFIRMATION_CENTER_HINT = "必要时请去 WebApp 确认中心查看最新状态。"
+POSITION_SCREENSHOT_KEYWORDS = (
+    "持仓",
+    "持有",
+    "仓位",
+    "可用",
+    "数量",
+    "成本",
+    "成本价",
+    "市值",
+    "盈亏",
+    "证券名称",
+    "股票名称",
+    "资产",
+    "position",
+    "qty",
+    "quantity",
+    "shares",
+)
 
 _ACTION_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("confirm", ("确认", "同意", "yes", "ok", "approve")),
@@ -35,6 +53,17 @@ _ACTION_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("revise", ("修改", "修正", "更正", "改成", "revise", "edit")),
     ("status", ("状态", "进度", "查询确认", "status", "check")),
     ("help", ("帮助", "help", "怎么确认", "确认说明")),
+)
+
+BROKER_TRADE_KEYWORDS = (
+    "成交",
+    "成交通知",
+    "成交提醒",
+    "成交回报",
+    "委托已成交",
+    "委托成交",
+    "买入成交",
+    "卖出成交",
 )
 
 
@@ -238,6 +267,41 @@ def classify_high_attention_text(
     normalized = normalize_user_text(text)
     lowered = normalized.lower()
 
+    broker_trade = parse_broker_trade_message(text)
+    if broker_trade is not None:
+        side_label = "买入" if broker_trade["side"] == "BUY" else "卖出"
+        body = (
+            f"{side_label} {broker_trade.get('stock_name') or broker_trade['symbol']}"
+            f"({broker_trade['symbol']}) {broker_trade['quantity']:g}股"
+            f" @{broker_trade['price']:g}"
+        )
+        summary = {
+            "title": f"待确认{broker_trade['broker_label']}成交提醒",
+            "body": body,
+            "source_type": "broker_wechat",
+            "risk_note": "这是券商成交提醒解析结果；确认后才会记录到持仓系统，不会自动下单。",
+        }
+        return PendingActionInput(
+            object_type="trade_event_input",
+            action_type="trade_input",
+            action_scope="fact_record",
+            source_type="broker_wechat",
+            source_surface=source_surface,
+            risk_level="high",
+            confirmation_strength="high_attention",
+            action_payload={
+                "raw_text": text,
+                "normalized_text": normalized,
+                "confidence": confidence,
+                "structured_trade": broker_trade,
+                "source_broker": broker_trade["broker"],
+                "broker_message_fingerprint": broker_trade["fingerprint"],
+                "broker_order_no": broker_trade.get("order_no"),
+            },
+            normalized_summary=summary,
+            fingerprint_seed=f"broker:{broker_trade['fingerprint']}",
+        )
+
     if _looks_like_sell_put(lowered):
         summary = {
             "title": "待确认 Sell Put 草稿",
@@ -313,6 +377,168 @@ def classify_high_attention_text(
         )
 
     return None
+
+
+def parse_broker_trade_message(text: str) -> dict[str, Any] | None:
+    raw_text = text.strip()
+    normalized = normalize_user_text(raw_text)
+    if not normalized:
+        return None
+    if not any(keyword in raw_text for keyword in BROKER_TRADE_KEYWORDS):
+        return None
+
+    broker, broker_label = _detect_broker(raw_text)
+    if not broker:
+        return None
+
+    parsed: dict[str, Any] | None = None
+    if broker == "huatai":
+        parsed = _parse_huatai_trade(raw_text)
+    elif broker == "zhongxin":
+        parsed = _parse_zhongxin_trade(raw_text)
+    elif broker == "zhaoshang":
+        parsed = _parse_zhaoshang_trade(raw_text)
+    elif broker == "futu":
+        parsed = _parse_futu_trade(raw_text)
+
+    if parsed is None:
+        return None
+
+    try:
+        side = _normalize_trade_side(str(parsed["side"]))
+        symbol = _normalize_broker_symbol(str(parsed["symbol"]))
+        quantity = _as_float(parsed["quantity"])
+        price = _as_float(parsed["price"])
+    except (KeyError, ValueError):
+        return None
+    if quantity is None or quantity <= 0 or price is None or price <= 0:
+        return None
+
+    market, exchange = _infer_position_market_exchange(symbol)
+    fingerprint = hashlib.md5(raw_text.encode("utf-8")).hexdigest()
+    return {
+        "broker": broker,
+        "broker_label": broker_label,
+        "side": side,
+        "symbol": symbol,
+        "provider_symbol": symbol,
+        "market": market,
+        "exchange": exchange,
+        "stock_name": _clean_stock_name(parsed.get("stock_name")),
+        "quantity": quantity,
+        "price": price,
+        "trade_amount": round(quantity * price, 2),
+        "trade_time": parsed.get("trade_time"),
+        "order_no": parsed.get("order_no"),
+        "fingerprint": fingerprint,
+    }
+
+
+def _detect_broker(text: str) -> tuple[str | None, str | None]:
+    checks = (
+        ("huatai", "华泰证券", ("华泰证券", "华泰")),
+        ("zhongxin", "中信证券", ("中信证券", "中信")),
+        ("zhaoshang", "招商证券", ("招商证券", "招商")),
+        ("futu", "富途牛牛", ("富途牛牛", "富途")),
+    )
+    for broker, label, keywords in checks:
+        if any(keyword in text for keyword in keywords):
+            return broker, label
+    return None, None
+
+
+def _field(text: str, pattern: str, flags: int = 0) -> str | None:
+    match = re.search(pattern, text, flags | re.MULTILINE)
+    if not match:
+        return None
+    return next((group.strip() for group in match.groups() if group is not None), None)
+
+
+def _parse_huatai_trade(text: str) -> dict[str, Any] | None:
+    return _require_trade_fields(
+        {
+            "stock_name": _field(text, r"证券名称[：:]\s*([^\n\r]+)"),
+            "symbol": _field(text, r"证券代码[：:]\s*(\d{6})"),
+            "side": _field(text, r"委托方向[：:]\s*(买入|卖出)"),
+            "quantity": _field(text, r"成交数量[：:]\s*([\d,]+(?:\.\d+)?)\s*股?"),
+            "price": _field(text, r"成交价格[：:]\s*([\d,]+(?:\.\d+)?)"),
+            "trade_time": _field(text, r"成交时间[：:]\s*([^\n\r]+)"),
+            "order_no": _field(text, r"委托编号[：:]\s*([A-Za-z0-9_-]+)"),
+        }
+    )
+
+
+def _parse_zhongxin_trade(text: str) -> dict[str, Any] | None:
+    line_match = re.search(r"(买入|卖出)\s+(\d{6})\s+([^\n\r]+)", text)
+    return _require_trade_fields(
+        {
+            "side": line_match.group(1) if line_match else None,
+            "symbol": line_match.group(2) if line_match else None,
+            "stock_name": line_match.group(3).strip() if line_match else None,
+            "quantity": _field(text, r"成交量[：:]\s*([\d,]+(?:\.\d+)?)\s*股?"),
+            "price": _field(text, r"成交价[：:]\s*([\d,]+(?:\.\d+)?)"),
+            "trade_time": _field(text, r"成交时间[：:]\s*([^\n\r]+)"),
+        }
+    )
+
+
+def _parse_zhaoshang_trade(text: str) -> dict[str, Any] | None:
+    name_symbol = re.search(r"股票名称[：:]\s*(.+?)\((\d{6})\)", text)
+    return _require_trade_fields(
+        {
+            "side": _field(text, r"成交方向[：:]\s*(买入|卖出)"),
+            "stock_name": name_symbol.group(1).strip() if name_symbol else None,
+            "symbol": name_symbol.group(2) if name_symbol else None,
+            "quantity": _field(text, r"成交数量[：:]\s*([\d,]+(?:\.\d+)?)\s*股?"),
+            "price": _field(text, r"成交均价[：:]\s*([\d,]+(?:\.\d+)?)"),
+            "trade_time": _field(text, r"成交时间[：:]\s*([^\n\r]+)"),
+            "order_no": _field(text, r"(?:合同编号|委托编号)[：:]\s*([A-Za-z0-9_-]+)"),
+        }
+    )
+
+
+def _parse_futu_trade(text: str) -> dict[str, Any] | None:
+    return _require_trade_fields(
+        {
+            "side": _field(text, r"方向[：:]\s*(BUY|SELL|买入|卖出)", re.IGNORECASE),
+            "symbol": _field(text, r"代码[：:]\s*([A-Za-z0-9.]+)"),
+            "stock_name": _field(text, r"名称[：:]\s*([^\n\r]+)"),
+            "quantity": _field(text, r"数量[：:]\s*([\d,]+(?:\.\d+)?)\s*股?"),
+            "price": _field(text, r"价格[：:]\s*\$?\s*([\d,]+(?:\.\d+)?)"),
+            "trade_time": _field(text, r"时间[：:]\s*([^\n\r]+)"),
+        }
+    )
+
+
+def _require_trade_fields(values: dict[str, Any]) -> dict[str, Any] | None:
+    required = ("side", "symbol", "quantity", "price")
+    if any(not values.get(key) for key in required):
+        return None
+    return values
+
+
+def _normalize_trade_side(value: str) -> str:
+    lowered = value.strip().lower()
+    if lowered in {"buy", "买入", "买"}:
+        return "BUY"
+    if lowered in {"sell", "卖出", "卖"}:
+        return "SELL"
+    raise ValueError("unknown broker trade side")
+
+
+def _normalize_broker_symbol(value: str) -> str:
+    token = value.strip().upper()
+    if not token:
+        raise ValueError("broker symbol is empty")
+    if re.fullmatch(r"\d{6}", token):
+        if token.startswith(("60", "68")):
+            return f"{token}.SH"
+        if token.startswith(("00", "30")):
+            return f"{token}.SZ"
+        return token
+    if re.fullmatch(r"\d{5}", token):
+        return f"{token}.HK"
+    return token
 
 
 def interpret_voice_transcript(
@@ -431,7 +657,7 @@ def build_image_review_candidate(
         object_type="image_input_review",
         action_type="ocr_correction",
         action_scope="source_correction",
-        source_type="image_ocr",
+        source_type="ocr",
         source_surface=source_surface,
         risk_level="high",
         confirmation_strength="high_attention",
@@ -439,11 +665,341 @@ def build_image_review_candidate(
         normalized_summary={
             "title": "待确认图片识别内容",
             "body": normalized_text,
-            "source_type": "image_ocr",
+            "source_type": "ocr",
             "risk_note": risk_note,
         },
         fingerprint_seed=f"ocr:{media_id or ''}:{normalized_text}",
     )
+
+
+def parse_position_snapshot_rows(text: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen_symbols: set[str] = set()
+    for raw_line in re.split(r"[\n\r;；]+", text):
+        line = normalize_user_text(raw_line)
+        if not line:
+            continue
+        name_only = _parse_name_only_position_line(line, raw_line)
+        if name_only is not None and name_only["symbol"] not in seen_symbols:
+            rows.append(name_only)
+            seen_symbols.add(name_only["symbol"])
+            continue
+        symbol_match = _position_symbol_match(line)
+        if not symbol_match:
+            continue
+        symbol = symbol_match.group(1).upper()
+        if symbol in seen_symbols:
+            continue
+        tail = f"{line[:symbol_match.start()]} {line[symbol_match.end():]}"
+        quantity = _position_quantity(tail)
+        if quantity is None or quantity <= 0:
+            continue
+        average_cost = _position_average_cost(tail, quantity)
+        market, exchange = _infer_position_market_exchange(symbol)
+        rows.append(
+            {
+                "symbol": symbol,
+                "provider_symbol": symbol,
+                "market": market,
+                "exchange": exchange,
+                "stock_name": _position_stock_name(line, symbol_match) or None,
+                "quantity": quantity,
+                "average_cost": average_cost,
+                "raw_line": raw_line.strip(),
+            }
+        )
+        seen_symbols.add(symbol)
+    return rows
+
+
+def normalize_position_snapshot_rows(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    seen_symbols: set[str] = set()
+    for raw_position in positions:
+        stock_name = _clean_stock_name(raw_position.get("stock_name") or raw_position.get("name"))
+        symbol = str(raw_position.get("symbol") or "").upper().strip()
+        if not symbol and stock_name:
+            symbol = _name_only_symbol(stock_name)
+        if not symbol or symbol in seen_symbols:
+            continue
+
+        quantity = _as_float(raw_position.get("quantity") or raw_position.get("total_quantity"))
+        if quantity is None or quantity <= 0:
+            continue
+
+        average_cost = _as_float(raw_position.get("average_cost") or raw_position.get("cost_price"))
+        provider_symbol = str(raw_position.get("provider_symbol") or symbol).strip() or symbol
+        market = str(raw_position.get("market") or "").upper().strip()
+        exchange = str(raw_position.get("exchange") or "").upper().strip()
+        if not market or not exchange:
+            inferred_market, inferred_exchange = _infer_position_market_exchange(symbol)
+            market = market or inferred_market
+            exchange = exchange or inferred_exchange
+
+        position = dict(raw_position)
+        position.update(
+            {
+                "symbol": symbol,
+                "provider_symbol": provider_symbol,
+                "market": market,
+                "exchange": exchange,
+                "stock_name": stock_name,
+                "quantity": quantity,
+                "average_cost": average_cost,
+            }
+        )
+        available_quantity = _as_float(raw_position.get("available_quantity"))
+        if available_quantity is not None:
+            position["available_quantity"] = available_quantity
+        for key in ("current_price", "market_value", "unrealized_pnl", "pnl_ratio"):
+            value = _as_float(raw_position.get(key))
+            if value is not None:
+                position[key] = value
+        normalized.append(position)
+        seen_symbols.add(symbol)
+    return normalized
+
+
+def _position_symbol_match(line: str) -> re.Match[str] | None:
+    upper_match = re.search(r"\b([A-Z]{1,6}(?:\.[A-Z]{1,4})?)\b", line)
+    if upper_match and upper_match.group(1).upper() not in {"USD", "HKD", "CNY", "RMB", "ETF"}:
+        return upper_match
+    return re.search(r"(?<![\d.])(\d{5,6}(?:\.(?:SH|SZ|HK))?)(?![\d.])", line, re.IGNORECASE)
+
+
+def _numeric_values(text: str) -> list[float]:
+    values: list[float] = []
+    for match in re.finditer(r"[-+]?\d[\d,]*(?:\.\d+)?", text):
+        token = match.group(0).replace(",", "")
+        try:
+            values.append(float(token))
+        except ValueError:
+            continue
+    return values
+
+
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized or normalized == "--":
+            return None
+        try:
+            return float(normalized.rstrip("%")) / 100 if normalized.endswith("%") else float(normalized)
+        except ValueError:
+            return None
+    return None
+
+
+def _clean_stock_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9·.\- ]+", "", value).strip()
+    if not cleaned or any(keyword.lower() == cleaned.lower() for keyword in POSITION_SCREENSHOT_KEYWORDS):
+        return None
+    return cleaned[:40]
+
+
+def _name_only_symbol(stock_name: str) -> str:
+    digest = hashlib.sha1(stock_name.encode("utf-8")).hexdigest()[:10].upper()
+    return f"CNNAME_{digest}"
+
+
+def _parse_name_only_position_line(line: str, raw_line: str) -> dict[str, Any] | None:
+    if not re.search(r"[\u4e00-\u9fff]", line):
+        return None
+    if any(keyword in line for keyword in ("证券名称", "证券市值", "浮动盈亏", "成本价", "实际数量")):
+        return None
+
+    name_match = re.match(r"\s*([\u4e00-\u9fffA-Za-z·]{2,16})", line)
+    stock_name = _clean_stock_name(name_match.group(1) if name_match else "")
+    if not stock_name:
+        return None
+
+    values = _numeric_values(line)
+    if len(values) < 5:
+        return None
+
+    quantity = values[-2]
+    if quantity <= 0:
+        return None
+    available_quantity = values[-1]
+    average_cost = values[-4]
+    current_price = values[-3]
+    market_value = values[0] if values else None
+    unrealized_pnl = values[1] if len(values) >= 2 else None
+    percent_match = re.search(r"([-+]?\d+(?:\.\d+)?)\s*%", line)
+    pnl_ratio = float(percent_match.group(1)) / 100 if percent_match else None
+
+    symbol = _name_only_symbol(stock_name)
+    return {
+        "symbol": symbol,
+        "provider_symbol": symbol,
+        "market": "CN",
+        "exchange": "UNKNOWN",
+        "stock_name": stock_name,
+        "quantity": quantity,
+        "available_quantity": available_quantity,
+        "average_cost": average_cost,
+        "current_price": current_price,
+        "market_value": market_value,
+        "unrealized_pnl": unrealized_pnl,
+        "pnl_ratio": pnl_ratio,
+        "symbol_confidence": "name_only",
+        "requires_symbol_review": True,
+        "raw_line": raw_line.strip(),
+    }
+
+
+
+def _position_quantity(text: str) -> float | None:
+    explicit = re.search(
+        r"(?:持仓|持有|数量|可用|qty|quantity|shares?)\s*[:：]?\s*([-+]?\d[\d,]*(?:\.\d+)?)|([-+]?\d[\d,]*(?:\.\d+)?)\s*(?:股|shares?)",
+        text,
+        re.IGNORECASE,
+    )
+    if explicit:
+        token = explicit.group(1) or explicit.group(2)
+        return float(token.replace(",", ""))
+    values = _numeric_values(text)
+    return values[0] if values else None
+
+
+def _position_average_cost(text: str, quantity: float) -> float | None:
+    explicit = re.search(
+        r"(?:成本价|成本|均价|平均成本|average cost|avg cost)\s*[:：]?\s*([-+]?\d[\d,]*(?:\.\d+)?)",
+        text,
+        re.IGNORECASE,
+    )
+    if explicit:
+        return float(explicit.group(1).replace(",", ""))
+    values = _numeric_values(text)
+    if len(values) < 2:
+        return None
+    for value in values[1:]:
+        if value != quantity:
+            return value
+    return None
+
+
+def _position_stock_name(line: str, symbol_match: re.Match[str]) -> str | None:
+    before = line[: symbol_match.start()].strip()
+    after = line[symbol_match.end() :].strip()
+    candidates = [before, after]
+    for candidate in candidates:
+        words = re.findall(r"[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z·.\- ]{0,30}", candidate)
+        if words:
+            value = words[0].strip()
+            if value and not any(keyword in value.lower() for keyword in POSITION_SCREENSHOT_KEYWORDS):
+                return value[:40]
+    return None
+
+
+def _infer_position_market_exchange(symbol: str) -> tuple[str, str]:
+    upper = symbol.upper()
+    if upper.endswith(".HK") or (upper.isdigit() and len(upper) == 5):
+        return "HK", "HKEX"
+    if upper.endswith(".SH") or (upper.isdigit() and upper.startswith(("60", "68"))):
+        return "CN", "SSE"
+    if upper.endswith(".SZ") or (upper.isdigit() and upper.startswith(("00", "30"))):
+        return "CN", "SZSE"
+    return "US", "NASDAQ"
+
+
+def _looks_like_position_snapshot(text: str, rows: list[dict[str, Any]]) -> bool:
+    if not rows:
+        return False
+    lowered = text.lower()
+    has_keyword = any(keyword.lower() in lowered for keyword in POSITION_SCREENSHOT_KEYWORDS)
+    return has_keyword or len(rows) >= 2
+
+
+def build_position_snapshot_candidate(
+    normalized_text: str,
+    positions: list[dict[str, Any]],
+    *,
+    ocr_confidence: float | None,
+    media_id: str | None,
+    metadata: dict[str, Any] | None,
+    source_field: str,
+    raw_text: str,
+    source_surface: str,
+) -> PendingActionInput:
+    positions = normalize_position_snapshot_rows(positions)
+    symbols = [str(position["symbol"]) for position in positions]
+    source_policy = _position_snapshot_source_policy(
+        source_type="ocr",
+        source_surface=source_surface,
+        ocr_confidence=ocr_confidence,
+        metadata=metadata,
+    )
+    summary_lines = [
+        f"{position.get('stock_name') or position['symbol']} {position['quantity']:g}股"
+        + (f" 成本 {position['average_cost']:g}" if position.get("average_cost") is not None else "")
+        for position in positions[:6]
+    ]
+    if len(positions) > 6:
+        summary_lines.append(f"... 另有 {len(positions) - 6} 个标的")
+    return PendingActionInput(
+        object_type="position_snapshot_input",
+        action_type="position_snapshot_input",
+        action_scope="fact_record",
+        source_type="ocr",
+        source_surface=source_surface,
+        risk_level="high",
+        confirmation_strength="high_attention",
+        actionability_level="fact_record",
+        action_payload={
+            source_field: raw_text,
+            "normalized_text": normalized_text,
+            "ocr_confidence": ocr_confidence,
+            "media_id": media_id,
+            "metadata": metadata or {},
+            "positions": positions,
+            "source_policy": source_policy,
+        },
+        normalized_summary={
+            "title": "待确认持仓截图导入",
+            "body": "\n".join(summary_lines),
+            "source_type": "ocr",
+            "source_tier": source_policy["source_tier"],
+            "actionability": source_policy["actionability"],
+            "risk_note": "图片识别出的持仓会先进入确认；确认后只写入持仓系统，不会自动下单。",
+        },
+        fingerprint_seed=f"position-ocr:{media_id or ''}:{','.join(symbols)}:{normalized_text}",
+    )
+
+
+def _position_snapshot_source_policy(
+    *,
+    source_type: str,
+    source_surface: str,
+    ocr_confidence: float | None,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    raw_as_of = None
+    if isinstance(metadata, dict):
+        raw_as_of = (
+            metadata.get("captured_at")
+            or metadata.get("created_at")
+            or metadata.get("as_of")
+            or metadata.get("message_time")
+        )
+    return {
+        "source_type": source_type,
+        "source_surface": source_surface,
+        "source_tier": "user_confirmed",
+        "actionability": "analysis_only",
+        "fact_write_allowed": True,
+        "trade_action_allowed": False,
+        "requires_human_confirmation": True,
+        "as_of": raw_as_of,
+        "confidence": ocr_confidence,
+        "quality_reasons": ["ocr_requires_human_confirmation"],
+    }
 
 
 def classify_image_text_candidate(
@@ -452,10 +1008,17 @@ def classify_image_text_candidate(
     ocr_confidence: float | None = None,
     media_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    positions: list[dict[str, Any]] | None = None,
     source_field: str = "ocr_text",
     source_surface: str = "wechat",
 ) -> PendingActionInput | None:
     normalized = normalize_user_text(text)
+    supplied_positions = normalize_position_snapshot_rows(positions or [])
+    if not normalized and supplied_positions:
+        normalized = "\n".join(
+            f"{position.get('stock_name') or position['symbol']} {position['quantity']:g}股"
+            for position in supplied_positions
+        )
     if not normalized:
         return None
 
@@ -477,10 +1040,23 @@ def classify_image_text_candidate(
         "ocr_confidence": ocr_confidence,
         "media_id": media_id,
         "metadata": metadata or {},
-    }
+        }
+    position_rows = supplied_positions or normalize_position_snapshot_rows(parse_position_snapshot_rows(text))
+    if _looks_like_position_snapshot(normalized, position_rows):
+        return build_position_snapshot_candidate(
+            normalized,
+            position_rows,
+            ocr_confidence=ocr_confidence,
+            media_id=media_id,
+            metadata=metadata,
+            source_field=source_field,
+            raw_text=text,
+            source_surface=source_surface,
+        )
+
     candidate = classify_high_attention_text(
         normalized,
-        source_type="image_ocr",
+        source_type="ocr",
         source_surface=source_surface,
         confidence=ocr_confidence,
     )

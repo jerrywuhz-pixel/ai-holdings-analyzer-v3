@@ -121,6 +121,13 @@ class FutuOptionChainReadRequest(BaseModel):
     allow_mock_fallback: bool = False
 
 
+class FutuQuoteReadRequest(BaseModel):
+    symbols: list[str]
+    market: str = "US"
+    connector_mode: ConnectorModeRequest = "auto"
+    allow_mock_fallback: bool = False
+
+
 class FutuConnectorError(RuntimeError):
     """Raised when the local Futu connector is unavailable or violates policy."""
 
@@ -153,6 +160,7 @@ class FutuReadOnlyConnector:
             "FUTU_CONNECTOR_OPTION_CHAIN_PATH",
             "/api/v1/option-chain",
         )
+        self._quotes_path = os.getenv("FUTU_CONNECTOR_QUOTES_PATH", "/api/v1/quotes")
         self._health_path = health_path or os.getenv("FUTU_CONNECTOR_HEARTBEAT_PATH", "/health")
         self._timeout_seconds = timeout_seconds or float(os.getenv("FUTU_CONNECTOR_TIMEOUT_SECONDS", "8"))
         self._snapshots: dict[str, dict[str, Any]] = {
@@ -257,6 +265,7 @@ class FutuReadOnlyConnector:
             },
             "diagnostics": diagnostics,
             "supports": {
+                "quotes": True,
                 "positions": True,
                 "cash_balances": True,
                 "option_positions": True,
@@ -316,6 +325,20 @@ class FutuReadOnlyConnector:
             request,
             chain_override=chain_override,
         )
+
+    async def read_quotes(
+        self,
+        request: FutuQuoteReadRequest,
+    ) -> dict[str, Any]:
+        mode = self._resolve_request_mode(request.connector_mode)
+        if mode == "local_connector":
+            try:
+                return await self._read_quotes_from_local_connector(request)
+            except Exception as exc:
+                if not request.allow_mock_fallback:
+                    raise FutuConnectorError(str(exc)) from exc
+                return await self._read_quotes_from_mock(request, fallback_reason=str(exc))
+        return await self._read_quotes_from_mock(request)
 
     async def _read_account_snapshot_from_mock(
         self,
@@ -400,6 +423,58 @@ class FutuReadOnlyConnector:
                 "fallback_reason": fallback_reason,
             },
         )
+
+    async def _read_quotes_from_mock(
+        self,
+        request: FutuQuoteReadRequest,
+        *,
+        fallback_reason: str | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        quotes: list[dict[str, Any]] = []
+        for symbol in request.symbols:
+            normalized = symbol.upper()
+            for payload in self._snapshots.values():
+                for position in payload.get("positions", []):
+                    if str(position.get("symbol", "")).upper() != normalized:
+                        continue
+                    if position.get("market_price") is None:
+                        continue
+                    quotes.append({
+                        "symbol": normalized,
+                        "name": position.get("name"),
+                        "market": position.get("market") or request.market,
+                        "exchange": position.get("market") or request.market,
+                        "price": float(position["market_price"]),
+                        "change": None,
+                        "change_rate": None,
+                        "currency": position.get("currency") or "USD",
+                        "timestamp": int((now - timedelta(seconds=12)).timestamp()),
+                    })
+                    break
+        missing_fields = []
+        if len(quotes) != len(request.symbols):
+            missing_fields.append("quotes")
+        if fallback_reason:
+            missing_fields.append("local_connector_unavailable")
+        return {
+            "connector_mode": "local_mock",
+            "permission_scope": "read_only",
+            "source_key": "futu_openapi",
+            "source_tier": "L1_trading",
+            "as_of": (now - timedelta(seconds=12)).isoformat(),
+            "received_at": now.isoformat(),
+            "quotes": quotes,
+            "missing_fields": missing_fields,
+            "status": "complete" if not missing_fields else "partial",
+            "lineage": {
+                "read_mode": "local_mock",
+                "read_only": True,
+                "provider": "futu_opend_local_connector_mock",
+                "fallback_used": fallback_reason is not None,
+                "fallback_reason": fallback_reason,
+            },
+        }
 
     async def _read_account_snapshot_from_local_connector(
         self,
@@ -495,6 +570,42 @@ class FutuReadOnlyConnector:
         snapshot = FutuOptionChainSnapshot.model_validate(data)
         _enforce_read_only(snapshot.permission_scope)
         return snapshot
+
+    async def _read_quotes_from_local_connector(
+        self,
+        request: FutuQuoteReadRequest,
+    ) -> dict[str, Any]:
+        payload = await self._post_local_connector(
+            self._quotes_path,
+            {
+                **request.model_dump(mode="json"),
+                "connector_mode": "local_connector",
+                "permission_scope": "read_only",
+            },
+        )
+        data = _unwrap_response_data(payload)
+        raw_quotes = data.get("quotes")
+        if not isinstance(raw_quotes, list):
+            raise FutuConnectorError("local connector quote response must include quotes list")
+        missing_fields = list(data.get("missing_fields") or [])
+        if len(raw_quotes) != len(request.symbols):
+            missing_fields.append("quotes")
+        return {
+            **data,
+            "connector_mode": data.get("connector_mode") or "local_connector",
+            "permission_scope": data.get("permission_scope") or "read_only",
+            "source_key": data.get("source_key") or "futu_openapi",
+            "source_tier": data.get("source_tier") or "L1_trading",
+            "quotes": raw_quotes,
+            "missing_fields": missing_fields,
+            "status": "complete" if not missing_fields else "partial",
+            "lineage": {
+                **(data.get("lineage") or {}),
+                "read_mode": "local_connector",
+                "read_only": True,
+                "provider": "futu_opend_local_connector",
+            },
+        }
 
     async def _post_local_connector(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._base_url}{_ensure_leading_slash(path)}"

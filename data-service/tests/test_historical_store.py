@@ -6,6 +6,7 @@ import httpx
 
 from services.historical_store import (
     FileSystemHistoricalBlobStore,
+    FileSystemHistoricalManifestRepository,
     HistoricalDataStore,
     HistoricalManifestCreateRequest,
     SupabaseStorageHistoricalBlobStore,
@@ -182,6 +183,48 @@ def test_filesystem_blob_store_round_trips_cached_history(tmp_path):
     assert manifest.storage_uri.startswith("file://")
     assert result.cache_status == "hit"
     assert len(result.bars) == 3
+
+
+def test_filesystem_manifest_repository_survives_store_recreation(tmp_path):
+    blob_store = FileSystemHistoricalBlobStore(tmp_path / "objects")
+    manifest_repository = FileSystemHistoricalManifestRepository(tmp_path / "manifests")
+    first_store = HistoricalDataStore(
+        blob_store=blob_store,
+        manifest_repository=manifest_repository,
+    )
+    payload = HistoricalManifestCreateRequest(
+        tenant_id="tenant-persisted",
+        job_id="job-persisted",
+        source="futu_openapi",
+        market="US",
+        symbol="AAPL",
+        instrument_type="stock",
+        bar_interval="1d",
+        range={"start": date(2026, 5, 1), "end": date(2026, 5, 9)},
+        storage_backend="file",
+    )
+
+    manifest = asyncio.run(first_store.save_dataset(payload, bars=_sample_bars()))
+    second_store = HistoricalDataStore(
+        blob_store=blob_store,
+        manifest_repository=FileSystemHistoricalManifestRepository(tmp_path / "manifests"),
+    )
+    result = asyncio.run(
+        second_store.read_bars(
+            tenant_id="tenant-persisted",
+            symbol="AAPL",
+            market="US",
+            bar_interval="1d",
+            start_date=date(2026, 5, 1),
+            end_date=date(2026, 5, 2),
+        )
+    )
+
+    assert manifest.id
+    assert result.cache_status == "hit"
+    assert result.manifest is not None
+    assert result.manifest.id == manifest.id
+    assert len(result.bars) == 2
 
 
 def test_supabase_storage_blob_store_round_trips_with_signed_rest_contract():

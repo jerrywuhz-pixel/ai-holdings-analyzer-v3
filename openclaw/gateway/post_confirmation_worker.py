@@ -17,12 +17,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from openclaw.gateway.confirmation_center import parse_position_snapshot_rows
 from openclaw.gateway.outbox import DeliveryEnvelope, DeliveryOutboxService, DeliveryQueueResult
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_POST_CONFIRMATION_JOB_TYPES = {
     "confirmed_trade_recalculate_holdings",
+    "confirmed_position_snapshot_import",
     "confirmed_sell_put_draft_finalize",
     "confirmed_discipline_rule_save",
     "confirmed_broker_conflict_reconcile",
@@ -606,6 +608,8 @@ class PostConfirmationJobWorker:
         _assert_confirmation_guard(job)
         if job_type == "confirmed_trade_recalculate_holdings":
             result = await self._handle_trade_recalculation(job, now)
+        elif job_type == "confirmed_position_snapshot_import":
+            result = await self._handle_position_snapshot_import(job, now)
         elif job_type == "confirmation_rebuild_request":
             result = await self._handle_rebuild_request(job, now)
         else:
@@ -640,6 +644,33 @@ class PostConfirmationJobWorker:
             "snapshot_id": snapshot.get("id"),
             "position_quantity": snapshot.get("total_quantity"),
             "warnings": warnings,
+        }
+
+    async def _handle_position_snapshot_import(self, job: dict[str, Any], now: datetime) -> dict[str, Any]:
+        config = _job_config(job)
+        pending = _pending_action(config)
+        positions = _position_rows_from_pending(pending)
+        if not positions:
+            raise ValueError("confirmed position snapshot input has no parseable positions")
+
+        snapshot_ids: list[str] = []
+        symbols: list[str] = []
+        for position in positions:
+            payload = _position_snapshot_payload_from_row(
+                tenant_id=str(job["tenant_id"]),
+                position=position,
+                now=now,
+            )
+            snapshot = await self._repository.upsert_position_snapshot(payload)
+            snapshot_ids.append(str(snapshot.get("id") or ""))
+            symbols.append(str(payload["symbol"]))
+
+        return {
+            "handler": "confirmed_position_snapshot_import",
+            "positions_count": len(positions),
+            "symbols": symbols,
+            "snapshot_ids": [item for item in snapshot_ids if item],
+            "snapshot_id": snapshot_ids[0] if snapshot_ids else None,
         }
 
     async def _handle_artifact_only_commit(self, job: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -823,9 +854,20 @@ def _execution_guard(config: dict[str, Any]) -> dict[str, Any]:
     return guard
 
 
+def _source_write_guard(config: dict[str, Any]) -> dict[str, Any]:
+    guard = config.get("source_write_guard") or {}
+    if not isinstance(guard, dict):
+        raise ValueError("source_write_guard config must be an object")
+    return guard
+
+
 def _assert_confirmation_guard(job: dict[str, Any]) -> None:
     job_type = str(job.get("job_type") or "")
-    if job_type not in {"confirmed_trade_recalculate_holdings", "confirmed_sell_put_draft_finalize"}:
+    if job_type not in {
+        "confirmed_trade_recalculate_holdings",
+        "confirmed_position_snapshot_import",
+        "confirmed_sell_put_draft_finalize",
+    }:
         return
 
     config = _job_config(job)
@@ -847,6 +889,22 @@ def _assert_confirmation_guard(job: dict[str, Any]) -> None:
         raise ValueError("trade-related processing must remain draft_only")
     if guard.get("auto_order_allowed") is not False:
         raise ValueError("trade-related processing must never allow automatic orders")
+    _assert_source_write_guard(job)
+
+
+def _assert_source_write_guard(job: dict[str, Any]) -> None:
+    config = _job_config(job)
+    source_guard = _source_write_guard(config)
+    if not source_guard:
+        return
+    if not source_guard.get("fact_write_allowed"):
+        raise ValueError("source freshness/actionability gate does not allow fact writes")
+    if source_guard.get("requires_human_confirmation") and not _confirmation(config).get("session_id"):
+        raise ValueError("source write requires confirmation session")
+    if source_guard.get("trade_action_allowed") is True:
+        raise ValueError("post-confirmation fact writes must not allow automatic trade actions")
+    if str(source_guard.get("actionability") or "") == "blocked":
+        raise ValueError("blocked source cannot be written to holdings")
 
 
 def _parse_trade_event_from_pending(
@@ -858,6 +916,15 @@ def _parse_trade_event_from_pending(
 ) -> dict[str, Any]:
     payload = pending.get("action_payload") or {}
     summary = pending.get("normalized_summary") or {}
+    structured = payload.get("structured_trade")
+    if isinstance(structured, dict):
+        return _trade_event_from_structured_payload(
+            tenant_id=tenant_id,
+            pending=pending,
+            structured=structured,
+            dedupe_key=dedupe_key,
+            now=now,
+        )
     text = str(
         payload.get("normalized_text")
         or payload.get("raw_text")
@@ -894,6 +961,66 @@ def _parse_trade_event_from_pending(
         "broker_message_fingerprint": dedupe_key,
         "created_at": now.isoformat(),
     }
+
+
+def _trade_event_from_structured_payload(
+    *,
+    tenant_id: str,
+    pending: dict[str, Any],
+    structured: dict[str, Any],
+    dedupe_key: str,
+    now: datetime,
+) -> dict[str, Any]:
+    symbol = str(structured.get("symbol") or "").upper().strip()
+    side = str(structured.get("side") or "").upper().strip()
+    quantity = int(float(structured.get("quantity") or 0))
+    price = float(structured.get("price") or 0)
+    if side not in {"BUY", "SELL"}:
+        raise ValueError("structured trade side is invalid")
+    if not symbol:
+        raise ValueError("structured trade symbol is missing")
+    if quantity <= 0:
+        raise ValueError("structured trade quantity is invalid")
+    if price <= 0:
+        raise ValueError("structured trade price is invalid")
+
+    market = str(structured.get("market") or _infer_market_exchange(symbol)[0])
+    exchange = str(structured.get("exchange") or _infer_market_exchange(symbol)[1])
+    trade_date = _structured_trade_date(structured, now)
+    payload = pending.get("action_payload") or {}
+    raw_text = str(payload.get("raw_text") or payload.get("normalized_text") or "").strip()
+    fingerprint = (
+        structured.get("fingerprint")
+        or payload.get("broker_message_fingerprint")
+        or dedupe_key
+    )
+    return {
+        "id": str(uuid.uuid4()),
+        "tenant_id": tenant_id,
+        "symbol": symbol,
+        "provider_symbol": str(structured.get("provider_symbol") or symbol),
+        "market": market,
+        "exchange": exchange,
+        "stock_name": structured.get("stock_name"),
+        "side": side,
+        "price": price,
+        "quantity": quantity,
+        "trade_amount": round(float(structured.get("trade_amount") or price * quantity), 2),
+        "trade_date": trade_date,
+        "note": raw_text,
+        "strategy_tag": None,
+        "source": _trade_source_from_pending(pending),
+        "broker_message_fingerprint": str(fingerprint),
+        "created_at": now.isoformat(),
+    }
+
+
+def _structured_trade_date(structured: dict[str, Any], now: datetime) -> str:
+    trade_time = str(structured.get("trade_time") or "").strip()
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})", trade_time)
+    if match:
+        return "-".join(match.groups())
+    return now.date().isoformat()
 
 
 def _parse_side(text: str) -> str:
@@ -945,9 +1072,107 @@ def _trade_source_from_pending(pending: dict[str, Any]) -> str:
     source_type = str(pending.get("source_type") or "")
     if "broker" in source_type:
         return "broker_wechat"
-    if source_type == "ocr":
+    if source_type in {"ocr", "image_ocr"}:
         return "ocr"
     return "manual"
+
+
+def _position_rows_from_pending(pending: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = pending.get("action_payload") or {}
+    if not isinstance(payload, dict):
+        raise ValueError("position snapshot payload must be an object")
+    source_policy = payload.get("source_policy") if isinstance(payload.get("source_policy"), dict) else {}
+    positions = payload.get("positions")
+    if isinstance(positions, list):
+        return [
+            {**dict(item), "source_policy": {**source_policy, **(item.get("source_policy") or {})}}
+            for item in positions
+            if isinstance(item, dict)
+        ]
+    text = str(
+        payload.get("normalized_text")
+        or payload.get("ocr_text")
+        or payload.get("image_text")
+        or pending.get("normalized_summary", {}).get("body")
+        or ""
+    ).strip()
+    return [{**item, "source_policy": source_policy} for item in parse_position_snapshot_rows(text)]
+
+
+def _position_snapshot_payload_from_row(
+    *,
+    tenant_id: str,
+    position: dict[str, Any],
+    now: datetime,
+) -> dict[str, Any]:
+    symbol = str(position.get("symbol") or "").upper().strip()
+    if not symbol:
+        raise ValueError("position row symbol is missing")
+    quantity = int(float(position.get("quantity") or 0))
+    if quantity <= 0:
+        raise ValueError(f"position quantity is invalid for {symbol}")
+    average_cost = position.get("average_cost")
+    average_cost_float = float(average_cost) if average_cost is not None else None
+    total_cost = round(average_cost_float * quantity, 2) if average_cost_float is not None else None
+    market = str(position.get("market") or _infer_market_exchange(symbol)[0])
+    exchange = str(position.get("exchange") or _infer_market_exchange(symbol)[1])
+    source_guard = _position_source_guard(position)
+    source_as_of = _position_source_as_of(position, now)
+    return {
+        "tenant_id": tenant_id,
+        "symbol": symbol,
+        "provider_symbol": str(position.get("provider_symbol") or symbol),
+        "market": market,
+        "exchange": exchange,
+        "stock_name": position.get("stock_name"),
+        "total_quantity": quantity,
+        "average_cost": average_cost_float,
+        "total_cost": total_cost,
+        "snapshot_date": now.date().isoformat(),
+        "computed_from_event_ids": [],
+        "source_type": source_guard["source_type"],
+        "source_tier": source_guard["source_tier"],
+        "source_actionability": source_guard["actionability"],
+        "source_as_of": source_as_of,
+        "source_lineage": source_guard["source_lineage"],
+        "created_at": now.isoformat(),
+    }
+
+
+def _position_source_guard(position: dict[str, Any]) -> dict[str, Any]:
+    raw_policy = position.get("source_policy") or {}
+    if not isinstance(raw_policy, dict):
+        raw_policy = {}
+    source_type = str(raw_policy.get("source_type") or position.get("source_type") or "ocr")
+    source_tier = str(raw_policy.get("source_tier") or "user_confirmed")
+    actionability = str(raw_policy.get("actionability") or "analysis_only")
+    if actionability == "blocked":
+        raise ValueError("blocked source cannot be written to holdings")
+    return {
+        "source_type": source_type,
+        "source_tier": source_tier,
+        "actionability": actionability,
+        "source_lineage": {
+            "source_type": source_type,
+            "source_tier": source_tier,
+            "actionability": actionability,
+            "confidence": raw_policy.get("confidence"),
+            "quality_reasons": raw_policy.get("quality_reasons") or [],
+            "fact_write_allowed": bool(raw_policy.get("fact_write_allowed", True)),
+            "trade_action_allowed": bool(raw_policy.get("trade_action_allowed", False)),
+            "raw_line": position.get("raw_line"),
+            "requires_symbol_review": bool(position.get("requires_symbol_review")),
+        },
+    }
+
+
+def _position_source_as_of(position: dict[str, Any], now: datetime) -> str:
+    raw_policy = position.get("source_policy") or {}
+    if isinstance(raw_policy, dict):
+        value = raw_policy.get("as_of")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return now.isoformat()
 
 
 def _infer_market_exchange(symbol: str) -> tuple[str, str]:
@@ -1164,6 +1389,15 @@ def _receipt_content(
             text += f" 当前持仓 {quantity} 股"
         text += "。这只是持仓系统记录，不会自动下单。"
         title = "交易已记录"
+    elif job_type == "confirmed_position_snapshot_import":
+        count = result.get("positions_count") or 0
+        symbols = result.get("symbols") or []
+        symbol_text = "、".join(symbols[:6]) if isinstance(symbols, list) else ""
+        text = f"已根据确认的截图识别结果写入持仓系统，共 {count} 个标的"
+        if symbol_text:
+            text += f"：{symbol_text}"
+        text += "。这只是持仓记录，不会自动下单。"
+        title = "持仓截图已写入"
     elif job_type == "confirmed_sell_put_draft_finalize":
         text = "已生成 Sell Put 草稿并保存为候选记录。不会自动下单；请在 WebApp 或交易软件中复核行情、现金占用和风险后再操作。"
         title = "Sell Put 草稿已生成"

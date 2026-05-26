@@ -54,6 +54,13 @@ class OptionChainRequest(BaseModel):
     permission_scope: Literal["read_only"] = "read_only"
 
 
+class QuoteRequest(BaseModel):
+    symbols: list[str]
+    market: str = "US"
+    connector_mode: str = "local_connector"
+    permission_scope: Literal["read_only"] = "read_only"
+
+
 class FutuSidecarSettings(BaseModel):
     mode: Literal["mock", "real"] = "mock"
     opend_host: str = "127.0.0.1"
@@ -114,6 +121,15 @@ def create_app() -> FastAPI:
         _enforce_request_read_only(payload.permission_scope)
         try:
             data = _build_reader(load_settings()).read_option_chain(payload)
+            return {"ok": True, "data": data}
+        except FutuSidecarError as exc:
+            raise HTTPException(status_code=503, detail={"ok": False, "message": _sanitize_error_message(str(exc))})
+
+    @app.post("/api/v1/quotes")
+    async def read_quotes(payload: QuoteRequest) -> dict[str, Any]:
+        _enforce_request_read_only(payload.permission_scope)
+        try:
+            data = _build_reader(load_settings()).read_quotes(payload)
             return {"ok": True, "data": data}
         except FutuSidecarError as exc:
             raise HTTPException(status_code=503, detail={"ok": False, "message": _sanitize_error_message(str(exc))})
@@ -253,6 +269,33 @@ class MockFutuSidecarReader:
             provider="futu_opend_sidecar_mock",
         )
 
+    def read_quotes(self, request: QuoteRequest) -> dict[str, Any]:
+        now = _utc_now()
+        mock_quotes = {
+            "AAPL": {
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "market": "US",
+                "exchange": "US",
+                "price": 191.2,
+                "change": 1.15,
+                "change_rate": 0.61,
+                "currency": "USD",
+                "timestamp": int((now - timedelta(seconds=8)).timestamp()),
+            }
+        }
+        quotes = [mock_quotes[symbol.upper()] for symbol in request.symbols if symbol.upper() in mock_quotes]
+        return _quotes_payload(
+            request=request,
+            settings=self._settings,
+            as_of=now - timedelta(seconds=8),
+            received_at=now,
+            quotes=quotes,
+            missing_fields=[] if len(quotes) == len(request.symbols) else ["quotes"],
+            status="complete" if len(quotes) == len(request.symbols) else "partial",
+            provider="futu_opend_sidecar_mock",
+        )
+
 
 class FutuSdkSidecarReader:
     def __init__(self, settings: FutuSidecarSettings) -> None:
@@ -329,6 +372,31 @@ class FutuSdkSidecarReader:
             contracts=contracts,
             missing_fields=missing_fields,
             status="complete" if not missing_fields else "partial",
+            provider="futu_opend_sidecar",
+        )
+
+    def read_quotes(self, request: QuoteRequest) -> dict[str, Any]:
+        now = _utc_now()
+        codes = [_market_code(symbol, request.market) for symbol in request.symbols]
+        quote_ctx = self._open_quote_context()
+        try:
+            snapshots = self._query_market_snapshots(quote_ctx, codes)
+        finally:
+            _close_context(quote_ctx)
+
+        quotes = [
+            _map_quote_snapshot(snapshot=snapshots[code], code=code, as_of=now)
+            for code in codes
+            if code in snapshots
+        ]
+        return _quotes_payload(
+            request=request,
+            settings=self._settings,
+            as_of=now,
+            received_at=now,
+            quotes=quotes,
+            missing_fields=[] if len(quotes) == len(codes) else ["quotes"],
+            status="complete" if len(quotes) == len(codes) else "partial",
             provider="futu_opend_sidecar",
         )
 
@@ -517,6 +585,7 @@ def _health_payload(settings: FutuSidecarSettings) -> dict[str, Any]:
         "permission_scope": READ_ONLY_SCOPE,
         "opend": {"host": settings.opend_host, "port": settings.opend_port},
         "supports": {
+            "quotes": True,
             "positions": True,
             "cash_balances": True,
             "option_chain": True,
@@ -629,6 +698,41 @@ def _option_chain_payload(
     }
 
 
+def _quotes_payload(
+    *,
+    request: QuoteRequest,
+    settings: FutuSidecarSettings,
+    as_of: datetime,
+    received_at: datetime,
+    quotes: list[dict[str, Any]],
+    missing_fields: list[str],
+    status: Literal["complete", "partial"],
+    provider: str,
+) -> dict[str, Any]:
+    return {
+        "broker": "futu",
+        "source_key": SOURCE_KEY,
+        "source_tier": SOURCE_TIER,
+        "connector_mode": "local_connector",
+        "permission_scope": READ_ONLY_SCOPE,
+        "as_of": as_of,
+        "received_at": received_at,
+        "quotes": quotes,
+        "missing_fields": missing_fields,
+        "status": status,
+        "lineage": {
+            "read_mode": "local_connector",
+            "read_only": True,
+            "provider": provider,
+            "sidecar_mode": settings.mode,
+            "opend_host": settings.opend_host,
+            "opend_port": settings.opend_port,
+            "requested_symbols": request.symbols,
+            "account_context": _account_context_payload(settings),
+        },
+    }
+
+
 def _map_position_record(item: dict[str, Any], default_currency: str) -> dict[str, Any]:
     code = _as_str(_pick(item, "code", "symbol"))
     symbol = _strip_market_prefix(code)
@@ -690,6 +794,30 @@ def _map_cash_record(item: dict[str, Any], default_currency: str) -> dict[str, A
         "available_cash": available_cash or 0.0,
         "buying_power": buying_power,
         "cash_secured_reserve": _to_float(_pick(item, "cash_secured_reserve")),
+    }
+
+
+def _map_quote_snapshot(*, snapshot: dict[str, Any], code: str, as_of: datetime) -> dict[str, Any]:
+    raw_code = _as_str(_pick(snapshot, "code")) or code
+    price = _to_float(_pick(snapshot, "last_price", "nominal_price", "market_price", "cur_price"))
+    prev_close = _to_float(_pick(snapshot, "prev_close_price", "pre_close_price", "last_close"))
+    change = _to_float(_pick(snapshot, "change_val", "change"))
+    if change is None and price is not None and prev_close:
+        change = price - prev_close
+    change_rate = _normalize_percent(_to_float(_pick(snapshot, "change_rate", "change_ratio")))
+    if change_rate is None and change is not None and prev_close:
+        change_rate = change / prev_close
+    update_time = _parse_datetime(_pick(snapshot, "update_time")) or as_of
+    return {
+        "symbol": _strip_market_prefix(raw_code),
+        "name": _position_name_from_record(snapshot) or None,
+        "market": _market_from_code(raw_code) or "US",
+        "exchange": _market_from_code(raw_code) or "US",
+        "price": price,
+        "change": change,
+        "change_rate": round(change_rate * 100, 4) if change_rate is not None else None,
+        "currency": _as_str(_pick(snapshot, "currency")) or "USD",
+        "timestamp": int(update_time.timestamp()),
     }
 
 

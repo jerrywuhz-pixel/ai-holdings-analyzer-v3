@@ -7,6 +7,7 @@ from openclaw.gateway.confirmation_center import (
     InMemoryConfirmationRepository,
     RoutingContext,
     classify_high_attention_text,
+    classify_image_text_candidate,
     parse_confirmation_command,
 )
 from openclaw.gateway.confirmation_dispatcher import (
@@ -91,6 +92,135 @@ async def test_worker_commits_trade_and_refreshes_position_snapshot() -> None:
     second_stats = await worker.process_once()
     assert second_stats.scanned == 0
     assert len(worker_repository.trade_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_commits_structured_broker_trade_without_reparsing_text() -> None:
+    now = datetime(2026, 5, 10, 2, 0, tzinfo=timezone.utc)
+    confirmation_repository = InMemoryConfirmationRepository()
+    task_repository = InMemoryPostConfirmationTaskRepository()
+    service = ConfirmationCenterService(
+        confirmation_repository,
+        webapp_base_url="https://app.example.com",
+        post_decision_dispatcher=ConfirmationPostDecisionDispatcher(
+            task_repository,
+            now_provider=lambda: now,
+        ),
+        now_provider=lambda: now,
+    )
+    context = RoutingContext(
+        tenant_id="tenant-broker-worker",
+        channel_binding_id="binding-broker-worker",
+        openclaw_account_id="bot-broker-worker",
+    )
+    pending = classify_high_attention_text(
+        "\n".join(
+            [
+                "【华泰证券】您的委托已成交",
+                "证券名称：贵州茅台",
+                "证券代码：600519",
+                "委托方向：买入",
+                "成交数量：100股",
+                "成交价格：1680.00元",
+                "成交时间：14:32:18",
+                "委托编号：12345678",
+            ]
+        ),
+        source_type="message_text",
+        source_surface="wechat",
+    )
+    assert pending is not None
+    assert pending.source_type == "broker_wechat"
+    created = await service.create_pending_confirmation(context, pending)
+    await service.submit_decision(context, parse_confirmation_command(f"确认 {created.session_token}"))
+
+    worker_repository = InMemoryPostConfirmationWorkerRepository(
+        jobs=task_repository.tasks,
+        pending_actions=confirmation_repository.pending_actions,
+        confirmation_events=confirmation_repository.events,
+    )
+    worker = PostConfirmationJobWorker(
+        worker_repository,
+        now_provider=lambda: now,
+    )
+
+    stats = await worker.process_once()
+
+    assert stats.succeeded == 1
+    trade = worker_repository.trade_events[0]
+    assert trade["source"] == "broker_wechat"
+    assert trade["symbol"] == "600519.SH"
+    assert trade["stock_name"] == "贵州茅台"
+    assert trade["quantity"] == 100
+    assert trade["price"] == 1680.0
+    assert trade["broker_message_fingerprint"]
+    snapshot = worker_repository.position_snapshots[("tenant-broker-worker", "600519.SH", "2026-05-10")]
+    assert snapshot["total_quantity"] == 100
+    assert snapshot["average_cost"] == 1680.0
+
+
+@pytest.mark.asyncio
+async def test_worker_imports_confirmed_position_screenshot_snapshot() -> None:
+    now = datetime(2026, 5, 10, 2, 0, tzinfo=timezone.utc)
+    confirmation_repository = InMemoryConfirmationRepository()
+    task_repository = InMemoryPostConfirmationTaskRepository()
+    service = ConfirmationCenterService(
+        confirmation_repository,
+        webapp_base_url="https://app.example.com",
+        post_decision_dispatcher=ConfirmationPostDecisionDispatcher(
+            task_repository,
+            now_provider=lambda: now,
+        ),
+        now_provider=lambda: now,
+    )
+    context = RoutingContext(
+        tenant_id="tenant-position-worker",
+        channel_binding_id="binding-position-worker",
+        openclaw_account_id="bot-position-worker",
+        target_conversation="conversation-position-worker",
+    )
+    pending = classify_image_text_candidate(
+        "持仓 数量 成本\nAAPL 苹果 10 180.25\nNVDA 英伟达 2 900",
+        ocr_confidence=0.91,
+        media_id="media-position-worker",
+    )
+    assert pending is not None
+    created = await service.create_pending_confirmation(context, pending)
+    await service.submit_decision(context, parse_confirmation_command(f"确认 {created.session_token}"))
+
+    outbox_repository = InMemoryOutboxRepository()
+    outbox_service = DeliveryOutboxService(outbox_repository, now_provider=lambda: now)
+    worker_repository = InMemoryPostConfirmationWorkerRepository(
+        jobs=task_repository.tasks,
+        pending_actions=confirmation_repository.pending_actions,
+        confirmation_events=confirmation_repository.events,
+    )
+    worker = PostConfirmationJobWorker(
+        worker_repository,
+        receipt_outbox=outbox_service,
+        now_provider=lambda: now,
+    )
+
+    stats = await worker.process_once()
+    ready = await outbox_repository.list_retry_ready(now, limit=10)
+
+    assert stats.succeeded == 1
+    assert stats.receipts_queued == 1
+    assert next(iter(task_repository.tasks.values()))["job_type"] == "confirmed_position_snapshot_import"
+    assert confirmation_repository.pending_actions[created.pending_action_id]["status"] == "committed"
+    assert len(worker_repository.trade_events) == 0
+    assert len(worker_repository.position_snapshots) == 2
+    aapl = worker_repository.position_snapshots[("tenant-position-worker", "AAPL", "2026-05-10")]
+    assert aapl["total_quantity"] == 10
+    assert aapl["average_cost"] == 180.25
+    assert aapl["total_cost"] == 1802.5
+    assert aapl["source_type"] == "ocr"
+    assert aapl["source_tier"] == "user_confirmed"
+    assert aapl["source_actionability"] == "analysis_only"
+    assert aapl["source_lineage"]["fact_write_allowed"] is True
+    assert aapl["source_lineage"]["trade_action_allowed"] is False
+    assert ready[0]["content"]["title"] == "持仓截图已写入"
+    assert "不会自动下单" in ready[0]["content"]["text"]
 
 
 @pytest.mark.asyncio

@@ -254,7 +254,19 @@ COMPOSE_FILES="$PWD/docker-compose.server.yml:$PWD/docker-compose.lightweight-ho
   ./scripts/apply-server-migrations.sh
 ```
 
-这个脚本会先创建 Supabase 兼容的 `auth` 函数和角色，再按顺序应用 `supabase/migrations/000001` 到 `000028`，包括 GBrain 表、持仓 3.0 P0 表、delivery outbox、broker connector instances、注册初始化和微信绑定状态等。
+这个脚本会先创建 Supabase 兼容的 `auth` 函数和角色，再按顺序应用 `supabase/migrations/000001` 到当前最新迁移。当前数据基础层至少应包含 `000030_account_lists_manual_positions_trading_rules.sql`，覆盖 GBrain 表、持仓 3.0 P0 表、delivery outbox、broker connector instances、注册初始化、微信绑定状态、关注清单、清仓回溯、手工持仓和交易纪律基础表。
+
+轻量服务器默认使用本机持久化卷保存历史行情对象与 manifest：
+
+```env
+HISTORICAL_STORAGE_BACKEND=file
+HISTORICAL_STORAGE_FILE_ROOT=/app/.historical-cache
+HISTORICAL_MANIFEST_BACKEND=file
+HISTORICAL_MANIFEST_FILE_ROOT=/app/.historical-manifests
+WEBAPP_RUNTIME_SCHEMA_REPAIR=false
+```
+
+其中 `WEBAPP_RUNTIME_SCHEMA_REPAIR=false` 表示 WebApp 不再依赖运行时建表，部署前必须先完成 migration。正式生产切到 Supabase/RDS/OSS 时，再把历史行情对象和 manifest 后端切到托管存储。
 
 `init-openclaw-foundation.sh` 会补齐 OpenClaw 运行初始化：生成内部 `OPENCLAW_SKILL_KEY`、写入 P0 默认套餐/额度、为现有账号补 `quota_tracking` 和 active subscription。若需要同时开启 OpenAI live 授权，可在执行时传入：
 
@@ -399,7 +411,7 @@ docker exec ai-holdings-server-postgres-1 psql -U postgres -d ai_holdings -Atc "
 http://你的服务器公网IP:3000
 ```
 
-首次打开会进入登录页。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。注册初始化的微信步骤会弹出扫码登录窗口；扫码确认后先进入已授权状态，用户需要向 ClawBot 发送 WebApp 显示的绑定码，验证通过且写入带 `context_token` 的 `channel_bindings` 后再进入 Futu 连接步骤。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
+首次打开 `/` 会展示登录前功能介绍页，登录和注册按钮进入 `/login`。第一阶段本地登录使用 `.env.server` 中的 `LOCAL_AUTH_EMAIL` 和 `LOCAL_AUTH_PASSWORD`。如果开启本地注册，用户注册后需要输入邮箱验证码；产品功能 readiness 的 `lightweight` profile 要求 `AUTH_MODE=local`、`LOCAL_AUTH_REGISTRATION_ENABLED=true`、数据库连接、`AUTH_SESSION_SECRET`、`SMTP_HOST` 和 `SMTP_FROM` 均已配置。未配置 SMTP 时验证码可从 WebApp 容器日志查看，但这只适合调试，不算“用户可自助注册”的可用状态。注册初始化的微信步骤会弹出扫码登录窗口；扫码确认后先进入已授权状态，用户需要向 ClawBot 发送 WebApp 显示的绑定码，验证通过且写入带 `context_token` 的 `channel_bindings` 后再进入 Futu 连接步骤。当前未启用 HTTPS 时，登录信息只适合测试部署使用。
 
 核心页面：
 

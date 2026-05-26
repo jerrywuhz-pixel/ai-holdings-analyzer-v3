@@ -50,6 +50,14 @@ skills:
     description: "每日收盘后 AI 持仓分析"
     timeout_seconds: 120
 
+  quant-options-strategy:
+    enabled: true
+    api_key: ${SKILL_QUANT_OPTIONS_STRATEGY_KEY}
+    # 工作日 16:20 自动执行 Sell Put 候选评分（cron 语法）
+    cron: "20 16 * * 1-5"
+    description: "Sell Put 候选评分与持仓管理建议"
+    timeout_seconds: 300
+
   profit-taking:
     enabled: true
     api_key: ${SKILL_PROFIT_TAKING_KEY}

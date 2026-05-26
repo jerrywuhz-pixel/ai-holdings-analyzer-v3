@@ -188,6 +188,7 @@ class ConfirmationPostDecisionDispatcher:
                 "session_space": context.session_space,
             },
             "execution_guard": _execution_guard(pending_action, post_decision),
+            "source_write_guard": _source_write_guard(pending_action, post_decision),
             "task_category": task_spec["category"],
             "task_intent": task_spec["intent"],
         }
@@ -229,6 +230,13 @@ def _resolve_task_spec(
     action_type = str(pending_action.get("action_type") or "")
     target_entity_type = str(pending_action.get("target_entity_type") or "")
 
+    if action_type == "position_snapshot_input":
+        return {
+            "job_type": "confirmed_position_snapshot_import",
+            "category": "light",
+            "intent": "确认持仓截图识别结果后写入持仓快照并刷新资产视图",
+            "timeout_seconds": 300,
+        }
     if action_type in {"trade_input", "asr_correction", "ocr_correction"}:
         return {
             "job_type": "confirmed_trade_recalculate_holdings",
@@ -290,14 +298,66 @@ def _execution_guard(
     return guard
 
 
+def _source_write_guard(
+    pending_action: dict[str, Any],
+    post_decision: str,
+) -> dict[str, Any]:
+    payload = pending_action.get("action_payload") or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    source_policy = payload.get("source_policy") or {}
+    if not isinstance(source_policy, dict):
+        source_policy = {}
+
+    source_type = str(source_policy.get("source_type") or pending_action.get("source_type") or "manual")
+    source_tier = str(source_policy.get("source_tier") or _default_source_tier(source_type))
+    actionability = str(source_policy.get("actionability") or _default_source_actionability(source_type))
+    fact_write_allowed = bool(source_policy.get("fact_write_allowed", actionability != "blocked"))
+    if post_decision != "commit_or_recalculate":
+        fact_write_allowed = False
+
+    return {
+        "source_type": source_type,
+        "source_surface": source_policy.get("source_surface") or pending_action.get("source_surface"),
+        "source_tier": source_tier,
+        "actionability": actionability,
+        "source_as_of": source_policy.get("as_of"),
+        "fact_write_allowed": fact_write_allowed,
+        "trade_action_allowed": bool(source_policy.get("trade_action_allowed", False)),
+        "requires_human_confirmation": bool(source_policy.get("requires_human_confirmation", True)),
+        "confidence": source_policy.get("confidence"),
+        "quality_reasons": source_policy.get("quality_reasons") or [],
+    }
+
+
+def _default_source_tier(source_type: str) -> str:
+    if "broker" in source_type:
+        return "L1_trading"
+    if source_type in {"ocr", "image_ocr", "voice_asr"}:
+        return "user_confirmed"
+    return "user_confirmed"
+
+
+def _default_source_actionability(source_type: str) -> str:
+    if "broker" in source_type:
+        return "trade_draft"
+    return "analysis_only"
+
+
 def _is_trade_related_action(pending_action: dict[str, Any]) -> bool:
     action_type = str(pending_action.get("action_type") or "")
     action_scope = str(pending_action.get("action_scope") or "")
     target_entity_type = str(pending_action.get("target_entity_type") or "")
     return (
-        action_type in {"trade_input", "trade_draft_ack", "asr_correction", "ocr_correction"}
+        action_type in {
+            "trade_input",
+            "trade_draft_ack",
+            "asr_correction",
+            "ocr_correction",
+            "position_snapshot_input",
+        }
         or action_scope == "fact_record"
-        or target_entity_type in {"trade_event_input", "sell_put_trade_draft"}
+        or target_entity_type in {"trade_event_input", "sell_put_trade_draft", "position_snapshot_input"}
     )
 
 

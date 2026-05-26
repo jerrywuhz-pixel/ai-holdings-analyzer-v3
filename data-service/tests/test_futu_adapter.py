@@ -6,9 +6,11 @@ import pytest
 from adapters.futu import (
     FutuConnectorError,
     FutuOptionChainReadRequest,
+    FutuQuoteReadRequest,
     FutuReadOnlyConnector,
     FutuSnapshotReadRequest,
 )
+from adapters.futu_quote import FutuQuoteAdapter
 
 
 @pytest.mark.asyncio
@@ -240,6 +242,92 @@ async def test_local_connector_option_chain_marks_empty_contracts_as_partial():
     assert snapshot.contracts == []
     assert snapshot.status == "partial"
     assert snapshot.missing_fields == ["option_chain"]
+
+
+@pytest.mark.asyncio
+async def test_local_connector_quote_success_is_read_only_and_lineaged():
+    connector = FutuReadOnlyConnector(
+        mode="local_connector",
+        base_url="http://localhost:8765",
+    )
+    now = datetime(2026, 5, 10, 2, 0, tzinfo=timezone.utc)
+    response_payload = {
+        "ok": True,
+        "data": {
+            "connector_mode": "local_connector",
+            "permission_scope": "read_only",
+            "source_key": "futu_openapi",
+            "source_tier": "L1_trading",
+            "as_of": now.isoformat(),
+            "received_at": now.isoformat(),
+            "quotes": [
+                {
+                    "symbol": "AAPL",
+                    "market": "US",
+                    "exchange": "US",
+                    "price": 191.2,
+                    "currency": "USD",
+                    "timestamp": int(now.timestamp()),
+                }
+            ],
+            "missing_fields": [],
+            "status": "complete",
+        },
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_response = Mock()
+        mock_response.json.return_value = response_payload
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        payload = await connector.read_quotes(
+            FutuQuoteReadRequest(
+                symbols=["AAPL"],
+                market="US",
+                connector_mode="local_connector",
+            )
+        )
+
+    assert payload["permission_scope"] == "read_only"
+    assert payload["quotes"][0]["symbol"] == "AAPL"
+    assert payload["lineage"]["provider"] == "futu_opend_local_connector"
+    assert mock_post.call_args.kwargs["json"]["permission_scope"] == "read_only"
+
+
+@pytest.mark.asyncio
+async def test_futu_quote_adapter_normalizes_freshness_and_lineage():
+    connector = Mock()
+    connector.read_quotes = AsyncMock(
+        return_value={
+            "connector_mode": "local_connector",
+            "permission_scope": "read_only",
+            "source_key": "futu_openapi",
+            "source_tier": "L1_trading",
+            "as_of": "2026-05-10T02:00:00+00:00",
+            "quotes": [
+                {
+                    "symbol": "AAPL",
+                    "market": "US",
+                    "exchange": "US",
+                    "price": 191.2,
+                    "currency": "USD",
+                    "timestamp": 1778378400,
+                }
+            ],
+            "lineage": {"provider": "futu_opend_local_connector"},
+        }
+    )
+    adapter = FutuQuoteAdapter(connector=connector)
+
+    quote = await adapter.fetch_quote("AAPL")
+
+    assert quote["symbol"] == "AAPL"
+    assert quote["source"] == "futu"
+    assert quote["price"] == 191.2
+    assert quote["source_tier"] == "L1_trading"
+    assert quote["permission_scope"] == "read_only"
+    assert quote["lineage"]["provider"] == "futu_opend_local_connector"
 
 
 def test_capabilities_include_sidecar_account_context(monkeypatch):

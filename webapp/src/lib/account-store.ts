@@ -72,6 +72,10 @@ export interface ManualPositionInput {
   marketValue?: number | null;
   currency?: string;
   note?: string;
+  sourceAsOf?: string | null;
+  sourceTier?: string;
+  sourceActionability?: string;
+  sourceLineage?: Record<string, unknown>;
 }
 
 export interface ManualPositionRecord {
@@ -85,6 +89,8 @@ export interface ManualPositionRecord {
   marketPrice: number | null;
   marketValue: number | null;
   currency: string;
+  sourceTier: string;
+  sourceActionability: string;
   updatedAt: string;
 }
 
@@ -119,6 +125,10 @@ function sqlClient() {
   return globalThis.__aiHoldingsAccountSql;
 }
 
+function runtimeSchemaRepairEnabled() {
+  return (process.env.WEBAPP_RUNTIME_SCHEMA_REPAIR || 'true').trim().toLowerCase() !== 'false';
+}
+
 function userRole(user: AppUser) {
   return user.role === 'admin' ? 'admin' : 'user';
 }
@@ -151,6 +161,20 @@ function currencyForMarket(market: string, requested?: string) {
   return 'USD';
 }
 
+function normalizeSourceTier(value?: string) {
+  const tier = (value || 'user_confirmed').trim();
+  if (tier === 'L1_trading' || tier === 'user_confirmed' || tier === 'estimated') return tier;
+  return 'user_confirmed';
+}
+
+function normalizeSourceActionability(value?: string) {
+  const actionability = (value || 'analysis_only').trim();
+  if (actionability === 'trade_draft' || actionability === 'analysis_only' || actionability === 'blocked') {
+    return actionability;
+  }
+  return 'analysis_only';
+}
+
 function toNumber(value: unknown) {
   if (value === null || value === undefined) return null;
   const numberValue = Number(value);
@@ -163,6 +187,10 @@ function serializeDate(value: unknown) {
 }
 
 async function ensureWorkspaceSchema() {
+  if (!runtimeSchemaRepairEnabled()) {
+    return;
+  }
+
   const sql = sqlClient();
   await sql`ALTER TABLE public.tenant_accounts ADD COLUMN IF NOT EXISTS account_id UUID`;
   await sql`UPDATE public.tenant_accounts SET account_id = gen_random_uuid() WHERE account_id IS NULL`;
@@ -279,6 +307,10 @@ async function ensureWorkspaceSchema() {
       market_value NUMERIC(18,2),
       currency TEXT NOT NULL DEFAULT 'USD',
       source_quality public.source_quality NOT NULL DEFAULT 'user_confirmed',
+      source_tier TEXT NOT NULL DEFAULT 'user_confirmed',
+      source_actionability TEXT NOT NULL DEFAULT 'analysis_only',
+      source_as_of TIMESTAMPTZ,
+      source_lineage JSONB NOT NULL DEFAULT '{}'::jsonb,
       note TEXT,
       position_status public.portfolio_position_status NOT NULL DEFAULT 'open',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -287,6 +319,10 @@ async function ensureWorkspaceSchema() {
       CONSTRAINT webapp_manual_positions_quantity_non_negative CHECK (quantity >= 0)
     )
   `;
+  await sql`ALTER TABLE public.webapp_manual_positions ADD COLUMN IF NOT EXISTS source_tier TEXT NOT NULL DEFAULT 'user_confirmed'`;
+  await sql`ALTER TABLE public.webapp_manual_positions ADD COLUMN IF NOT EXISTS source_actionability TEXT NOT NULL DEFAULT 'analysis_only'`;
+  await sql`ALTER TABLE public.webapp_manual_positions ADD COLUMN IF NOT EXISTS source_as_of TIMESTAMPTZ`;
+  await sql`ALTER TABLE public.webapp_manual_positions ADD COLUMN IF NOT EXISTS source_lineage JSONB NOT NULL DEFAULT '{}'::jsonb`;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_webapp_manual_positions_tenant_status
       ON public.webapp_manual_positions(tenant_id, position_status, updated_at DESC)
@@ -683,6 +719,21 @@ export async function upsertManualPosition(
   const averageCost = input.averageCost ?? null;
   const marketPrice = input.marketPrice ?? averageCost;
   const marketValue = input.marketValue ?? (marketPrice === null ? null : Number((input.quantity * marketPrice).toFixed(2)));
+  const sourceTier = normalizeSourceTier(input.sourceTier);
+  const sourceActionability = normalizeSourceActionability(input.sourceActionability);
+  if (sourceActionability === 'blocked') {
+    throw new Error('当前来源状态不允许写入持仓');
+  }
+  const sourceAsOf = input.sourceAsOf || new Date().toISOString();
+  const sourceLineage = {
+    source_type: 'manual_position_input',
+    source_surface: 'webapp',
+    source_tier: sourceTier,
+    actionability: sourceActionability,
+    fact_write_allowed: true,
+    trade_action_allowed: false,
+    ...(input.sourceLineage || {}),
+  };
   const manualSource = account.assetSources.find((source) => source.sourceKey === 'manual-webapp');
   const portfolioViewId = account.activePortfolioViewId;
 
@@ -713,6 +764,10 @@ export async function upsertManualPosition(
           market_price = ${marketPrice},
           market_value = ${marketValue},
           currency = ${currency},
+          source_tier = ${sourceTier},
+          source_actionability = ${sourceActionability},
+          source_as_of = ${sourceAsOf},
+          source_lineage = ${sql.json(sourceLineage)},
           note = ${input.note?.trim() || null},
           updated_at = now()
         WHERE id = ${existingRows[0].id}
@@ -721,12 +776,14 @@ export async function upsertManualPosition(
     : await sql<ManualPositionDbRow[]>`
         INSERT INTO public.webapp_manual_positions (
           tenant_id, portfolio_view_id, asset_source_id, instrument_type, symbol, name,
-          market, exchange, quantity, average_cost, market_price, market_value, currency, note
+          market, exchange, quantity, average_cost, market_price, market_value, currency,
+          source_tier, source_actionability, source_as_of, source_lineage, note
         )
         VALUES (
           ${account.tenantId}, ${portfolioViewId}, ${manualSource.id}, ${instrumentType}, ${symbol},
           ${input.name?.trim() || null}, ${market}, ${input.exchange?.trim() || defaultExchange(market)},
-          ${input.quantity}, ${averageCost}, ${marketPrice}, ${marketValue}, ${currency}, ${input.note?.trim() || null}
+          ${input.quantity}, ${averageCost}, ${marketPrice}, ${marketValue}, ${currency},
+          ${sourceTier}, ${sourceActionability}, ${sourceAsOf}, ${sql.json(sourceLineage)}, ${input.note?.trim() || null}
         )
         RETURNING *
       `;
@@ -752,6 +809,8 @@ export async function listManualPositions(
       market_price,
       market_value,
       currency,
+      source_tier,
+      source_actionability,
       updated_at
     FROM public.webapp_manual_positions
     WHERE tenant_id = ${account.tenantId} AND position_status = 'open'
@@ -775,6 +834,10 @@ interface ManualPositionDbRow {
   market_price: string | number | null;
   market_value: string | number | null;
   currency: string;
+  source_tier: string;
+  source_actionability: string;
+  source_as_of?: string | Date | null;
+  source_lineage?: unknown;
   updated_at: string | Date;
 }
 
@@ -790,6 +853,8 @@ function toManualPositionRecord(row: ManualPositionDbRow): ManualPositionRecord 
     marketPrice: toNumber(row.market_price),
     marketValue: toNumber(row.market_value),
     currency: row.currency,
+    sourceTier: row.source_tier || 'user_confirmed',
+    sourceActionability: row.source_actionability || 'analysis_only',
     updatedAt: serializeDate(row.updated_at) || new Date().toISOString(),
   };
 }
@@ -824,6 +889,10 @@ async function rebuildManualBrokerSnapshot(tenantId: string) {
       market_value: string | number | null;
       currency: string;
       source_quality: string;
+      source_tier: string;
+      source_actionability: string;
+      source_as_of: string | Date | null;
+      source_lineage: unknown;
       note: string | null;
       updated_at: string | Date;
     }[]>`
@@ -888,9 +957,23 @@ async function rebuildManualBrokerSnapshot(tenantId: string) {
         ${position.currency},
         ${position.source_quality},
         'unverified',
-        ${sql.json({ name: position.name, note: position.note, source: 'webapp_manual_position' })},
-        ${sql.json([{ source: 'webapp_manual_positions', position_id: position.id }])},
-        ${serializeDate(position.updated_at) || now}
+        ${sql.json({
+          name: position.name,
+          note: position.note,
+          source: 'webapp_manual_position',
+          source_tier: position.source_tier,
+          source_actionability: position.source_actionability,
+        })},
+        ${sql.json([
+          {
+            source: 'webapp_manual_positions',
+            position_id: position.id,
+            source_tier: position.source_tier,
+            actionability: position.source_actionability,
+            lineage: position.source_lineage || {},
+          },
+        ] as any)},
+        ${serializeDate(position.source_as_of) || serializeDate(position.updated_at) || now}
       )
     `;
   }

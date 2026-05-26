@@ -3,6 +3,7 @@ WeChat / OpenClaw ingress router for P0 confirmation-safe interactions.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -11,16 +12,24 @@ from pydantic import BaseModel, Field
 
 from openclaw.gateway.confirmation_center import (
     ConfirmationCenterService,
+    PendingActionInput,
     RoutingContext,
     classify_high_attention_text,
     classify_image_text_candidate,
     interpret_voice_transcript,
     parse_confirmation_command,
 )
+from openclaw.gateway.image_vision import extract_image_text_from_metadata
+from openclaw.gateway.model_dialogue import (
+    ModelDialogueResult,
+    generate_openclaw_reply,
+    is_deep_research_request,
+)
 from openclaw.gateway.outbox import DeliveryEnvelope, DeliveryOutboxService
 from openclaw.gateway.webhook_security import check_rate_limit
 
 router = APIRouter(prefix="/api/openclaw", tags=["openclaw-gateway"])
+logger = logging.getLogger(__name__)
 
 
 class RoutingPayload(BaseModel):
@@ -127,10 +136,12 @@ async def _handle_text_message(
         source_surface="wechat",
     )
     if candidate is None:
-        return {
-            "result_type": "query_routed",
-            "reply_text": "已收到，我会按普通问题继续处理。当前没有改动持仓，也没有下单。",
-        }
+        model_result = await generate_openclaw_reply(
+            text,
+            context=context,
+            route="deep" if is_deep_research_request(text) else "light",
+        )
+        return _model_response(model_result)
 
     created = await service.create_pending_confirmation(context, candidate)
     await _enqueue_confirmation_prompt(outbox, context, candidate, created)
@@ -170,10 +181,12 @@ async def _handle_voice_message(
         )
         return _confirmation_response(created, interpretation.candidate.normalized_summary["title"])
 
-    return {
-        "result_type": "query_routed",
-        "reply_text": "这段语音已按普通问题继续处理。当前没有改动持仓，也没有下单。",
-    }
+    model_result = await generate_openclaw_reply(
+        transcript,
+        context=context,
+        route="deep" if is_deep_research_request(transcript) else "light",
+    )
+    return _model_response(model_result)
 
 
 async def _handle_image_message(
@@ -184,11 +197,32 @@ async def _handle_image_message(
 ) -> dict[str, Any]:
     extracted_text = message.ocr_text or message.image_text or ""
     source_field = "ocr_text" if message.ocr_text else "image_text"
+    vision_positions: list[dict[str, Any]] | None = None
+    metadata = dict(message.metadata)
+    if not extracted_text:
+        vision = await extract_image_text_from_metadata(metadata)
+        if vision is not None:
+            if vision.error:
+                logger.warning("image vision extraction failed: %s", vision.error)
+            extracted_text = vision.ocr_text
+            vision_positions = vision.positions
+            if vision.confidence is not None and message.ocr_confidence is None:
+                message.ocr_confidence = vision.confidence
+            metadata.update(
+                {
+                    "vision_provider": vision.provider,
+                    "vision_model": vision.model,
+                    "vision_response_id": vision.response_id,
+                    "vision_error": vision.error,
+                }
+            )
+            source_field = "ocr_text"
     candidate = classify_image_text_candidate(
         extracted_text,
         ocr_confidence=message.ocr_confidence,
         media_id=message.media_id,
-        metadata=message.metadata,
+        metadata=metadata,
+        positions=vision_positions,
         source_field=source_field,
         source_surface="wechat",
     )
@@ -247,4 +281,17 @@ def _confirmation_response(created: Any, title: str) -> dict[str, Any]:
             f"也可以打开确认页面链接查看详情。确认前不会改动持仓，也不会下单。"
         ),
         "expires_at": created.expires_at.isoformat(),
+    }
+
+
+def _model_response(result: ModelDialogueResult) -> dict[str, Any]:
+    return {
+        "result_type": "model_route_unavailable" if result.stub else "model_reply",
+        "model_route": result.route,
+        "model_provider": result.provider,
+        "model": result.model,
+        "model_response_id": result.response_id,
+        "model_stub": result.stub,
+        "model_error": result.error,
+        "reply_text": result.reply_text,
     }

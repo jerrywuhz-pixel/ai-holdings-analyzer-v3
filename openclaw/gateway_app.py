@@ -143,6 +143,7 @@ async def lifespan(app: FastAPI):
     _heartbeat_reporter.register_skill("opportunity-hunter")
     _heartbeat_reporter.register_skill("position-aggregate")
     _heartbeat_reporter.register_skill("daily-analysis")
+    _heartbeat_reporter.register_skill("quant-options-strategy")
     _heartbeat_reporter.register_skill("profit-taking")
     _heartbeat_reporter.start(interval_seconds=300)
 
@@ -265,6 +266,43 @@ async def cron_daily_scan(request: Request):
         "reports_generated": len([r for r in reports if r.get("ok")]),
         "total": len(reports),
     }
+
+
+@app.post("/api/cron/sellput-score")
+async def cron_sellput_score(request: Request):
+    """
+    Cron/API: Hermes Sell Put scoring.
+
+    Body formats:
+    - {"mode": "scan", "contracts": [...], "min_score": 70}
+    - {"mode": "open", "contract": {...}}
+    - {"mode": "hold", "position": {...}}
+    Empty body returns a healthy no-candidate scan response.
+    """
+    _verify_cron_request(request)
+
+    import importlib
+
+    service_mod = importlib.import_module(
+        "openclaw.skills.quant-options-strategy.hermes_sellput"
+    )
+    service = service_mod.HermesSellPutService()
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    mode = body.get("mode", "scan")
+    if mode == "open":
+        return await service.evaluate_open_with_futu(body.get("contract", {}))
+    if mode == "hold":
+        return service.evaluate_hold(body.get("position", {}))
+
+    return service.scan_candidates(
+        body.get("contracts", []),
+        min_score=int(body.get("min_score", 70)),
+    )
 
 
 @app.post("/api/cron/profit-taking")

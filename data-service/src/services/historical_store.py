@@ -9,6 +9,7 @@ P0 目标：
 3. 提供内存与文件系统 stub，测试不依赖真实对象存储。
 """
 
+import asyncio
 import json
 import os
 from datetime import date, datetime, timezone
@@ -183,6 +184,21 @@ class HistoricalBlobStore(Protocol):
     async def get(self, uri: str) -> Optional[list[dict[str, Any]]]: ...
 
 
+class HistoricalManifestRepository(Protocol):
+    async def save(self, manifest: HistoricalManifestRecord) -> None: ...
+
+    async def get(self, manifest_id: str) -> Optional[HistoricalManifestRecord]: ...
+
+    async def list_matching(
+        self,
+        *,
+        symbol: str,
+        market: str,
+        bar_interval: str,
+        tenant_id: Optional[str],
+    ) -> list[HistoricalManifestRecord]: ...
+
+
 class MemoryHistoricalBlobStore:
     def __init__(self) -> None:
         self._objects: dict[str, list[dict[str, Any]]] = {}
@@ -292,10 +308,149 @@ def create_historical_blob_store_from_env() -> HistoricalBlobStore:
     return MemoryHistoricalBlobStore()
 
 
+class FileSystemHistoricalManifestRepository:
+    def __init__(self, root: str | Path) -> None:
+        self._root = Path(root)
+        self._index_path = self._root / "market_data_manifests.json"
+
+    async def save(self, manifest: HistoricalManifestRecord) -> None:
+        self._root.mkdir(parents=True, exist_ok=True)
+        records = self._read_all()
+        records[manifest.id] = manifest.model_dump(mode="json")
+        self._index_path.write_text(json.dumps(records, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+
+    async def get(self, manifest_id: str) -> Optional[HistoricalManifestRecord]:
+        payload = self._read_all().get(manifest_id)
+        if payload is None:
+            return None
+        return HistoricalManifestRecord.model_validate(payload)
+
+    async def list_matching(
+        self,
+        *,
+        symbol: str,
+        market: str,
+        bar_interval: str,
+        tenant_id: Optional[str],
+    ) -> list[HistoricalManifestRecord]:
+        rows = [HistoricalManifestRecord.model_validate(item) for item in self._read_all().values()]
+        return _filter_manifest_records(
+            rows,
+            symbol=symbol,
+            market=market,
+            bar_interval=bar_interval,
+            tenant_id=tenant_id,
+        )
+
+    def _read_all(self) -> dict[str, dict[str, Any]]:
+        if not self._index_path.exists():
+            return {}
+        try:
+            payload = json.loads(self._index_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return {str(key): dict(value) for key, value in payload.items() if isinstance(value, dict)}
+
+
+class SupabaseHistoricalManifestRepository:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def save(self, manifest: HistoricalManifestRecord) -> None:
+        row = _manifest_record_to_supabase_row(manifest)
+
+        def _save() -> None:
+            self._client.table("market_data_manifests").upsert(row).execute()
+
+        await asyncio.to_thread(_save)
+
+    async def get(self, manifest_id: str) -> Optional[HistoricalManifestRecord]:
+        def _get() -> Optional[dict[str, Any]]:
+            response = (
+                self._client.table("market_data_manifests")
+                .select("*")
+                .eq("id", manifest_id)
+                .limit(1)
+                .execute()
+            )
+            if not response.data:
+                return None
+            return dict(response.data[0])
+
+        row = await asyncio.to_thread(_get)
+        if row is None:
+            return None
+        return _supabase_row_to_manifest_record(row)
+
+    async def list_matching(
+        self,
+        *,
+        symbol: str,
+        market: str,
+        bar_interval: str,
+        tenant_id: Optional[str],
+    ) -> list[HistoricalManifestRecord]:
+        def _list() -> list[dict[str, Any]]:
+            query = (
+                self._client.table("market_data_manifests")
+                .select("*")
+                .eq("symbol", symbol)
+                .eq("market", market)
+                .eq("interval", bar_interval)
+                .order("updated_at", desc=True)
+                .limit(200)
+            )
+            response = query.execute()
+            return [dict(item) for item in response.data or []]
+
+        rows = await asyncio.to_thread(_list)
+        records = [_supabase_row_to_manifest_record(row) for row in rows]
+        return _filter_manifest_records(
+            records,
+            symbol=symbol,
+            market=market,
+            bar_interval=bar_interval,
+            tenant_id=tenant_id,
+        )
+
+
+def create_historical_manifest_repository_from_env() -> Optional[HistoricalManifestRepository]:
+    backend = os.getenv("HISTORICAL_MANIFEST_BACKEND", "").strip().lower()
+    if backend == "file":
+        return FileSystemHistoricalManifestRepository(
+            os.getenv("HISTORICAL_MANIFEST_FILE_ROOT", ".historical-manifests")
+        )
+    if backend in {"supabase", "supabase_table", "database"}:
+        supabase_url = os.getenv("SUPABASE_URL", "").strip()
+        service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        if not supabase_url or not service_role_key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for historical manifest Supabase backend")
+        try:
+            from supabase import create_client
+        except ImportError as exc:
+            raise RuntimeError("supabase client dependency is required for historical manifest Supabase backend") from exc
+        return SupabaseHistoricalManifestRepository(create_client(supabase_url, service_role_key))
+    return None
+
+
+def create_historical_data_store_from_env() -> "HistoricalDataStore":
+    return HistoricalDataStore(
+        blob_store=create_historical_blob_store_from_env(),
+        manifest_repository=create_historical_manifest_repository_from_env(),
+    )
+
+
 class HistoricalDataStore:
-    def __init__(self, blob_store: HistoricalBlobStore | None = None) -> None:
+    def __init__(
+        self,
+        blob_store: HistoricalBlobStore | None = None,
+        manifest_repository: HistoricalManifestRepository | None = None,
+    ) -> None:
         self._manifests: dict[str, HistoricalManifestRecord] = {}
         self._blob_store = blob_store or MemoryHistoricalBlobStore()
+        self._manifest_repository = manifest_repository
 
     def build_storage_uri(self, payload: HistoricalManifestCreateRequest) -> str:
         if payload.storage_uri:
@@ -348,6 +503,8 @@ class HistoricalDataStore:
             updated_at=now,
         )
         self._manifests[record.id] = record
+        if self._manifest_repository is not None:
+            await self._manifest_repository.save(record)
 
         if materialized_bars is not None:
             await self._blob_store.put(record.storage_uri, materialized_bars)
@@ -363,7 +520,15 @@ class HistoricalDataStore:
         return await self.register_manifest(enriched_payload)
 
     async def get_manifest(self, manifest_id: str) -> Optional[HistoricalManifestRecord]:
-        return self._manifests.get(manifest_id)
+        manifest = self._manifests.get(manifest_id)
+        if manifest is not None:
+            return manifest
+        if self._manifest_repository is None:
+            return None
+        manifest = await self._manifest_repository.get(manifest_id)
+        if manifest is not None:
+            self._manifests[manifest.id] = manifest
+        return manifest
 
     async def find_coverage(
         self,
@@ -373,14 +538,13 @@ class HistoricalDataStore:
         data_kind: str,
         interval: str,
     ) -> HistoricalCoverageResponse:
-        candidates = [
-            item
-            for item in self._manifests.values()
-            if item.symbol == _normalize_symbol(symbol)
-            and item.market == _normalize_market(market)
-            and item.data_kind == data_kind
-            and item.interval == interval
-        ]
+        candidates = await self._matching_manifests(
+            symbol=_normalize_symbol(symbol),
+            market=_normalize_market(market),
+            bar_interval=interval,
+            tenant_id=None,
+            data_kind=data_kind,
+        )
         if not candidates:
             return HistoricalCoverageResponse(found=False, gap_reason="manifest_not_found")
 
@@ -398,7 +562,7 @@ class HistoricalDataStore:
         tenant_id: Optional[str] = None,
     ) -> HistoricalQueryResponse:
         requested_range = HistoricalRange(start=start_date, end=end_date)
-        candidates = self._matching_manifests(
+        candidates = await self._matching_manifests(
             symbol=_normalize_symbol(symbol),
             market=_normalize_market(market),
             bar_interval=bar_interval,
@@ -464,22 +628,36 @@ class HistoricalDataStore:
             reason=None if cache_status == "hit" else "manifest_not_fresh",
         )
 
-    def _matching_manifests(
+    async def _matching_manifests(
         self,
         *,
         symbol: str,
         market: str,
         bar_interval: str,
         tenant_id: Optional[str],
+        data_kind: Optional[str] = None,
     ) -> list[HistoricalManifestRecord]:
-        candidates = [
-            item
-            for item in self._manifests.values()
-            if item.symbol == symbol and item.market == market and item.bar_interval == bar_interval
-        ]
-        if tenant_id is None:
-            return candidates
-        return [item for item in candidates if item.tenant_id in {tenant_id, None}]
+        candidates = _filter_manifest_records(
+            list(self._manifests.values()),
+            symbol=symbol,
+            market=market,
+            bar_interval=bar_interval,
+            tenant_id=tenant_id,
+        )
+        if self._manifest_repository is not None:
+            persisted = await self._manifest_repository.list_matching(
+                symbol=symbol,
+                market=market,
+                bar_interval=bar_interval,
+                tenant_id=tenant_id,
+            )
+            for item in persisted:
+                self._manifests[item.id] = item
+            merged = {item.id: item for item in [*candidates, *persisted]}
+            candidates = list(merged.values())
+        if data_kind is not None:
+            candidates = [item for item in candidates if item.data_kind == data_kind]
+        return candidates
 
     def _sort_candidates(self, candidates: list[HistoricalManifestRecord]) -> list[HistoricalManifestRecord]:
         return sorted(
@@ -515,3 +693,84 @@ class HistoricalDataStore:
             return date.fromisoformat(text[:10])
         except ValueError as exc:
             raise ValueError("bar payload contains invalid date") from exc
+
+
+def _filter_manifest_records(
+    records: list[HistoricalManifestRecord],
+    *,
+    symbol: str,
+    market: str,
+    bar_interval: str,
+    tenant_id: Optional[str],
+) -> list[HistoricalManifestRecord]:
+    candidates = [
+        item
+        for item in records
+        if item.symbol == symbol and item.market == market and item.bar_interval == bar_interval
+    ]
+    if tenant_id is None:
+        return candidates
+    return [item for item in candidates if item.tenant_id in {tenant_id, None}]
+
+
+def _manifest_record_to_supabase_row(manifest: HistoricalManifestRecord) -> dict[str, Any]:
+    return {
+        "id": manifest.id,
+        "tenant_id": manifest.tenant_id,
+        "source_key": manifest.source_key,
+        "market": manifest.market,
+        "symbol": manifest.symbol,
+        "instrument_type": manifest.instrument_type,
+        "data_kind": manifest.data_kind,
+        "interval": manifest.interval,
+        "adjustment": manifest.adjustment,
+        "coverage_start": manifest.coverage_start.isoformat(),
+        "coverage_end": manifest.coverage_end.isoformat(),
+        "as_of": manifest.updated_at.isoformat(),
+        "storage_backend": manifest.storage_backend,
+        "storage_uri": manifest.storage_uri,
+        "row_count": manifest.row_count,
+        "schema_version": manifest.schema_version,
+        "quality_status": manifest.quality_status,
+        "quality_report": manifest.quality_report,
+        "created_at": manifest.created_at.isoformat(),
+        "updated_at": manifest.updated_at.isoformat(),
+    }
+
+
+def _supabase_row_to_manifest_record(row: dict[str, Any]) -> HistoricalManifestRecord:
+    quality_status = str(row.get("quality_status") or "validated")
+    coverage_start = row.get("coverage_start")
+    coverage_end = row.get("coverage_end")
+    interval = str(row.get("interval") or "1d")
+    source = str(row.get("source_key") or "unknown")
+    created_at = row.get("created_at") or datetime.now(timezone.utc).isoformat()
+    updated_at = row.get("updated_at") or created_at
+    return HistoricalManifestRecord(
+        id=str(row.get("id")),
+        tenant_id=row.get("tenant_id"),
+        universe_id=None,
+        job_id=str(row.get("job_run_id") or row.get("id")),
+        source=source,
+        source_key=source,
+        market=_normalize_market(str(row.get("market") or "")),
+        symbol=_normalize_symbol(str(row.get("symbol") or "")),
+        instrument_type=str(row.get("instrument_type") or "stock"),
+        data_kind=str(row.get("data_kind") or f"bar_{interval}"),
+        bar_interval=interval,
+        interval=interval,
+        adjustment=str(row.get("adjustment") or "raw"),
+        range=HistoricalRange.model_validate({"start": coverage_start, "end": coverage_end}),
+        coverage_start=coverage_start,
+        coverage_end=coverage_end,
+        storage_backend=str(row.get("storage_backend") or "unknown"),
+        storage_uri=str(row.get("storage_uri") or ""),
+        schema_version=str(row.get("schema_version") or "v3_p0"),
+        freshness=_map_quality_to_freshness(quality_status),
+        status=_map_quality_to_status(quality_status),
+        quality_status=quality_status,
+        quality_report=dict(row.get("quality_report") or {}),
+        row_count=row.get("row_count"),
+        created_at=created_at,
+        updated_at=updated_at,
+    )

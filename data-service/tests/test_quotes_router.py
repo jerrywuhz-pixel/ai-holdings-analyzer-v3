@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
 from main import app
 from services.historical_store import HistoricalManifestRecord, HistoricalQueryResponse, HistoricalRange
+from services.registry import QuoteFreshnessError
 from services.symbol_resolver import SymbolInfo
 
 client = TestClient(app)
@@ -140,6 +141,40 @@ def test_get_quote_error():
     assert "Failed to fetch quote" in data["detail"]["message"]
 
 
+def test_get_quote_unknown_source_returns_422():
+    with patch(
+        "routers.quotes._registry.get_quote",
+        new_callable=AsyncMock,
+        side_effect=ValueError("Unknown data source: bogus"),
+    ):
+        response = client.get("/api/quote/AAPL?source=bogus")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["detail"]["ok"] is False
+    assert "Unknown data source" in data["detail"]["message"]
+
+
+def test_get_quote_require_fresh_returns_503_for_stale_quote():
+    with patch(
+        "routers.quotes._registry.get_quote",
+        new_callable=AsyncMock,
+        side_effect=QuoteFreshnessError("Realtime quote required for AAPL"),
+    ) as mock_get_quote:
+        response = client.get("/api/quote/AAPL?source=futu&require_fresh=true&max_age_seconds=60")
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["detail"]["ok"] is False
+    assert "Realtime quote required" in data["detail"]["message"]
+    mock_get_quote.assert_awaited_once_with(
+        "AAPL",
+        prefer="futu",
+        require_fresh=True,
+        max_age_seconds=60,
+    )
+
+
 def test_post_batch_quotes_success():
     mock_results = {
         "AAPL": {"symbol": "AAPL", "price": 191.24},
@@ -159,6 +194,31 @@ def test_post_batch_quotes_success():
     assert "AAPL" in data["data"]
     assert "MSFT" in data["data"]
     assert "INVALID" in data["failed"]
+
+
+def test_post_batch_quotes_passes_realtime_policy_params():
+    mock_results = {"AAPL": {"symbol": "AAPL", "price": 191.24, "quote_actionability": "trade_draft"}}
+
+    with patch(
+        "routers.quotes._registry.fetch_batch_quotes",
+        new_callable=AsyncMock,
+        return_value=mock_results,
+    ) as mock_fetch:
+        response = client.post(
+            "/api/quote/batch?source=futu&require_fresh=true&max_age_seconds=60",
+            json={"symbols": ["AAPL", "MSFT"]},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["failed"] == ["MSFT"]
+    mock_fetch.assert_awaited_once_with(
+        ["AAPL", "MSFT"],
+        prefer="futu",
+        require_fresh=True,
+        max_age_seconds=60,
+    )
 
 
 def test_post_batch_quotes_empty():

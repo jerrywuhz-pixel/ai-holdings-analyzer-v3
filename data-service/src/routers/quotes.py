@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from routers.data_broker import _historical_store
-from services.registry import DataSourceRegistry
+from services.registry import DataSourceRegistry, QuoteFreshnessError
 from services.symbol_resolver import resolve_symbol, search_symbols as resolver_search
 
 router = APIRouter(tags=["quotes"])
@@ -37,6 +37,7 @@ class SearchResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    futu: bool
     yahoo: bool
     stooq: bool
     tushare: bool
@@ -97,7 +98,9 @@ async def get_quote_history(
 @router.get("/quote/{symbol}")
 async def get_quote(
     symbol: str,
-    source: Optional[str] = Query(None, description="Preferred data source: yahoo / tushare / ftshare / akshare / longbridge"),
+    source: Optional[str] = Query(None, description="Preferred data source: futu / yahoo / tushare / ftshare / akshare / longbridge"),
+    require_fresh: bool = Query(False, description="Require quote_actionability=trade_draft; stale/expired data returns 503"),
+    max_age_seconds: Optional[int] = Query(None, ge=1, description="Override realtime quote max age in seconds"),
 ) -> dict[str, Any]:
     """
     获取单只股票实时行情。
@@ -111,8 +114,17 @@ async def get_quote(
         标准化行情字典
     """
     try:
-        quote = await _registry.get_quote(symbol, prefer=source)
+        quote = await _registry.get_quote(
+            symbol,
+            prefer=source,
+            require_fresh=require_fresh,
+            max_age_seconds=max_age_seconds,
+        )
         return {"ok": True, "data": quote}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"ok": False, "message": str(exc)})
+    except QuoteFreshnessError as exc:
+        raise HTTPException(status_code=503, detail={"ok": False, "message": str(exc)})
     except HTTPException:
         raise
     except Exception as exc:
@@ -123,7 +135,12 @@ async def get_quote(
 
 
 @router.post("/quote/batch")
-async def post_batch_quotes(payload: BatchQuoteRequest) -> dict[str, Any]:
+async def post_batch_quotes(
+    payload: BatchQuoteRequest,
+    source: Optional[str] = Query(None, description="Preferred data source: futu / yahoo / tushare / ftshare / akshare / longbridge"),
+    require_fresh: bool = Query(False, description="Omit symbols whose quote is not trade-actionable fresh"),
+    max_age_seconds: Optional[int] = Query(None, ge=1, description="Override realtime quote max age in seconds"),
+) -> dict[str, Any]:
     """
     批量获取股票实时行情。
 
@@ -137,9 +154,16 @@ async def post_batch_quotes(payload: BatchQuoteRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail={"ok": False, "message": "symbols list is empty"})
 
     try:
-        results = await _registry.fetch_batch_quotes(payload.symbols)
+        results = await _registry.fetch_batch_quotes(
+            payload.symbols,
+            prefer=source,
+            require_fresh=require_fresh,
+            max_age_seconds=max_age_seconds,
+        )
         failed = [sym for sym in payload.symbols if sym not in results]
         return {"ok": True, "data": results, "failed": failed}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"ok": False, "message": str(exc)})
     except Exception as exc:
         raise HTTPException(
             status_code=500,

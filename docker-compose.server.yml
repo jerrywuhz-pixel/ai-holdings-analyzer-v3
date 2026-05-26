@@ -93,6 +93,8 @@ services:
       OBJECT_STORAGE_BUCKET_MEDIA: ${MINIO_BUCKET_MEDIA:-tenant-media}
       HISTORICAL_STORAGE_BACKEND: ${HISTORICAL_STORAGE_BACKEND:-file}
       HISTORICAL_STORAGE_FILE_ROOT: ${HISTORICAL_STORAGE_FILE_ROOT:-/app/.historical-cache}
+      HISTORICAL_MANIFEST_BACKEND: ${HISTORICAL_MANIFEST_BACKEND:-file}
+      HISTORICAL_MANIFEST_FILE_ROOT: ${HISTORICAL_MANIFEST_FILE_ROOT:-/app/.historical-manifests}
       FX_RATES_SOURCE: ${FX_RATES_SOURCE:-fallback_estimate}
       FX_RATES_JSON: ${FX_RATES_JSON:-}
       FX_RATE_ENDPOINT: ${FX_RATE_ENDPOINT:-}
@@ -124,6 +126,7 @@ services:
     volumes:
       - ./openclaw/skills/ftshare-market-data:/app/skills/ftshare-market-data:ro
       - historical_cache:/app/.historical-cache
+      - historical_manifests:/app/.historical-manifests
 
   gbrain:
     build:
@@ -377,6 +380,7 @@ services:
       NEXT_PUBLIC_DATA_SERVICE_URL: ${NEXT_PUBLIC_DATA_SERVICE_URL:-http://data-service:8000}
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      WEBAPP_RUNTIME_SCHEMA_REPAIR: ${WEBAPP_RUNTIME_SCHEMA_REPAIR:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -398,5 +402,6 @@ volumes:
   redis_data:
   minio_data:
   historical_cache:
+  historical_manifests:
   gbrain_artifacts:
   openclaw_artifacts:

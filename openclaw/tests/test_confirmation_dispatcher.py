@@ -7,6 +7,7 @@ from openclaw.gateway.confirmation_center import (
     InMemoryConfirmationRepository,
     RoutingContext,
     classify_high_attention_text,
+    classify_image_text_candidate,
     parse_confirmation_command,
 )
 from openclaw.gateway.confirmation_dispatcher import (
@@ -71,6 +72,46 @@ async def test_confirmed_trade_enqueues_holdings_recalculation_once() -> None:
     )
     assert duplicate.outcome == "already_confirmed"
     assert len(task_repository.tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_confirmed_position_screenshot_enqueues_snapshot_import() -> None:
+    confirmation_repository = InMemoryConfirmationRepository()
+    task_repository = InMemoryPostConfirmationTaskRepository()
+    service = ConfirmationCenterService(
+        confirmation_repository,
+        webapp_base_url="https://app.example.com",
+        post_decision_dispatcher=ConfirmationPostDecisionDispatcher(task_repository),
+    )
+    context = RoutingContext(
+        tenant_id="tenant-position-dispatch",
+        channel_binding_id="binding-position-dispatch",
+        openclaw_account_id="bot-position-dispatch",
+    )
+    pending = classify_image_text_candidate(
+        "持仓 数量 成本\nAAPL 苹果 10 180.25",
+        ocr_confidence=0.9,
+        media_id="media-position-dispatch",
+    )
+    assert pending is not None
+    assert pending.action_type == "position_snapshot_input"
+    created = await service.create_pending_confirmation(context, pending)
+
+    result = await service.submit_decision(
+        context,
+        parse_confirmation_command(f"确认 {created.session_token}"),
+    )
+
+    assert result.status == "committing"
+    task = next(iter(task_repository.tasks.values()))
+    assert task["job_type"] == "confirmed_position_snapshot_import"
+    assert task["config"]["pending_action"]["action_type"] == "position_snapshot_input"
+    assert task["config"]["execution_guard"]["human_confirm_required"] is True
+    assert task["config"]["execution_guard"]["auto_order_allowed"] is False
+    assert task["config"]["source_write_guard"]["source_tier"] == "user_confirmed"
+    assert task["config"]["source_write_guard"]["actionability"] == "analysis_only"
+    assert task["config"]["source_write_guard"]["fact_write_allowed"] is True
+    assert task["config"]["source_write_guard"]["trade_action_allowed"] is False
 
 
 @pytest.mark.asyncio

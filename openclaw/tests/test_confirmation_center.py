@@ -12,6 +12,8 @@ from openclaw.gateway.confirmation_center import (
     classify_high_attention_text,
     classify_image_text_candidate,
     interpret_voice_transcript,
+    parse_broker_trade_message,
+    parse_position_snapshot_rows,
     parse_confirmation_command,
 )
 
@@ -74,6 +76,60 @@ def test_interpret_voice_transcript_boundaries() -> None:
     assert trade.candidate.object_type == "trade_event_input"
 
 
+def test_parse_broker_trade_message_supports_v2_huatai_template() -> None:
+    parsed = parse_broker_trade_message(
+        "\n".join(
+            [
+                "【华泰证券】您的委托已成交",
+                "证券名称：贵州茅台",
+                "证券代码：600519",
+                "委托方向：买入",
+                "成交数量：100股",
+                "成交价格：1680.00元",
+                "成交时间：14:32:18",
+                "委托编号：12345678",
+            ]
+        )
+    )
+
+    assert parsed is not None
+    assert parsed["broker"] == "huatai"
+    assert parsed["side"] == "BUY"
+    assert parsed["symbol"] == "600519.SH"
+    assert parsed["stock_name"] == "贵州茅台"
+    assert parsed["quantity"] == 100
+    assert parsed["price"] == 1680.00
+    assert parsed["order_no"] == "12345678"
+    assert parsed["fingerprint"]
+
+
+def test_classify_high_attention_text_prioritizes_broker_parse_over_generic_trade() -> None:
+    candidate = classify_high_attention_text(
+        "\n".join(
+            [
+                "【富途牛牛】成交通知",
+                "方向：BUY",
+                "代码：AAPL",
+                "名称：Apple Inc.",
+                "数量：50股",
+                "价格：$190.00",
+                "时间：2024-01-15 14:32:18 EST",
+            ]
+        ),
+        source_type="message_text",
+        source_surface="wechat",
+    )
+
+    assert candidate is not None
+    assert candidate.action_type == "trade_input"
+    assert candidate.source_type == "broker_wechat"
+    assert candidate.action_payload["structured_trade"]["broker"] == "futu"
+    assert candidate.action_payload["structured_trade"]["symbol"] == "AAPL"
+    assert candidate.action_payload["structured_trade"]["quantity"] == 50
+    assert candidate.action_payload["structured_trade"]["price"] == 190.0
+    assert candidate.normalized_summary["title"] == "待确认富途牛牛成交提醒"
+
+
 def test_classify_image_text_candidate_supports_ocr_and_image_text_fields() -> None:
     trade_candidate = classify_image_text_candidate(
         "买入 AAPL 10 股 180",
@@ -84,7 +140,7 @@ def test_classify_image_text_candidate_supports_ocr_and_image_text_fields() -> N
     )
     assert trade_candidate is not None
     assert trade_candidate.action_type == "trade_input"
-    assert trade_candidate.source_type == "image_ocr"
+    assert trade_candidate.source_type == "ocr"
     assert trade_candidate.action_payload["image_text"] == "买入 AAPL 10 股 180"
     assert trade_candidate.action_payload["media_id"] == "media-1"
     assert "确认前不会改动持仓，也不会下单" in trade_candidate.normalized_summary["risk_note"]
@@ -98,6 +154,56 @@ def test_classify_image_text_candidate_supports_ocr_and_image_text_fields() -> N
     assert generic_candidate.action_type == "ocr_correction"
     assert generic_candidate.action_payload["ocr_text"] == "这是我刚拍的持仓截图"
     assert generic_candidate.normalized_summary["title"] == "待确认图片识别内容"
+
+
+def test_classify_image_text_candidate_detects_position_screenshot_rows() -> None:
+    candidate = classify_image_text_candidate(
+        "持仓 数量 成本\nAAPL 苹果 10 180.25\nNVDA 英伟达 2 900",
+        ocr_confidence=0.91,
+        media_id="position-media-1",
+        source_field="ocr_text",
+    )
+
+    assert candidate is not None
+    assert candidate.object_type == "position_snapshot_input"
+    assert candidate.action_type == "position_snapshot_input"
+    assert candidate.action_scope == "fact_record"
+    assert candidate.source_type == "ocr"
+    assert candidate.action_payload["positions"][0]["symbol"] == "AAPL"
+    assert candidate.action_payload["positions"][0]["quantity"] == 10
+    assert candidate.action_payload["positions"][0]["average_cost"] == 180.25
+    assert candidate.action_payload["positions"][1]["symbol"] == "NVDA"
+    assert candidate.action_payload["source_policy"]["source_tier"] == "user_confirmed"
+    assert candidate.action_payload["source_policy"]["actionability"] == "analysis_only"
+    assert candidate.action_payload["source_policy"]["fact_write_allowed"] is True
+    assert candidate.normalized_summary["title"] == "待确认持仓截图导入"
+
+
+def test_parse_position_snapshot_rows_supports_futu_name_only_layout() -> None:
+    rows = parse_position_snapshot_rows(
+        "\n".join(
+            [
+                "持仓 证券名称 证券市值 浮动盈亏 盈亏比例 成本价 现价 实际数量 可用数量",
+                "盛新锂能 485100.00 -53475.75 -9.93% 53.858 48.510 10000 10000",
+                "东山精密 113120.00 5109.20 4.73% 216.022 226.240 500 500",
+                "罗博特科 0.00 181958.19 -- 0.000 621.990 0 0",
+            ]
+        )
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["stock_name"] == "盛新锂能"
+    assert rows[0]["symbol"].startswith("CNNAME_")
+    assert rows[0]["market"] == "CN"
+    assert rows[0]["exchange"] == "UNKNOWN"
+    assert rows[0]["quantity"] == 10000
+    assert rows[0]["available_quantity"] == 10000
+    assert rows[0]["average_cost"] == 53.858
+    assert rows[0]["current_price"] == 48.510
+    assert rows[0]["market_value"] == 485100.00
+    assert rows[0]["unrealized_pnl"] == -53475.75
+    assert rows[0]["pnl_ratio"] == -0.0993
+    assert rows[1]["stock_name"] == "东山精密"
 
 
 def test_low_confidence_ocr_trade_text_stays_in_review_center() -> None:

@@ -22,7 +22,7 @@ from adapters.futu import (
     FutuSnapshotReadRequest,
 )
 from adapters.tencent_finance import TencentFinanceAdapter, TencentFinanceQuoteRequest
-from services.historical_store import HistoricalDataStore, HistoricalManifestCreateRequest, create_historical_blob_store_from_env
+from services.historical_store import HistoricalManifestCreateRequest, create_historical_data_store_from_env
 from services.margin import MarginEstimator, SellPutMarginEstimateRequest
 from services.broker_sync import (
     FutuBrokerSyncRequest,
@@ -42,7 +42,7 @@ router = APIRouter(tags=["data-broker"])
 
 _futu_connector = FutuLocalConnectorMock()
 _tencent_adapter = TencentFinanceAdapter()
-_historical_store = HistoricalDataStore(blob_store=create_historical_blob_store_from_env())
+_historical_store = create_historical_data_store_from_env()
 _margin_estimator = MarginEstimator()
 _sell_put_service = SellPutAnalysisService(margin_estimator=_margin_estimator)
 _futu_sync_service = FutuBrokerSyncService(connector=_futu_connector)
