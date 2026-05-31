@@ -17,6 +17,8 @@ PRODUCTION_ENV = {
     "HERMES_ARTIFACT_STORAGE_BACKEND": "supabase",
     "HERMES_ARTIFACT_BASE_URI": "supabase://artifacts",
     "HISTORICAL_STORAGE_BACKEND": "supabase_storage",
+    "BROKER_SYNC_REPOSITORY": "supabase",
+    "PORTFOLIO_READ_REPOSITORY": "supabase",
     "FX_RATES_SOURCE": "trusted_fx",
     "FX_RATE_ENDPOINT": "https://fx.ai-holdings.cn/latest",
     "SENTRY_DSN": "https://sentry.ai-holdings.cn/1",
@@ -33,6 +35,8 @@ LIGHTWEIGHT_ENV = {
     "HERMES_ARTIFACT_STORAGE_BACKEND": "file",
     "HERMES_ARTIFACT_BASE_URI": "file:///opt/ai-holdings/artifacts",
     "HISTORICAL_STORAGE_BACKEND": "file",
+    "BROKER_SYNC_REPOSITORY": "postgres",
+    "PORTFOLIO_READ_REPOSITORY": "postgres",
     "FX_RATES_SOURCE": "fallback_estimate",
     "CORS_ALLOWED_ORIGINS": "http://149.129.240.111:3000",
     "WEBAPP_BASE_URL": "http://149.129.240.111:3000",
@@ -47,6 +51,21 @@ def test_production_readiness_passes_with_required_config():
 
     assert summary["status"] == "pass"
     assert summary["counts"]["fail"] == 0
+
+
+def test_production_readiness_rejects_unsupported_portfolio_read_repository():
+    env = {
+        **PRODUCTION_ENV,
+        "PORTFOLIO_READ_REPOSITORY": "rest-cache",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        checks = run_checks(profile="production")
+        summary = summarize(checks, profile="production")
+
+    portfolio_check = next(check for check in checks if check.name == "portfolio_read_repository")
+    assert summary["counts"]["fail"] > 0
+    assert portfolio_check.status == "fail"
 
 
 def test_production_readiness_accepts_system_codex_bridge_for_deep_model():

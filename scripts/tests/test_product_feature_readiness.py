@@ -185,6 +185,23 @@ def test_futu_user_local_sync_feature_passes_when_control_plane_and_env_are_read
     feature = _feature(summary, "futu_user_local_sync")
     assert feature["status"] == "pass"
     assert _dependency(feature, "cloud_connector_poll_upload")["status"] == "pass"
+    assert _dependency(feature, "PORTFOLIO_READ_REPOSITORY")["status"] == "pass"
+
+
+def test_futu_user_local_sync_rejects_unsupported_portfolio_read_repository():
+    from scripts.product_feature_readiness import summarize_product_readiness
+
+    env = {
+        **LIGHTWEIGHT_ENV,
+        "PORTFOLIO_READ_REPOSITORY": "rest-cache",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        summary = summarize_product_readiness(profile="lightweight")
+
+    feature = _feature(summary, "futu_user_local_sync")
+    assert feature["status"] == "fail"
+    assert _dependency(feature, "PORTFOLIO_READ_REPOSITORY")["status"] == "fail"
 
 
 def test_futu_user_local_sync_rejects_relative_control_plane_urls():

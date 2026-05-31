@@ -176,6 +176,35 @@ def configured_http_url(name: str, *, profile: str, required: bool = True) -> De
     return result
 
 
+def portfolio_read_repository(profile: str) -> DependencyResult:
+    broker_repository = _env("BROKER_SYNC_REPOSITORY").lower()
+    portfolio_repository = _env("PORTFOLIO_READ_REPOSITORY").lower()
+    allowed = {"postgres", "supabase", "supabase_rest", "local_postgres", "database_url"}
+    if portfolio_repository:
+        if portfolio_repository not in allowed:
+            status = "warn" if profile == "local" else "fail"
+            return DependencyResult(
+                "PORTFOLIO_READ_REPOSITORY",
+                "env",
+                status,
+                f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}; expected one of {sorted(allowed)}",
+            )
+        return DependencyResult(
+            "PORTFOLIO_READ_REPOSITORY",
+            "env",
+            "pass",
+            f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}",
+        )
+    if broker_repository in {"postgres", "supabase"}:
+        return DependencyResult(
+            "PORTFOLIO_READ_REPOSITORY",
+            "env",
+            "pass",
+            f"PORTFOLIO_READ_REPOSITORY omitted; follows BROKER_SYNC_REPOSITORY={broker_repository}",
+        )
+    return configured_env("PORTFOLIO_READ_REPOSITORY", profile=profile, allowed=allowed)
+
+
 def any_configured_env(names: Iterable[str], *, profile: str, dependency_name: str) -> DependencyResult:
     configured = [name for name in names if not _is_placeholder(_env(name))]
     if configured:
@@ -650,6 +679,7 @@ def _futu_user_local_sync(profile: str) -> ProductFeature:
             configured_http_url("FUTU_CONNECTOR_UPLOAD_ENDPOINT", profile=profile),
             configured_env("FUTU_CONNECTOR_PAIRING_TOKEN", profile=profile),
             configured_env("BROKER_SYNC_REPOSITORY", profile=profile, allowed={"postgres", "supabase"}),
+            portfolio_read_repository(profile),
         ],
         actions=[
             "设置 FUTU_CONNECTOR_MODE=user_local_polling、poll/upload URL、pairing token 与 BROKER_SYNC_REPOSITORY。",
