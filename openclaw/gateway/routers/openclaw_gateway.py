@@ -4,9 +4,13 @@ WeChat / OpenClaw ingress router for P0 confirmation-safe interactions.
 from __future__ import annotations
 
 import logging
+import os
+import re
+import urllib.parse
 from datetime import datetime
 from typing import Any, Literal, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -30,6 +34,16 @@ from openclaw.gateway.webhook_security import check_rate_limit
 
 router = APIRouter(prefix="/api/openclaw", tags=["openclaw-gateway"])
 logger = logging.getLogger(__name__)
+
+QUOTE_KEYWORDS = (
+    "实时行情",
+    "行情",
+    "报价",
+    "股价",
+    "quote",
+    "price",
+)
+QUOTE_SYMBOL_RE = re.compile(r"(?<![A-Z0-9])(?:SH|SZ|HK)?[A-Z]{1,6}\d{0,5}(?![A-Z0-9])|(?<!\d)\d{6}(?!\d)")
 
 
 class RoutingPayload(BaseModel):
@@ -136,6 +150,11 @@ async def _handle_text_message(
         source_surface="wechat",
     )
     if candidate is None:
+        quote_symbol = _extract_realtime_quote_symbol(text)
+        if quote_symbol:
+            quote_payload = await _fetch_realtime_quote(quote_symbol)
+            return _market_quote_response(quote_symbol, quote_payload)
+
         model_result = await generate_openclaw_reply(
             text,
             context=context,
@@ -295,3 +314,118 @@ def _model_response(result: ModelDialogueResult) -> dict[str, Any]:
         "model_error": result.error,
         "reply_text": result.reply_text,
     }
+
+
+def _extract_realtime_quote_symbol(text: str) -> str | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+    if not any(keyword.lower() in normalized.lower() for keyword in QUOTE_KEYWORDS):
+        return None
+
+    for match in QUOTE_SYMBOL_RE.finditer(normalized.upper()):
+        symbol = match.group(0)
+        if symbol in {"US", "HK", "CN", "ETF", "QUOTE", "PRICE"}:
+            continue
+        if symbol.isdigit() and len(symbol) == 6:
+            if symbol.startswith("6"):
+                return f"SH{symbol}"
+            if symbol.startswith(("0", "3")):
+                return f"SZ{symbol}"
+        return symbol
+    return None
+
+
+async def _fetch_realtime_quote(symbol: str) -> dict[str, Any]:
+    base_url = (
+        os.getenv("OPENCLAW_DATA_SERVICE_URL")
+        or os.getenv("DATA_SERVICE_URL")
+        or "http://data-service:8000"
+    ).rstrip("/")
+    query = urllib.parse.urlencode(
+        {
+            "source": "futu",
+            "require_fresh": "true",
+            "max_age_seconds": os.getenv("OPENCLAW_REALTIME_QUOTE_MAX_AGE_SECONDS", "60"),
+        }
+    )
+    url = f"{base_url}/api/quote/{urllib.parse.quote(symbol)}?{query}"
+    timeout = float(os.getenv("OPENCLAW_DATA_SERVICE_TIMEOUT_SECONDS", "10"))
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.get(url)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"ok": False, "message": response.text[:240]}
+        if response.status_code >= 400:
+            return {
+                "ok": False,
+                "status_code": response.status_code,
+                "message": _quote_error_message(payload),
+            }
+        return payload if isinstance(payload, dict) else {"ok": False, "message": "行情服务返回格式异常"}
+
+
+def _market_quote_response(symbol: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload.get("ok") or not isinstance(payload.get("data"), dict):
+        message = payload.get("message") or "实时行情源暂时不可用"
+        return {
+            "result_type": "market_quote_unavailable",
+            "symbol": symbol,
+            "reply_text": (
+                f"{symbol} 实时行情暂时不可用：{message}。"
+                "我不会用过期或低可信数据替代实时价格；可以稍后重试，或先查看持仓和风险框架。"
+            ),
+        }
+
+    quote = payload["data"]
+    price = _format_quote_number(quote.get("price"))
+    change = _format_quote_number(quote.get("change"), signed=True)
+    change_rate = _format_quote_number(quote.get("change_rate"), signed=True)
+    currency = str(quote.get("currency") or "").strip()
+    source = _quote_source_label(quote)
+    freshness = quote.get("freshness_seconds")
+    freshness_text = f"，约 {freshness}s 前更新" if isinstance(freshness, (int, float)) else ""
+    actionability = str(quote.get("quote_actionability") or "")
+
+    reply = f"{quote.get('symbol') or symbol} 实时行情：{price} {currency}".strip()
+    if change != "-":
+        reply += f"，涨跌 {change}"
+    if change_rate != "-":
+        reply += f"（{change_rate}%）"
+    reply += f"。来源：{source}{freshness_text}。"
+    if actionability != "trade_draft":
+        reply += "当前数据未达到交易草稿级新鲜度，只作为观察参考。"
+
+    return {
+        "result_type": "market_quote",
+        "symbol": quote.get("symbol") or symbol,
+        "source": quote.get("source"),
+        "source_tier": quote.get("source_tier"),
+        "freshness_status": quote.get("freshness_status"),
+        "quote_actionability": actionability,
+        "reply_text": reply,
+    }
+
+
+def _quote_error_message(payload: dict[str, Any]) -> str:
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("detail") or "实时行情源暂时不可用")
+    return str(payload.get("message") or detail or "实时行情源暂时不可用")
+
+
+def _format_quote_number(value: Any, *, signed: bool = False) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    prefix = "+" if signed and number > 0 else ""
+    return f"{prefix}{number:.2f}"
+
+
+def _quote_source_label(quote: dict[str, Any]) -> str:
+    source = str(quote.get("source") or quote.get("source_key") or "").lower()
+    if source == "futu" or "futu" in source:
+        return "Futu OpenD"
+    return str(quote.get("source") or quote.get("source_key") or "data-service")

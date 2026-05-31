@@ -105,6 +105,56 @@ def test_plain_text_routes_to_light_model(monkeypatch) -> None:
     assert data["reply_text"] == "MiniMax light reply"
 
 
+def test_realtime_quote_text_routes_to_data_service(monkeypatch) -> None:
+    async def fake_fetch_realtime_quote(symbol):
+        assert symbol == "AAPL"
+        return {
+            "ok": True,
+            "data": {
+                "symbol": "AAPL",
+                "price": 312.06,
+                "change": -0.45,
+                "change_rate": -0.144,
+                "currency": "USD",
+                "source": "futu",
+                "source_tier": "L1_trading",
+                "freshness_seconds": 3,
+                "quote_actionability": "trade_draft",
+            },
+        }
+
+    async def fail_generate_openclaw_reply(*args, **kwargs):
+        raise AssertionError("quote query should not route to the model fallback")
+
+    monkeypatch.setattr(openclaw_gateway, "_fetch_realtime_quote", fake_fetch_realtime_quote, raising=False)
+    monkeypatch.setattr(openclaw_gateway, "generate_openclaw_reply", fail_generate_openclaw_reply)
+
+    client = build_test_client()
+    response = client.post(
+        "/api/openclaw/wechat/messages",
+        json={
+            "routing": {
+                "tenant_id": "tenant-quote",
+                "channel_binding_id": "binding-quote",
+                "openclaw_account_id": "bot-quote",
+            },
+            "message": {
+                "type": "text",
+                "text": "查一下AAPL实时行情",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_type"] == "market_quote"
+    assert data["symbol"] == "AAPL"
+    assert data["quote_actionability"] == "trade_draft"
+    assert "AAPL 实时行情" in data["reply_text"]
+    assert "312.06 USD" in data["reply_text"]
+    assert "Futu" in data["reply_text"]
+
+
 def test_deep_research_text_routes_to_deep_model(monkeypatch) -> None:
     async def fake_generate_openclaw_reply(text, *, context, route=None):
         assert "深度研究" in text
