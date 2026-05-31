@@ -50,6 +50,12 @@ services:
     network_mode: host
     extra_hosts: !reset []
 
+  openclaw-scheduler-worker:
+    network_mode: host
+    extra_hosts: !reset []
+    environment:
+      OPENCLAW_SCHEDULER_BASE_URL: http://127.0.0.1:8080
+
   webapp:
     network_mode: host
     ports: !reset []

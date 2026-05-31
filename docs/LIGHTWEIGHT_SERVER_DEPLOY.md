@@ -156,9 +156,24 @@ OPENCLAW_DELIVERY_MODE=webhook
 OPENCLAW_DELIVERY_WEBHOOK_URL=http://127.0.0.1:3000/api/openclaw/delivery/wechat
 OPENCLAW_DELIVERY_WEBHOOK_SECRET=一串随机字符串
 OPENCLAW_CRON_SECRET=一串随机字符串
+OPENCLAW_SCHEDULER_BASE_URL=http://127.0.0.1:8080
+OPENCLAW_SCHEDULER_TIMEZONE=Asia/Shanghai
+OPENCLAW_SCHEDULER_TICK_INTERVAL_SECONDS=30
+OPENCLAW_SCHEDULER_LOOKBACK_MINUTES=2
+OPENCLAW_SCHEDULER_RETRY_BACKOFF_SECONDS=60
 ```
 
 `/api/openclaw/delivery/wechat` 会校验 `X-OpenClaw-Delivery-Signature`，从当前 tenant 的 `wechat_bot_credentials` 解密 `bot_token`，并使用 Tencent iLink `/ilink/bot/sendmessage` 携带 `to_user_id` 与 `context_token` 完成真实微信回复。扫码授权只表示 bot token 可用；生产可回复绑定必须在同一个 ClawBot 对话里发送 WebApp 显示的绑定码，等 `/ilink/bot/getupdates` 拉到带 `context_token` 的消息后才写入可用的 `channel_bindings`。轻量服务器的 host-network 部署让 OpenClaw 通过 `http://127.0.0.1:3000/...` 访问 WebApp；若改回 Docker bridge 网络，则可改成 `http://webapp:3000/...`。
+
+`openclaw-scheduler-worker` 会读取 `task_definitions` 中 `config.scheduler.enabled=true` 的任务，把到期 cron 转成 `job_runs`，再调用 OpenClaw `/api/cron/*` 端点执行。每个调度窗口写入 `config.scheduler.dedupe_key` 防重复；HTTP 失败或业务返回 `{"ok": false}` 会把同一条 `job_runs` 标记为 `FAILED` 并按 `max_retries` 重试，超过上限后标记 `ABANDONED`。当前接管的实际任务包括：
+
+```text
+daily-analysis      -> /api/cron/daily-scan      工作日 15:30
+daily-profit-taking -> /api/cron/profit-taking  工作日 09:00
+heartbeat           -> /api/cron/heartbeat      每 5 分钟
+stale-jobs-check    -> /api/cron/stale-jobs     每 10 分钟
+sellput-score       -> /api/cron/sellput-score  工作日 16:20
+```
 
 用户本地 Futu connector 走云端 poll/upload 控制面。轻量服务器正式让用户同步持仓前，至少配置：
 
@@ -399,6 +414,10 @@ docker compose --env-file .env.server -f docker-compose.server.yml logs -f webap
 curl -I http://127.0.0.1:3000
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8080/health
+docker compose --env-file .env.server -f docker-compose.server.yml ps openclaw-scheduler-worker
+docker compose --env-file .env.server -f docker-compose.server.yml logs --since=10m openclaw-scheduler-worker
+docker compose --env-file .env.server -f docker-compose.server.yml exec -T postgres psql -U postgres -d ai_holdings -c "select name, cron_expression, config->'scheduler' as scheduler from public.task_definitions where config->'scheduler'->>'enabled' = 'true' order by name;"
+docker compose --env-file .env.server -f docker-compose.server.yml exec -T postgres psql -U postgres -d ai_holdings -c "select job_type,status,retry_count,config->'scheduler' as scheduler,result_summary from public.job_runs where config->'scheduler'->>'source' = 'openclaw-cron-scheduler' order by created_at desc limit 10;"
 docker run --rm --env-file .env.server -v "$PWD:/app" -w /app --entrypoint python ai-holdings-server-data-service scripts/production_readiness.py --profile lightweight --env-file .env.server
 docker run --rm --env-file .env.server -v "$PWD:/app" -w /app --entrypoint python ai-holdings-server-data-service scripts/product_feature_readiness.py --profile lightweight --env-file .env.server
 python3 scripts/lightweight_cloud_smoke.py \

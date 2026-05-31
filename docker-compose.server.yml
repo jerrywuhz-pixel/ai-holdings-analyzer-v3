@@ -359,6 +359,35 @@ services:
       openclaw:
         condition: service_healthy
 
+  openclaw-scheduler-worker:
+    build:
+      context: .
+      dockerfile: openclaw/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.server
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-ai_holdings}
+      OPENCLAW_SCHEDULER_BASE_URL: ${OPENCLAW_SCHEDULER_BASE_URL:-http://openclaw:8080}
+      OPENCLAW_SCHEDULER_TIMEZONE: ${OPENCLAW_SCHEDULER_TIMEZONE:-Asia/Shanghai}
+      OPENCLAW_SCHEDULER_TICK_INTERVAL_SECONDS: ${OPENCLAW_SCHEDULER_TICK_INTERVAL_SECONDS:-30}
+      OPENCLAW_SCHEDULER_LOOKBACK_MINUTES: ${OPENCLAW_SCHEDULER_LOOKBACK_MINUTES:-2}
+      OPENCLAW_SCHEDULER_RETRY_BACKOFF_SECONDS: ${OPENCLAW_SCHEDULER_RETRY_BACKOFF_SECONDS:-60}
+      OPENCLAW_SCHEDULER_BATCH_LIMIT: ${OPENCLAW_SCHEDULER_BATCH_LIMIT:-50}
+      OPENCLAW_SCHEDULER_HTTP_TIMEOUT_SECONDS: ${OPENCLAW_SCHEDULER_HTTP_TIMEOUT_SECONDS:-30}
+      OPENCLAW_CRON_SECRET: ${OPENCLAW_CRON_SECRET:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    command: ["python", "-m", "openclaw.gateway.cron_scheduler_worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os; os.kill(1, 0)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      openclaw:
+        condition: service_healthy
+
   webapp:
     build:
       context: ./webapp

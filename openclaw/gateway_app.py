@@ -316,13 +316,16 @@ async def cron_profit_taking(request: Request):
     """
     _verify_cron_request(request)
 
-    job_id = None
+    scheduler_job_id = request.headers.get("X-OpenClaw-Scheduler-Job-Id")
+    job_id = scheduler_job_id
+    manages_job_lifecycle = scheduler_job_id is None
     try:
-        from openclaw.gateway.job_manager import JobManager
+        if manages_job_lifecycle:
+            from openclaw.gateway.job_manager import JobManager
 
-        mgr = JobManager()
-        job_id = await mgr.create_job("daily-profit-taking")
-        await mgr.start_job(job_id)
+            mgr = JobManager()
+            job_id = await mgr.create_job("daily-profit-taking")
+            await mgr.start_job(job_id)
 
         import importlib
         profit_mod = importlib.import_module(
@@ -331,15 +334,16 @@ async def cron_profit_taking(request: Request):
         orchestrator = profit_mod.ProfitTakingOrchestrator()
         result = await orchestrator.generate_daily_plans(job_run_id=job_id)
 
-        if result.get("ok"):
-            await mgr.complete_job(job_id, result=result)
-        else:
-            await mgr.fail_job(job_id, result.get("message") or str(result.get("errors", [])))
+        if manages_job_lifecycle:
+            if result.get("ok"):
+                await mgr.complete_job(job_id, result=result)
+            else:
+                await mgr.fail_job(job_id, result.get("message") or str(result.get("errors", [])))
 
         return result
     except Exception as exc:
         logger.error("Profit-taking cron failed: %s", exc)
-        if job_id:
+        if job_id and manages_job_lifecycle:
             try:
                 from openclaw.gateway.job_manager import JobManager
 

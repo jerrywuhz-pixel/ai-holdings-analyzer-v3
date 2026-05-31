@@ -63,6 +63,9 @@ rsync -az --delete \
   --exclude '.DS_Store' \
   --exclude '.next/' \
   --exclude 'node_modules/' \
+  --exclude '.venv/' \
+  --exclude 'venv/' \
+  --exclude '.runtime/' \
   --exclude '.pytest_cache/' \
   --exclude '__pycache__/' \
   --exclude '.env' \
@@ -141,10 +144,12 @@ log "waiting for services"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "
   set -e
   cd '$REMOTE_DIR'
+  host_bind=\"\$(grep -E '^INTERNAL_HOST_BIND=' .env.server | tail -n 1 | cut -d= -f2- || true)\"
+  host_bind=\"\${host_bind:-127.0.0.1}\"
   sleep 20
   docker compose --env-file .env.server -f docker-compose.server.yml ps
-  curl -fsS http://127.0.0.1:8000/health
-  curl -fsS http://127.0.0.1:8080/health
+  curl -fsS \"http://\${host_bind}:8000/health\"
+  curl -fsS \"http://\${host_bind}:8080/health\"
   docker exec ai-holdings-server-postgres-1 psql -U postgres -d ai_holdings -Atc 'select count(*) from public.schema_migrations;'
   curl -fsSI http://127.0.0.1:$WEBAPP_HTTP_PORT >/dev/null
 "
