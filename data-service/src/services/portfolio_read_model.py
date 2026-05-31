@@ -335,6 +335,88 @@ class SupabasePortfolioSnapshotRepository:
         return await asyncio.to_thread(_load_bundle)
 
 
+class PostgresPortfolioSnapshotRepository:
+    def __init__(self, database_url: str) -> None:
+        if not database_url.strip():
+            raise PortfolioReadModelConfigurationError(
+                "DATABASE_URL is required for postgres portfolio read model queries"
+            )
+        self._database_url = database_url
+
+    async def get_latest_snapshot_bundle(self, tenant_id: str) -> Optional[BrokerSnapshotBundle]:
+        def _load_bundle() -> Optional[BrokerSnapshotBundle]:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT
+                          id, tenant_id, broker_connection_id, status, as_of, received_at,
+                          source_quality, missing_fields, partial_components, created_at
+                        FROM public.broker_sync_snapshots
+                        WHERE tenant_id = %s
+                          AND status IN ('succeeded', 'partial')
+                        ORDER BY as_of DESC, received_at DESC, created_at DESC
+                        LIMIT 20
+                        """,
+                        (tenant_id,),
+                    )
+                    snapshots = cursor.fetchall()
+                    if not snapshots:
+                        return None
+
+                    snapshot = _select_best_snapshot([dict(row) for row in snapshots])
+                    snapshot_id = snapshot["id"]
+                    cursor.execute(
+                        """
+                        SELECT
+                          provider_symbol, instrument_type, market, exchange, position_side, quantity,
+                          average_cost, cost_basis, market_price, market_value, currency, source_quality,
+                          position_payload, as_of
+                        FROM public.broker_position_snapshots
+                        WHERE tenant_id = %s
+                          AND broker_sync_snapshot_id = %s
+                        """,
+                        (tenant_id, snapshot_id),
+                    )
+                    positions = [dict(row) for row in cursor.fetchall()]
+
+                    cursor.execute(
+                        """
+                        SELECT currency, total_cash, available_cash, buying_power, source_quality, as_of
+                        FROM public.cash_balance_snapshots
+                        WHERE tenant_id = %s
+                          AND broker_sync_snapshot_id = %s
+                        """,
+                        (tenant_id, snapshot_id),
+                    )
+                    cash_balances = [dict(row) for row in cursor.fetchall()]
+
+                    cursor.execute(
+                        """
+                        SELECT
+                          currency, margin_available, option_buying_power, cash_secured_requirement,
+                          source_quality, as_of
+                        FROM public.margin_balance_snapshots
+                        WHERE tenant_id = %s
+                          AND broker_sync_snapshot_id = %s
+                        """,
+                        (tenant_id, snapshot_id),
+                    )
+                    margin_balances = [dict(row) for row in cursor.fetchall()]
+
+            return BrokerSnapshotBundle(
+                snapshot=snapshot,
+                positions=positions,
+                cash_balances=cash_balances,
+                margin_balances=margin_balances,
+            )
+
+        return await asyncio.to_thread(_load_bundle)
+
+
 def _select_best_snapshot(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return dict(
         max(
@@ -358,6 +440,16 @@ def _status_priority(value: Any) -> int:
 
 
 def create_portfolio_read_model_service_from_env() -> PortfolioReadModelService:
+    mode = (
+        os.getenv("PORTFOLIO_READ_REPOSITORY", "").strip().lower()
+        or os.getenv("BROKER_SYNC_REPOSITORY", "").strip().lower()
+    )
+    if mode in {"postgres", "local_postgres", "database_url"}:
+        return PortfolioReadModelService(
+            repository=PostgresPortfolioSnapshotRepository(os.getenv("DATABASE_URL", "").strip())
+        )
+    if mode and mode not in {"supabase", "supabase_rest"}:
+        raise PortfolioReadModelConfigurationError(f"unsupported PORTFOLIO_READ_REPOSITORY: {mode}")
     return PortfolioReadModelService(repository=create_supabase_portfolio_snapshot_repository_from_env())
 
 

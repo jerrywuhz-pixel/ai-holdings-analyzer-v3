@@ -4,11 +4,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from services.fx import EnvTrustedFxRateProvider
+from services.fx import EnvTrustedFxRateProvider, HttpFxRateProvider
 from services.portfolio_read_model import (
     BrokerSnapshotBundle,
+    PortfolioReadModelConfigurationError,
     PortfolioReadModelService,
     PortfolioSnapshotNotFoundError,
+    PostgresPortfolioSnapshotRepository,
+    create_portfolio_read_model_service_from_env,
     _select_best_snapshot,
     _to_datetime,
 )
@@ -412,3 +415,34 @@ async def test_read_model_exposes_freshness_and_source_quality():
     assert overview.freshness.received_age_seconds == 120
     assert overview.freshness.missing_fields == ["cash_balances"]
     assert overview.freshness.partial_components == ["cash_balances"]
+
+
+def test_read_model_env_uses_postgres_when_broker_sync_uses_postgres(monkeypatch):
+    monkeypatch.setenv("BROKER_SYNC_REPOSITORY", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/ai_holdings")
+    monkeypatch.delenv("PORTFOLIO_READ_REPOSITORY", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+
+    service = create_portfolio_read_model_service_from_env()
+
+    assert isinstance(service._repository, PostgresPortfolioSnapshotRepository)
+
+
+def test_read_model_env_requires_database_url_for_postgres(monkeypatch):
+    monkeypatch.setenv("PORTFOLIO_READ_REPOSITORY", "postgres")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(PortfolioReadModelConfigurationError, match="DATABASE_URL"):
+        create_portfolio_read_model_service_from_env()
+
+
+@pytest.mark.asyncio
+async def test_http_fx_provider_skips_network_when_only_base_currency_needed():
+    provider = HttpFxRateProvider("http://127.0.0.1:1/latest", source="trusted_http_fx")
+
+    snapshot = await provider.get_rates(["USD"], "USD")
+
+    assert snapshot.rates == {"USD": 1.0}
+    assert snapshot.source == "trusted_http_fx"
+    assert snapshot.trusted is True

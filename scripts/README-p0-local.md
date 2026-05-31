@@ -490,6 +490,15 @@ Real smoke stays opt-in. The default P0 matrix does not require OpenD. If `./scr
 
 When real and mock snapshots coexist in the same tenant, the portfolio read model ranks source quality first. `broker_verified` snapshots win over newer `estimated` or `public_fallback` snapshots; recency is only used inside the same quality tier.
 
+For lightweight Postgres deployments, keep the portfolio read model on the same snapshot store:
+
+```bash
+BROKER_SYNC_REPOSITORY=postgres
+PORTFOLIO_READ_REPOSITORY=postgres
+```
+
+If `PORTFOLIO_READ_REPOSITORY` is omitted, the read model follows `BROKER_SYNC_REPOSITORY`. When all balances are already in the base currency, the FX provider returns the base rate locally and skips the external `symbols` request.
+
 If you are exercising a pre-created connector instance row, pass it explicitly:
 
 ```bash
