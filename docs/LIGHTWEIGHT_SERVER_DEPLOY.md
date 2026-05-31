@@ -399,14 +399,21 @@ docker compose --env-file .env.server -f docker-compose.server.yml logs -f webap
 curl -I http://127.0.0.1:3000
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8080/health
-python3 scripts/production_readiness.py --profile lightweight --env-file .env.server
-python3 scripts/product_feature_readiness.py --profile lightweight --env-file .env.server
+docker run --rm --env-file .env.server -v "$PWD:/app" -w /app --entrypoint python ai-holdings-server-data-service scripts/production_readiness.py --profile lightweight --env-file .env.server
+docker run --rm --env-file .env.server -v "$PWD:/app" -w /app --entrypoint python ai-holdings-server-data-service scripts/product_feature_readiness.py --profile lightweight --env-file .env.server
+python3 scripts/lightweight_cloud_smoke.py \
+  --env-file .env.server \
+  --webapp-base-url https://www.11office.top \
+  --data-service-base-url http://172.17.0.1:8000 \
+  --openclaw-base-url http://172.17.0.1:8080
 chmod +x scripts/verify-foundation-runtime.sh
 ./scripts/verify-foundation-runtime.sh
 chmod +x scripts/verify-openclaw-foundation.sh
 ./scripts/verify-openclaw-foundation.sh
 docker exec ai-holdings-server-postgres-1 psql -U postgres -d ai_holdings -Atc "select count(*) from public.schema_migrations;"
 ```
+
+其中 `lightweight_cloud_smoke.py` 是轻量服务器生产路径烟测：会创建临时账号、完成本地邮箱验证码验证、发起微信 Claw 二维码绑定、检查 Futu user-local connector poll、读取持仓概览、调用行情和 Sell Put 分析，并向 OpenClaw 入站接口发送一条测试消息；默认会在结束时删除临时账号和待验证记录。若宿主机仍是 Python 3.6，readiness 脚本请使用上面的 `docker run` 方式复用 data-service 镜像里的 Python 3.11。
 
 浏览器打开：
 
