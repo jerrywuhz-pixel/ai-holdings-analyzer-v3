@@ -55,6 +55,14 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "
   fi
 "
 
+log "cleaning remote macOS metadata"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "
+  set -e
+  if [ -d '$REMOTE_DIR' ]; then
+    find '$REMOTE_DIR' \\( -name '._*' -o -name '.DS_Store' \\) -type f -delete
+  fi
+"
+
 log "syncing project files"
 rsync -az --delete \
   -e "ssh -i '$SSH_KEY' -p '$SERVER_PORT' -o StrictHostKeyChecking=accept-new" \
