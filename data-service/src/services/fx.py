@@ -110,6 +110,15 @@ class HttpFxRateProvider:
     async def get_rates(self, currencies: list[str], base_currency: str) -> FxRateSnapshot:
         base = normalize_currency(base_currency)
         symbols = sorted({normalize_currency(currency) for currency in currencies if normalize_currency(currency) != base})
+        if not symbols:
+            return FxRateSnapshot(
+                base_currency=base,
+                rates={base: 1.0},
+                source=self._source,
+                as_of=datetime.now(timezone.utc),
+                trusted=True,
+            )
+
         params = {"base": base, "symbols": ",".join(symbols)}
         headers = {"Accept": "application/json"}
         if self._api_key:
