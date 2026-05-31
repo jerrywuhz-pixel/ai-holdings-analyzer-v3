@@ -160,6 +160,7 @@ def run_checks(*, profile: str) -> list[CheckResult]:
     checks.append(_live_model_provider_check(profile=profile))
     checks.append(_one_of_check("storage", "HERMES_ARTIFACT_STORAGE_BACKEND", {"supabase", "file"}, profile=profile))
     checks.append(_one_of_check("storage", "HISTORICAL_STORAGE_BACKEND", {"supabase_storage", "file"}, profile=profile))
+    checks.append(_portfolio_read_repository_check(profile=profile))
     checks.append(_fx_source_check(profile=profile))
     checks.append(_cors_check(profile=profile))
     return checks
@@ -253,6 +254,41 @@ def _one_of_check(group: str, env_name: str, allowed: set[str], *, profile: str)
         "pass" if value in allowed else "fail",
         f"{env_name}={value or '<empty>'}; expected one of {sorted(allowed)}",
         [] if value in allowed else [env_name],
+    )
+
+
+def _portfolio_read_repository_check(*, profile: str) -> CheckResult:
+    broker_repository = _env("BROKER_SYNC_REPOSITORY").lower()
+    portfolio_repository = _env("PORTFOLIO_READ_REPOSITORY").lower()
+    allowed = {"postgres", "supabase", "supabase_rest", "local_postgres", "database_url"}
+    if portfolio_repository:
+        if portfolio_repository not in allowed:
+            return CheckResult(
+                "database",
+                "portfolio_read_repository",
+                "warn" if profile == "local" else "fail",
+                f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}; expected one of {sorted(allowed)}",
+                ["PORTFOLIO_READ_REPOSITORY"],
+            )
+        return CheckResult(
+            "database",
+            "portfolio_read_repository",
+            "pass",
+            f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}",
+        )
+    if broker_repository in {"postgres", "supabase"}:
+        return CheckResult(
+            "database",
+            "portfolio_read_repository",
+            "pass",
+            f"PORTFOLIO_READ_REPOSITORY omitted; follows BROKER_SYNC_REPOSITORY={broker_repository}",
+        )
+    return CheckResult(
+        "database",
+        "portfolio_read_repository",
+        "warn" if profile == "local" else "fail",
+        "BROKER_SYNC_REPOSITORY or PORTFOLIO_READ_REPOSITORY must select postgres/supabase",
+        ["PORTFOLIO_READ_REPOSITORY"],
     )
 
 
