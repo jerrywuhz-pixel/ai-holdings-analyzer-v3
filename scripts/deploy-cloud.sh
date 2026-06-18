@@ -288,6 +288,16 @@ setup_cron() {
         --project="$PROJECT_ID" \
         2>/dev/null || log_info "daily-profit-taking 任务已存在"
 
+    # Sell Put 候选评分 (工作日 16:20 CST = 08:20 UTC)
+    gcloud scheduler jobs create http sellput-score \
+        --schedule="20 8 * * 1-5" \
+        --uri="${gateway_url}/api/cron/sellput-score" \
+        --http-method=POST \
+        --oidc-service-account-email="$SA_EMAIL" \
+        --oidc-token-audience="$gateway_url" \
+        --project="$PROJECT_ID" \
+        2>/dev/null || log_info "sellput-score 任务已存在"
+
     # 心跳检测 (每 5 分钟)
     gcloud scheduler jobs create http heartbeat-check \
         --schedule="*/5 * * * *" \

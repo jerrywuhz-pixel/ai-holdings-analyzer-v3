@@ -9,7 +9,7 @@ from adapters.futu import FutuConnectorError, FutuQuoteReadRequest, FutuReadOnly
 
 
 class FutuQuoteAdapter(DataSourceAdapter):
-    """Read-only real-time quote adapter backed by the local Futu OpenD connector."""
+    """Read-only real-time quote adapter backed by the admin-managed Futu OpenD connector."""
 
     def __init__(self, connector: FutuReadOnlyConnector | None = None) -> None:
         self._connector = connector or FutuReadOnlyConnector()
@@ -67,6 +67,11 @@ def _normalize_quote(quote: dict[str, Any], *, requested_symbol: str, source_pay
         "source": "futu",
         "source_key": source_payload.get("source_key") or "futu_openapi",
         "source_tier": source_payload.get("source_tier") or "L1_trading",
+        "source_owner": "admin_managed",
+        "source_scope": "market_data",
+        "tenant_owned": False,
+        "quote_usage": "market_reference",
+        "broker_account_scope": "system_admin",
         "connector_mode": source_payload.get("connector_mode"),
         "permission_scope": source_payload.get("permission_scope"),
         "freshness_seconds": max(0, int(datetime.now(timezone.utc).timestamp()) - timestamp),

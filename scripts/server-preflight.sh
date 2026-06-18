@@ -29,7 +29,6 @@ require_file "$COMPOSE_FILE"
 require_file "$ENV_FILE"
 require_file "webapp/Dockerfile"
 require_file "data-service/Dockerfile"
-require_file "openclaw/Dockerfile"
 require_file "gbrain/Dockerfile"
 
 info "checking Docker"
@@ -52,7 +51,6 @@ if grep -q 'YOUR_SERVER_IP' "$ENV_FILE"; then
 fi
 
 info "checking foundation version anchors"
-grep -q '^OPENCLAW_UPSTREAM_TARGET_VERSION=' "$ENV_FILE" || fail "missing OPENCLAW_UPSTREAM_TARGET_VERSION in $ENV_FILE"
 grep -q '^HERMES_UPSTREAM_TARGET_VERSION=' "$ENV_FILE" || fail "missing HERMES_UPSTREAM_TARGET_VERSION in $ENV_FILE"
 grep -q '^GBRAIN_ADAPTER_VERSION=' "$ENV_FILE" || fail "missing GBRAIN_ADAPTER_VERSION in $ENV_FILE"
 

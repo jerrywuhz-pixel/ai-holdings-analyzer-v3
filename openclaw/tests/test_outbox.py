@@ -250,6 +250,49 @@ async def test_outbox_worker_expires_old_message_without_sending() -> None:
 
 
 @pytest.mark.asyncio
+async def test_outbox_suppresses_configured_content_types(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_WECHAT_SUPPRESSED_DELIVERY_CONTENT_TYPES", "confirmation_card, task_update, runtime_status")
+    repository = InMemoryOutboxRepository()
+    service = DeliveryOutboxService(repository)
+
+    result = await service.enqueue(
+        DeliveryEnvelope(
+            tenant_id="tenant-1",
+            channel_binding_id="binding-1",
+            openclaw_account_id="bot-1",
+            content_type="task_update",
+            content={"text": "任务更新"},
+            dedupe_key="tenant-1:suppressed:task",
+        )
+    )
+
+    assert result.status == "suppressed"
+    assert result.delivery_id is not None
+    assert await repository.get(result.delivery_id) is None
+
+
+@pytest.mark.asyncio
+async def test_outbox_suppresses_system_types_when_skip_flag_on(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_SKIP_GATEWAY_SYSTEM_DELIVERIES", "true")
+    repository = InMemoryOutboxRepository()
+    service = DeliveryOutboxService(repository)
+
+    result = await service.enqueue(
+        DeliveryEnvelope(
+            tenant_id="tenant-1",
+            channel_binding_id="binding-1",
+            openclaw_account_id="bot-1",
+            content_type="runtime_status",
+            content={"text": "运行状态更新"},
+            dedupe_key="tenant-1:suppressed:runtime",
+        )
+    )
+
+    assert result.status == "suppressed"
+    assert await repository.get(result.delivery_id) is None
+
+
+@pytest.mark.asyncio
 async def test_webhook_delivery_sender_sends_signed_claw_payload() -> None:
     captured: dict[str, object] = {}
 

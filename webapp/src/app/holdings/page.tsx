@@ -32,7 +32,7 @@ export default async function HoldingsPage({
       <PageHeader
         eyebrow="持仓"
         title="统一资产视图里拆开股票 / ETF 与 Sell Put"
-        description="持仓页不是总览页的重复。这里优先回答我持有什么、来源是什么、风险在哪里，以及金额当前按什么币种展示。页面金额用于巡检，不等同券商净资产结单。"
+        description="持仓页不是总览页的重复。这里优先回答我持有什么、来源是什么、风险在哪里，以及金额当前按什么币种展示。页面金额用于巡检，不等同交易账户结单。"
         actions={<InlineLink href="/confirmations">高风险动作进入确认中心</InlineLink>}
       />
 

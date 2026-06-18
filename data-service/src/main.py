@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-from routers import quotes, billing, data_broker, portfolio
+from routers import quotes, billing, data_broker, hermes, portfolio
 from services.sentry_service import init_sentry
 from services.health_cache import HealthCache
 
@@ -44,6 +44,7 @@ app.add_middleware(
 app.include_router(quotes.router, prefix="/api")
 app.include_router(billing.router, prefix="/api")
 app.include_router(data_broker.router, prefix="/api")
+app.include_router(hermes.router, prefix="/api")
 app.include_router(portfolio.router, prefix="/api")
 
 
@@ -65,6 +66,7 @@ async def health():
     return {
         "status": "ok",
         "version": APP_VERSION,
+        "runtime": "hermes",
         "gateway": gateway_status["gateway"],
         "data_sources": gateway_status["data_sources"],
     }

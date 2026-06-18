@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="940" viewBox="0 0 1440 940">
+  <defs>
+    <style>
+      .bg { fill: #fafafa; }
+      .band { fill: #f6f1ee; }
+      .card { fill: #fff; stroke: #ded3ce; stroke-width: 1.2; }
+      .cardRed { fill: #d71920; stroke: #d71920; stroke-width: 1.2; }
+      .cardDark { fill: #262225; stroke: #262225; stroke-width: 1.2; }
+      .title { font: 800 36px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #171417; }
+      .subtitle { font: 500 16px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #6f686b; }
+      .label { font: 800 18px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #171417; }
+      .labelWhite { font: 800 18px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #fff; }
+      .small { font: 500 13px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #6f686b; }
+      .smallWhite { font: 500 13px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: rgba(255,255,255,.82); }
+      .section { font: 900 14px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #d71920; letter-spacing: .08em; }
+      .line { fill: none; stroke: #cdbfba; stroke-width: 1.6; }
+      .lineRed { fill: none; stroke: #d71920; stroke-width: 2; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#cdbfba"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d71920"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1440" height="940"/>
+  <rect class="band" x="0" y="510" width="1440" height="430"/>
+
+  <text class="title" x="82" y="82">AI 持仓系统 3.0 WebApp Sitemap</text>
+  <text class="subtitle" x="82" y="116">登录前站点采用“长期资产管家 + AI 投研任务流”；登录后进入持仓工作台，微信作为提醒、确认和补充资产信息的主路径。</text>
+
+  <text class="section" x="82" y="176">PRE-LOGIN SITE</text>
+  <rect class="cardRed" x="82" y="202" rx="8" ry="8" width="230" height="92"/>
+  <text class="labelWhite" x="106" y="238">首页</text>
+  <text class="smallWhite" x="106" y="264">真实持仓行动清单</text>
+
+  <rect class="card" x="360" y="202" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="384" y="238">资产来源</text>
+  <text class="small" x="384" y="264">券商 / 手工 / 消息 / OCR</text>
+
+  <rect class="card" x="638" y="202" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="662" y="238">核心功能</text>
+  <text class="small" x="662" y="264">持仓 / 关注 / 清仓 / 纪律</text>
+
+  <rect class="cardDark" x="916" y="202" rx="8" ry="8" width="230" height="92"/>
+  <text class="labelWhite" x="940" y="238">AI 投研任务流</text>
+  <text class="smallWhite" x="940" y="264">数据 / 工具 / 证据 / 确认</text>
+
+  <rect class="card" x="1194" y="202" rx="8" ry="8" width="166" height="92"/>
+  <text class="label" x="1218" y="238">会员方案</text>
+  <text class="small" x="1218" y="264">免费 / 专业 / 深研</text>
+
+  <path class="line" marker-end="url(#arrow)" d="M312 248 L352 248"/>
+  <path class="line" marker-end="url(#arrow)" d="M590 248 L630 248"/>
+  <path class="line" marker-end="url(#arrow)" d="M868 248 L908 248"/>
+  <path class="line" marker-end="url(#arrow)" d="M1146 248 L1186 248"/>
+
+  <rect class="card" x="360" y="348" rx="8" ry="8" width="230" height="88"/>
+  <text class="label" x="384" y="383">新用户引导</text>
+  <text class="small" x="384" y="409">先建立第一份资产视图</text>
+
+  <rect class="card" x="638" y="348" rx="8" ry="8" width="230" height="88"/>
+  <text class="label" x="662" y="383">登录 / 注册</text>
+  <text class="small" x="662" y="409">Supabase Auth</text>
+
+  <rect class="cardRed" x="916" y="348" rx="8" ry="8" width="230" height="88"/>
+  <text class="labelWhite" x="940" y="383">进入 WebApp</text>
+  <text class="smallWhite" x="940" y="409">tenant context / onboarding</text>
+
+  <path class="lineRed" marker-end="url(#arrowRed)" d="M475 294 L475 340"/>
+  <path class="lineRed" marker-end="url(#arrowRed)" d="M590 392 L630 392"/>
+  <path class="lineRed" marker-end="url(#arrowRed)" d="M868 392 L908 392"/>
+
+  <text class="section" x="82" y="574">AUTHENTICATED APP</text>
+  <rect class="cardDark" x="82" y="600" rx="8" ry="8" width="230" height="92"/>
+  <text class="labelWhite" x="106" y="636">WebApp Shell</text>
+  <text class="smallWhite" x="106" y="662">Auth / tenant / portfolio view</text>
+
+  <rect class="cardRed" x="360" y="600" rx="8" ry="8" width="230" height="92"/>
+  <text class="labelWhite" x="384" y="636">总览 Dashboard</text>
+  <text class="smallWhite" x="384" y="662">资产摘要 / 风险 / 今日行动</text>
+
+  <rect class="card" x="638" y="600" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="662" y="636">持仓</text>
+  <text class="small" x="662" y="662">股票 ETF / 期权 / 来源</text>
+
+  <rect class="card" x="916" y="600" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="940" y="636">研究</text>
+  <text class="small" x="940" y="662">AI 任务 / 报告 / 证据链</text>
+
+  <rect class="card" x="1194" y="600" rx="8" ry="8" width="166" height="92"/>
+  <text class="label" x="1218" y="636">我的</text>
+  <text class="small" x="1218" y="662">数据 / 规则 / 设置</text>
+
+  <path class="line" marker-end="url(#arrow)" d="M312 646 L352 646"/>
+  <path class="line" marker-end="url(#arrow)" d="M590 646 L630 646"/>
+  <path class="line" marker-end="url(#arrow)" d="M868 646 L908 646"/>
+  <path class="line" marker-end="url(#arrow)" d="M1146 646 L1186 646"/>
+
+  <rect class="card" x="360" y="750" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="384" y="786">关注清单</text>
+  <text class="small" x="384" y="812">机会 / 触发条件 / 提醒</text>
+
+  <rect class="card" x="638" y="750" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="662" y="786">清仓复盘</text>
+  <text class="small" x="662" y="812">历史持仓 / 二次买入</text>
+
+  <rect class="card" x="916" y="750" rx="8" ry="8" width="230" height="92"/>
+  <text class="label" x="940" y="786">确认 / 消息</text>
+  <text class="small" x="940" y="812">微信共用事实源</text>
+
+  <rect class="card" x="1194" y="750" rx="8" ry="8" width="166" height="92"/>
+  <text class="label" x="1218" y="786">会员</text>
+  <text class="small" x="1218" y="812">展示页 / 非 P0 计费</text>
+
+  <path class="line" marker-end="url(#arrow)" d="M475 692 L475 742"/>
+  <path class="line" marker-end="url(#arrow)" d="M753 692 L753 742"/>
+  <path class="line" marker-end="url(#arrow)" d="M1031 692 L1031 742"/>
+  <path class="line" marker-end="url(#arrow)" d="M1277 692 L1277 742"/>
+
+  <path class="lineRed" marker-end="url(#arrowRed)" d="M1031 436 C1031 500 197 518 197 592"/>
+  <text class="small" x="250" y="520">注册完成后进入登录后工作台；新用户未完成配置时先进入 onboarding/welcome。</text>
+</svg>

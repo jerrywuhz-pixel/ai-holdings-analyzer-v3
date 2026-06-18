@@ -1,5 +1,5 @@
 /**
- * gbrain MCP Adapter for OpenClaw
+ * gbrain MCP Adapter for Hermes
  *
  * MCP stdio server exposing gbrain brain operations as tools.
  * Directly operates on gbrain_* tables in Supabase Postgres.
@@ -21,8 +21,7 @@ const EMBEDDING_MODEL = process.env.GBRAIN_EMBEDDING_MODEL || "text-embedding-3-
 const CHUNK_SIZE = parseInt(process.env.GBRAIN_CHUNK_SIZE || "500", 10);
 const CHUNK_OVERLAP = parseInt(process.env.GBRAIN_CHUNK_OVERLAP || "50", 10);
 const ADAPTER_VERSION = process.env.GBRAIN_ADAPTER_VERSION || "0.2.0";
-const OPENCLAW_UPSTREAM_TARGET_VERSION = process.env.OPENCLAW_UPSTREAM_TARGET_VERSION || "v2026.5.18";
-const HERMES_UPSTREAM_TARGET_VERSION = process.env.HERMES_UPSTREAM_TARGET_VERSION || "v2026.5.16";
+const HERMES_UPSTREAM_TARGET_VERSION = process.env.HERMES_UPSTREAM_TARGET_VERSION || "v2026.5.29";
 const HEALTH_CHECK_MODE = process.argv.includes("--health-check");
 const HEALTH_JSON_MODE = process.argv.includes("--health-json");
 
@@ -137,8 +136,10 @@ function buildHealthStatus() {
     process.env.MINIMAX_API_KEY ||
       process.env.ANTHROPIC_AUTH_TOKEN ||
       process.env.ANTHROPIC_API_KEY ||
-      ((process.env.MINIMAX_API_FORMAT || "").toLowerCase() === "openclaw-cli" &&
-        ["1", "true", "yes"].includes((process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase())),
+      (["hermes-cli", "openclaw-cli"].includes((process.env.MINIMAX_API_FORMAT || "").toLowerCase()) &&
+        ["1", "true", "yes"].includes(
+          (process.env.HERMES_MINIMAX_CLI_ENABLED || process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase(),
+        )),
   );
   const liveModelsEnabled = (process.env.GBRAIN_LIVE_MODELS_ENABLED || "false").toLowerCase() === "true";
   const providerReady =
@@ -151,11 +152,10 @@ function buildHealthStatus() {
   return {
     ok: true,
     engine: "postgres",
-    adapter: "gbrain-openclaw",
+    adapter: "gbrain-hermes",
     adapter_version: ADAPTER_VERSION,
     embedding_enabled: !!openai,
     embedding_model: openai ? EMBEDDING_MODEL : null,
-    openclaw_upstream_target: OPENCLAW_UPSTREAM_TARGET_VERSION,
     hermes_upstream_target: HERMES_UPSTREAM_TARGET_VERSION,
     artifact_backend: process.env.HERMES_ARTIFACT_STORAGE_BACKEND || "file",
     live_models_enabled: liveModelsEnabled,
@@ -259,7 +259,7 @@ async function hybridSearch(
 // MCP Server
 // ---------------------------------------------------------------------------
 const server = new McpServer({
-  name: "gbrain-openclaw",
+  name: "gbrain-hermes",
   version: "0.1.0",
 });
 

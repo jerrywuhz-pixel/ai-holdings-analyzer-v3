@@ -5,8 +5,8 @@ const marketingRegisterHref = '/login?mode=register&entry=marketing';
 
 const sourceCards = [
   {
-    title: 'Futu OpenD',
-    detail: '美港股和期权优先读取券商只读数据，本地运行，云端只接收脱敏结果。',
+    title: '系统行情源',
+    detail: '管理员侧行情源补充美港股和期权链，不同步普通用户个人账户。',
     featured: true,
   },
   {
@@ -19,7 +19,7 @@ const sourceCards = [
   },
   {
     title: '截图 OCR',
-    detail: '从券商 App 截图快速识别持仓，用于初始化和人工校对。',
+    detail: '从交易 App 截图快速识别持仓，用于初始化和人工校对。',
   },
   {
     title: '关注清单',
@@ -37,7 +37,7 @@ const modules = [
 ];
 
 const researchSteps = [
-  ['01', '数据进入', '读取券商、行情、历史数据、微信公众号资料和用户自己的持仓记录。'],
+  ['01', '数据进入', '读取系统行情、历史数据、微信公众号资料和用户自己确认的持仓记录。'],
   ['02', '规则约束', '先检查风险偏好、交易纪律、资金占用和禁止动作。'],
   ['03', '工具分析', '股票评分、期权链筛选、Sell Put 打分、历史走势和回测查询。'],
   ['04', '生成报告', '日常任务快速回复，复杂任务进入深度研究报告。'],
@@ -56,7 +56,7 @@ const plans = [
     price: '¥49',
     summary: '适合有多账户资产、需要微信提醒和 Sell Put 候选分析的用户。',
     featured: true,
-    features: ['多个组合视图', 'Futu OpenD 只读同步', '微信日报和确认清单', 'Sell Put 候选排序', '交易纪律提醒'],
+    features: ['多个组合视图', '系统行情源辅助估值', '微信日报和确认清单', 'Sell Put 候选排序', '交易纪律提醒'],
   },
   {
     name: '深研版',
@@ -68,8 +68,8 @@ const plans = [
 
 const faqs = [
   ['系统会自动下单吗？', '不会。系统只生成分析、提醒、草稿和确认项，交易执行必须由用户自己完成。'],
-  ['券商账号安全吗？', 'Futu OpenD 采用用户本地运行方式，云端不保存生产券商 token，只保存必要的脱敏快照和来源记录。'],
-  ['没有券商连接能用吗？', '可以。你可以先用手工录入、买卖消息或截图 OCR 建立资产视图。'],
+  ['需要连接自己的富途账号吗？', '不需要。Futu OpenD 只作为管理员侧系统行情源，普通用户持仓来自手工录入、买卖消息、截图 OCR 和确认写入。'],
+  ['没有自动账户同步能用吗？', '可以。你可以先用手工录入、买卖消息或截图 OCR 建立资产视图。'],
   ['移动端体验怎么处理？', 'WebApp 会适配移动端，微信负责高频提醒和确认，复杂配置仍建议在 WebApp 中完成。'],
 ];
 
@@ -163,7 +163,7 @@ function ProductPreview() {
         <div className="border-b border-[#e5ddd9] p-5 md:border-b-0 md:border-r">
           <p className="mb-3 text-sm font-black text-[#4b4548]">统一资产视图</p>
           {[
-            ['腾讯控股', '0700.HK · Futu OpenD · 股票'],
+            ['腾讯控股', '0700.HK · 系统行情源 · 股票'],
             ['NVIDIA', 'NVDA · 买入消息 · 股票'],
             ['SPY Sell Put', '期权链 · 资金占用 12%'],
             ['BABA 已清仓', '清仓列表 · 等待二次买入条件'],
@@ -228,7 +228,7 @@ export function HeroSection({ compact = false }: { compact?: boolean }) {
           {!compact ? (
             <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">
               {[
-                ['多来源', '券商、手工、消息、OCR'],
+                ['多来源', '系统行情、手工、消息、OCR'],
                 ['双产品', '股票与期权独立分析'],
                 ['微信确认', '高风险动作先确认'],
               ].map(([title, detail]) => (
@@ -287,11 +287,11 @@ export function OnboardingIntroSection() {
           新用户先完成一件事：建立第一份真实资产视图
         </h2>
         <p className="mt-4 text-base leading-7 text-[#6f686b]">
-          系统会按步骤引导你，不要求一开始就连接所有券商。你可以先录入一笔资产，再逐步绑定微信、设置交易纪律、开启券商同步。
+          系统会按步骤引导你，不要求一开始就接入所有数据源。你可以先录入一笔资产，再逐步绑定微信、设置交易纪律、使用系统行情补充分析。
         </p>
         <div className="mt-8 border-t border-[#e5ddd9]">
           {[
-            ['1', '选择资产进入方式', '手工录入、截图 OCR、买卖消息或 Futu OpenD，任选一种即可开始。'],
+            ['1', '选择资产进入方式', '手工录入、截图 OCR 或买卖消息，任选一种即可开始。'],
             ['2', '设置自己的交易纪律', '例如不买某类股票、盘前盘后不下单、单标的资金占用上限。'],
             ['3', '绑定微信接收提醒', '日报、异动、待确认动作和长任务结果，都可以回到微信处理。'],
           ].map(([num, title, detail]) => (
@@ -314,7 +314,7 @@ export function OnboardingIntroSection() {
           {[
             ['我想先手工录入', '输入股票代码、成本、数量和来源。'],
             ['我想上传截图', '识别后会标记为 OCR 来源，等待确认。'],
-            ['我想连接 Futu', '本地 OpenD 只读同步，适合美港股和期权。'],
+            ['我想看系统行情', '管理员侧行情源用于估值、期权链和实时性校验。'],
             ['我想绑定微信', '后续通过文本、语音和图片补充资产信息。'],
           ].map(([title, detail]) => (
             <div key={title} className="border-b border-[#e5ddd9] py-4 last:border-b-0">
@@ -489,7 +489,7 @@ export function FinalCta() {
       <div className="mx-auto grid w-[min(1180px,calc(100%_-_28px))] gap-7 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
         <div>
           <h2 className="max-w-3xl text-3xl font-black leading-tight md:text-[42px]">先建立第一份持仓视图，再让 AI 帮你持续观察</h2>
-          <p className="mt-3 max-w-3xl text-[#d8d1d5]">从一笔真实资产开始，逐步接入券商、微信、交易纪律和 AI 研究任务。</p>
+          <p className="mt-3 max-w-3xl text-[#d8d1d5]">从一笔真实资产开始，逐步接入微信、交易纪律、系统行情和 AI 研究任务。</p>
         </div>
         <ButtonLink href={marketingRegisterHref}>免费开始</ButtonLink>
       </div>

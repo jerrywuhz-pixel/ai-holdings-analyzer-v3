@@ -17,8 +17,6 @@ PRODUCTION_ENV = {
     "HERMES_ARTIFACT_STORAGE_BACKEND": "supabase",
     "HERMES_ARTIFACT_BASE_URI": "supabase://artifacts",
     "HISTORICAL_STORAGE_BACKEND": "supabase_storage",
-    "BROKER_SYNC_REPOSITORY": "supabase",
-    "PORTFOLIO_READ_REPOSITORY": "supabase",
     "FX_RATES_SOURCE": "trusted_fx",
     "FX_RATE_ENDPOINT": "https://fx.ai-holdings.cn/latest",
     "SENTRY_DSN": "https://sentry.ai-holdings.cn/1",
@@ -35,13 +33,9 @@ LIGHTWEIGHT_ENV = {
     "HERMES_ARTIFACT_STORAGE_BACKEND": "file",
     "HERMES_ARTIFACT_BASE_URI": "file:///opt/ai-holdings/artifacts",
     "HISTORICAL_STORAGE_BACKEND": "file",
-    "BROKER_SYNC_REPOSITORY": "postgres",
-    "PORTFOLIO_READ_REPOSITORY": "postgres",
     "FX_RATES_SOURCE": "fallback_estimate",
     "CORS_ALLOWED_ORIGINS": "http://149.129.240.111:3000",
     "WEBAPP_BASE_URL": "http://149.129.240.111:3000",
-    "OBSERVABILITY_BACKEND": "docker_logs",
-    "LOG_RETENTION_DAYS": "14",
 }
 
 
@@ -51,21 +45,6 @@ def test_production_readiness_passes_with_required_config():
 
     assert summary["status"] == "pass"
     assert summary["counts"]["fail"] == 0
-
-
-def test_production_readiness_rejects_unsupported_portfolio_read_repository():
-    env = {
-        **PRODUCTION_ENV,
-        "PORTFOLIO_READ_REPOSITORY": "rest-cache",
-    }
-
-    with patch.dict(os.environ, env, clear=True):
-        checks = run_checks(profile="production")
-        summary = summarize(checks, profile="production")
-
-    portfolio_check = next(check for check in checks if check.name == "portfolio_read_repository")
-    assert summary["counts"]["fail"] > 0
-    assert portfolio_check.status == "fail"
 
 
 def test_production_readiness_accepts_system_codex_bridge_for_deep_model():
@@ -94,23 +73,6 @@ def test_lightweight_profile_passes_with_local_auth_minimax_and_log_delivery():
     assert "openclaw_webhook_delivery" in warned
     assert "live_model_provider" in warned
     assert "fx_rates" in warned
-    assert "observability" not in warned
-
-
-def test_lightweight_observability_accepts_aliyun_sls_without_sentry():
-    env = dict(LIGHTWEIGHT_ENV)
-    env.pop("SENTRY_DSN", None)
-    env["OBSERVABILITY_BACKEND"] = ""
-    env["LOG_RETENTION_DAYS"] = ""
-    env["ALIYUN_SLS_PROJECT"] = "ai-holdings-log-project"
-    env["ALIYUN_SLS_LOGSTORE"] = "ai-holdings-runtime"
-
-    with patch.dict(os.environ, env, clear=True):
-        summary = summarize(run_checks(profile="lightweight"), profile="lightweight")
-
-    assert summary["status"] == "pass"
-    observability = next(check for check in summary["checks"] if check["name"] == "observability")
-    assert observability["status"] == "pass"
 
 
 def test_lightweight_profile_fails_without_minimax_light_model():

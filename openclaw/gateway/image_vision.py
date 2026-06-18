@@ -4,7 +4,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import base64
+import asyncio
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -42,13 +48,24 @@ async def extract_image_text_from_metadata(metadata: dict[str, Any]) -> ImageTex
         return ImageTextExtraction("", [], None, provider, model, error=f"missing_{provider}_auth")
 
     try:
-        payload = await _call_minimax_vision(
-            image_url,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
-        )
-        content = _message_content(payload)
+        image_url = await _prepare_image_reference_for_provider(image_url)
+        payload: dict[str, Any] | None = None
+        try:
+            payload = await _call_minimax_vision(
+                image_url,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+            )
+            content = _message_content(payload)
+        except Exception as api_exc:
+            try:
+                content = await _call_mmx_cli_vision(image_url)
+            except Exception:
+                content = ""
+            if not content:
+                raise api_exc
+            payload = {"id": f"mmx-cli-{uuid4()}", "content": [{"type": "text", "text": content}]}
         parsed = _parse_json_object(content)
         positions = parsed.get("positions") if isinstance(parsed.get("positions"), list) else []
         return ImageTextExtraction(
@@ -74,6 +91,35 @@ def _image_reference(metadata: dict[str, Any]) -> str | None:
     return None
 
 
+async def _prepare_image_reference_for_provider(image_url: str) -> str:
+    if _minimax_api_format() != "anthropic" or image_url.startswith("data:image/"):
+        return image_url
+    return await _download_image_as_data_url(image_url)
+
+
+async def _download_image_as_data_url(image_url: str) -> str:
+    max_bytes = int(os.getenv("OPENCLAW_IMAGE_VISION_MAX_IMAGE_BYTES", str(5 * 1024 * 1024)))
+    timeout_seconds = float(
+        os.getenv("OPENCLAW_IMAGE_VISION_DOWNLOAD_TIMEOUT_SECONDS")
+        or _resolve_timeout_seconds("light")
+    )
+    async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
+        response = await client.get(image_url)
+        response.raise_for_status()
+        content_length = int(response.headers.get("content-length") or "0")
+        if content_length > max_bytes:
+            raise ValueError(f"image_too_large:{content_length}>{max_bytes}")
+        content = response.content
+    if len(content) > max_bytes:
+        raise ValueError(f"image_too_large:{len(content)}>{max_bytes}")
+    content_type = response.headers.get("content-type") or "image/jpeg"
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if not media_type.startswith("image/"):
+        raise ValueError(f"unsupported_image_content_type:{media_type}")
+    data = base64.b64encode(content).decode("ascii")
+    return f"data:{media_type};base64,{data}"
+
+
 def _vision_provider_config() -> tuple[str, str, str, str]:
     model = (
         os.getenv("OPENCLAW_IMAGE_VISION_MODEL")
@@ -97,23 +143,39 @@ async def _call_minimax_vision(
         or _resolve_timeout_seconds("light")
     )
     max_tokens = int(os.getenv("OPENCLAW_IMAGE_VISION_MAX_TOKENS", "1800"))
-    if _minimax_api_format() == "anthropic":
-        return await _call_minimax_anthropic_vision(
-            image_url,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
-            max_tokens=max_tokens,
-            timeout_seconds=timeout_seconds,
-        )
-    return await _call_minimax_openai_vision(
-        image_url,
-        base_url=base_url,
-        api_key=api_key,
-        model=model,
-        max_tokens=max_tokens,
-        timeout_seconds=timeout_seconds,
-    )
+    last_error: Exception | None = None
+    attempts = int(os.getenv("OPENCLAW_IMAGE_VISION_API_ATTEMPTS", "3"))
+    for attempt in range(max(1, attempts)):
+        try:
+            if _minimax_api_format() == "anthropic":
+                return await _call_minimax_anthropic_vision(
+                    image_url,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    max_tokens=max_tokens,
+                    timeout_seconds=timeout_seconds,
+                )
+            return await _call_minimax_openai_vision(
+                image_url,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+            )
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if exc.response.status_code < 500 or attempt >= attempts - 1:
+                raise _annotated_http_status_error(exc) from exc
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_error = exc
+            if attempt >= attempts - 1:
+                raise
+        await asyncio.sleep(0.3 * (attempt + 1))
+    if last_error:
+        raise last_error
+    raise RuntimeError("image_vision_api_failed")
 
 
 async def _call_minimax_anthropic_vision(
@@ -190,6 +252,85 @@ async def _call_minimax_openai_vision(
         )
         response.raise_for_status()
         return response.json()
+
+
+async def _call_mmx_cli_vision(image_url: str) -> str:
+    cli = os.getenv("MMX_CLI_PATH") or shutil.which("mmx")
+    if not cli:
+        return ""
+    timeout_seconds = float(
+        os.getenv("OPENCLAW_IMAGE_VISION_CLI_TIMEOUT_SECONDS")
+        or os.getenv("OPENCLAW_IMAGE_VISION_TIMEOUT_SECONDS")
+        or _resolve_timeout_seconds("light")
+    )
+    prompt = f"{_vision_system_prompt()}\n\n{_vision_user_prompt()}"
+
+    with _image_cli_arg(image_url) as image_arg:
+        args = [
+            cli,
+            "vision",
+            "describe",
+            "--image",
+            image_arg,
+            "--prompt",
+            prompt,
+            "--output",
+            "json",
+            "--quiet",
+        ]
+        completed = await asyncio.to_thread(
+            subprocess.run,
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").strip()
+        raise RuntimeError(f"mmx_cli_vision_failed:{stderr[:500] or completed.returncode}")
+    return (completed.stdout or "").strip()
+
+
+class _image_cli_arg:
+    def __init__(self, image_url: str) -> None:
+        self.image_url = image_url
+        self.path: Path | None = None
+
+    def __enter__(self) -> str:
+        if not self.image_url.startswith("data:image/"):
+            return self.image_url
+        match = re.match(r"^data:(image/[-+.A-Za-z0-9]+);base64,(.+)$", self.image_url, flags=re.DOTALL)
+        if not match:
+            raise ValueError("invalid_data_image_url")
+        suffix = _image_suffix(match.group(1))
+        handle = tempfile.NamedTemporaryFile(prefix="openclaw-vision-", suffix=suffix, delete=False)
+        try:
+            handle.write(base64.b64decode(match.group(2), validate=False))
+            self.path = Path(handle.name)
+            return handle.name
+        finally:
+            handle.close()
+
+    def __exit__(self, *_: object) -> None:
+        if self.path:
+            try:
+                self.path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _image_suffix(media_type: str) -> str:
+    if media_type == "image/png":
+        return ".png"
+    if media_type in {"image/webp", "image/x-webp"}:
+        return ".webp"
+    return ".jpg"
+
+
+def _annotated_http_status_error(exc: httpx.HTTPStatusError) -> RuntimeError:
+    body = (exc.response.text or "").strip().replace("\n", " ")
+    return RuntimeError(f"http_{exc.response.status_code}:{body[:500] or exc.response.reason_phrase}")
 
 
 def _vision_system_prompt() -> str:

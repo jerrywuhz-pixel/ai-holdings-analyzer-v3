@@ -5,7 +5,7 @@ import type { AppUser } from '@/lib/supabase';
 const PASSWORD_ITERATIONS = 120_000;
 const PASSWORD_KEY_LENGTH = 32;
 const PASSWORD_DIGEST = 'sha256';
-const DEFAULT_TTL_MINUTES = 10;
+const DEFAULT_TTL_MINUTES = 30;
 const DEFAULT_MAX_ATTEMPTS = 5;
 
 declare global {

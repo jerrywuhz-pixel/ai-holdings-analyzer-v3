@@ -12,7 +12,7 @@ from .sellput_scorecard import ScoreEngine
 
 
 class FutuSellPutDataSource:
-    """Fetch Sell Put market data through data-service with Futu preference."""
+    """Fetch Sell Put market data through the admin-managed Futu market source."""
 
     def __init__(
         self,
@@ -100,6 +100,8 @@ class HermesSellPutService:
 
         market_data = {
             "source": "futu",
+            "source_scope": "system_market_data",
+            "source_owner": "admin_managed",
             "underlying_quote": quote,
         }
         return self.evaluate_open(payload_dict, market_data=market_data)

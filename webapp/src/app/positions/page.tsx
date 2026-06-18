@@ -18,6 +18,9 @@ interface PositionRow {
   total_cost: number | null;
   snapshot_date: string;
   tenant_id: string;
+  source_tier: string | null;
+  source_actionability: string | null;
+  source_lineage: Record<string, unknown> | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -48,6 +51,25 @@ function marketBadgeClass(market: string): string {
   }
 }
 
+function actionabilityLabel(value: string | null | undefined): string {
+  if (value === 'trade_draft') return '可生成草稿';
+  if (value === 'blocked') return '已阻断';
+  return '仅供分析';
+}
+
+function sourceTierLabel(value: string | null | undefined): string {
+  if (value === 'broker_verified') return '券商确认';
+  if (value === 'user_confirmed') return '用户确认';
+  if (value === 'estimated') return '估算';
+  return value || '未知来源';
+}
+
+function requiresSymbolReview(position: PositionRow): boolean {
+  const lineage = position.source_lineage;
+  if (!lineage || typeof lineage !== 'object') return false;
+  return lineage.requires_symbol_review === true;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                                */
 /* ------------------------------------------------------------------ */
@@ -63,7 +85,7 @@ export default async function PositionsPage({
   /* ---------- fetch latest snapshots per symbol ---------- */
   const { data: snapshots, error } = await supabase
     .from('position_snapshots')
-    .select('id, symbol, provider_symbol, market, exchange, stock_name, total_quantity, average_cost, total_cost, snapshot_date, tenant_id')
+    .select('id, symbol, provider_symbol, market, exchange, stock_name, total_quantity, average_cost, total_cost, snapshot_date, tenant_id, source_tier, source_actionability, source_lineage')
     .order('snapshot_date', { ascending: false });
 
   if (error) {
@@ -159,6 +181,7 @@ export default async function PositionsPage({
                   <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">持仓数量</th>
                   <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">平均成本</th>
                   <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">总成本</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">来源状态</th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">快照日期</th>
                 </tr>
               </thead>
@@ -181,6 +204,16 @@ export default async function PositionsPage({
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900">{p.total_quantity.toLocaleString()}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900">{formatCurrency(p.average_cost, p.market)}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium text-gray-900">{formatCurrency(p.total_cost, p.market)}</td>
+                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
+                      <div className="flex flex-col gap-1">
+                        <span>{sourceTierLabel(p.source_tier)} · {actionabilityLabel(p.source_actionability)}</span>
+                        {requiresSymbolReview(p) ? (
+                          <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                            需补证券代码
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{p.snapshot_date}</td>
                   </tr>
                 ))}

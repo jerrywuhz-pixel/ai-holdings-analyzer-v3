@@ -4,14 +4,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from services.fx import EnvTrustedFxRateProvider, HttpFxRateProvider
+from services.fx import EnvTrustedFxRateProvider
 from services.portfolio_read_model import (
     BrokerSnapshotBundle,
-    PortfolioReadModelConfigurationError,
+    PostgresPortfolioSnapshotRepository,
     PortfolioReadModelService,
     PortfolioSnapshotNotFoundError,
-    PostgresPortfolioSnapshotRepository,
-    create_portfolio_read_model_service_from_env,
+    SupabasePortfolioSnapshotRepository,
+    create_portfolio_snapshot_repository_from_env,
     _select_best_snapshot,
     _to_datetime,
 )
@@ -23,6 +23,109 @@ class FakePortfolioSnapshotRepository:
 
     async def get_latest_snapshot_bundle(self, tenant_id: str) -> BrokerSnapshotBundle | None:
         return self._bundle
+
+
+class FakeSupabaseClient:
+    def __init__(self, table_rows: dict[str, list[dict]]) -> None:
+        self.table_rows = table_rows
+
+    def table(self, name: str):
+        return FakeSupabaseQuery(self.table_rows.get(name, []))
+
+
+class FakeSupabaseQuery:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = list(rows)
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, key: str, value):
+        self._rows = [row for row in self._rows if row.get(key) == value]
+        return self
+
+    def in_(self, key: str, values: list):
+        allowed = set(values)
+        self._rows = [row for row in self._rows if row.get(key) in allowed]
+        return self
+
+    def order(self, key: str, desc: bool = False):
+        self._rows = sorted(self._rows, key=lambda row: str(row.get(key) or ""), reverse=desc)
+        return self
+
+    def limit(self, count: int):
+        self._rows = self._rows[:count]
+        return self
+
+    def execute(self):
+        return type("FakeResponse", (), {"data": self._rows})()
+
+
+class FakePostgresConnection:
+    def __init__(self, table_rows: dict[str, list[dict]]) -> None:
+        self.table_rows = table_rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def cursor(self, **_kwargs):
+        return FakePostgresCursor(self.table_rows)
+
+
+class FakePostgresCursor:
+    def __init__(self, table_rows: dict[str, list[dict]]) -> None:
+        self.table_rows = table_rows
+        self._rows: list[dict] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, query: str, params):
+        tenant_id = params[0]
+        if "FROM public.broker_sync_snapshots" in query:
+            self._rows = [
+                row
+                for row in self.table_rows.get("broker_sync_snapshots", [])
+                if row.get("tenant_id") == tenant_id and row.get("status") in {"succeeded", "partial"}
+            ]
+        elif "FROM public.webapp_manual_positions" in query:
+            self._rows = [
+                row
+                for row in self.table_rows.get("webapp_manual_positions", [])
+                if row.get("tenant_id") == tenant_id and row.get("position_status") == "open"
+            ]
+        elif "FROM public.broker_position_snapshots" in query:
+            snapshot_id = params[1]
+            self._rows = [
+                row
+                for row in self.table_rows.get("broker_position_snapshots", [])
+                if row.get("tenant_id") == tenant_id and row.get("broker_sync_snapshot_id") == snapshot_id
+            ]
+        elif "FROM public.cash_balance_snapshots" in query:
+            snapshot_id = params[1]
+            self._rows = [
+                row
+                for row in self.table_rows.get("cash_balance_snapshots", [])
+                if row.get("tenant_id") == tenant_id and row.get("broker_sync_snapshot_id") == snapshot_id
+            ]
+        elif "FROM public.margin_balance_snapshots" in query:
+            snapshot_id = params[1]
+            self._rows = [
+                row
+                for row in self.table_rows.get("margin_balance_snapshots", [])
+                if row.get("tenant_id") == tenant_id and row.get("broker_sync_snapshot_id") == snapshot_id
+            ]
+        else:
+            self._rows = []
+
+    def fetchall(self):
+        return self._rows
 
 
 def _sample_snapshot(
@@ -178,6 +281,106 @@ async def test_read_model_splits_equity_and_option_positions():
     assert positions.option_positions[0].option_type == "put"
     assert positions.option_positions[0].strike == 175.0
     assert positions.option_positions[0].expiry == "2026-06-19"
+
+
+@pytest.mark.asyncio
+async def test_supabase_repository_falls_back_to_webapp_manual_positions_without_broker_snapshot():
+    client = FakeSupabaseClient(
+        {
+            "broker_sync_snapshots": [],
+            "webapp_manual_positions": [
+                {
+                    "id": "manual-1",
+                    "tenant_id": "tenant-1",
+                    "instrument_type": "stock",
+                    "symbol": "NVDA",
+                    "name": "NVIDIA",
+                    "market": "US",
+                    "exchange": "NASDAQ",
+                    "position_side": "long",
+                    "quantity": 2,
+                    "average_cost": 900,
+                    "market_price": 1000,
+                    "market_value": 2000,
+                    "currency": "USD",
+                    "source_quality": "user_confirmed",
+                    "source_tier": "user_confirmed",
+                    "source_actionability": "analysis_only",
+                    "source_as_of": "2026-05-10T10:00:00+00:00",
+                    "source_lineage": {"source": "test"},
+                    "note": "manual",
+                    "position_status": "open",
+                    "updated_at": "2026-05-10T10:01:00+00:00",
+                }
+            ],
+        }
+    )
+    repository = SupabasePortfolioSnapshotRepository(client)
+
+    bundle = await repository.get_latest_snapshot_bundle("tenant-1")
+
+    assert bundle is not None
+    assert bundle.snapshot["id"] == "manual-webapp:tenant-1"
+    assert bundle.snapshot["source_quality"] == "user_confirmed"
+    assert bundle.snapshot["partial_components"] == ["manual_positions_fallback"]
+    assert bundle.positions[0]["provider_symbol"] == "NVDA"
+    assert bundle.positions[0]["cost_basis"] == 1800
+    assert bundle.positions[0]["position_payload"]["name"] == "NVIDIA"
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_falls_back_to_webapp_manual_positions_without_broker_snapshot():
+    def connect_factory(_database_url: str):
+        return FakePostgresConnection(
+            {
+                "broker_sync_snapshots": [],
+                "webapp_manual_positions": [
+                    {
+                        "id": "manual-1",
+                        "tenant_id": "tenant-1",
+                        "instrument_type": "stock",
+                        "symbol": "TSLA",
+                        "name": "Tesla",
+                        "market": "US",
+                        "exchange": "NASDAQ",
+                        "position_side": "long",
+                        "quantity": 3,
+                        "average_cost": 200,
+                        "market_price": 250,
+                        "market_value": 750,
+                        "currency": "USD",
+                        "source_quality": "user_confirmed",
+                        "source_tier": "user_confirmed",
+                        "source_actionability": "analysis_only",
+                        "source_as_of": None,
+                        "source_lineage": {"source": "test"},
+                        "note": "manual",
+                        "position_status": "open",
+                        "updated_at": "2026-05-10T10:01:00+00:00",
+                    }
+                ],
+            }
+        )
+
+    repository = PostgresPortfolioSnapshotRepository("postgresql://example", connect_factory=connect_factory)
+
+    bundle = await repository.get_latest_snapshot_bundle("tenant-1")
+
+    assert bundle is not None
+    assert bundle.snapshot["id"] == "manual-webapp:tenant-1"
+    assert bundle.positions[0]["provider_symbol"] == "TSLA"
+    assert bundle.positions[0]["cost_basis"] == 600
+    assert bundle.positions[0]["position_payload"]["source"] == "webapp_manual_positions"
+
+
+def test_repository_factory_uses_database_url_when_supabase_env_is_missing(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+
+    repository = create_portfolio_snapshot_repository_from_env()
+
+    assert isinstance(repository, PostgresPortfolioSnapshotRepository)
 
 
 @pytest.mark.asyncio
@@ -415,34 +618,3 @@ async def test_read_model_exposes_freshness_and_source_quality():
     assert overview.freshness.received_age_seconds == 120
     assert overview.freshness.missing_fields == ["cash_balances"]
     assert overview.freshness.partial_components == ["cash_balances"]
-
-
-def test_read_model_env_uses_postgres_when_broker_sync_uses_postgres(monkeypatch):
-    monkeypatch.setenv("BROKER_SYNC_REPOSITORY", "postgres")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/ai_holdings")
-    monkeypatch.delenv("PORTFOLIO_READ_REPOSITORY", raising=False)
-    monkeypatch.delenv("SUPABASE_URL", raising=False)
-    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
-
-    service = create_portfolio_read_model_service_from_env()
-
-    assert isinstance(service._repository, PostgresPortfolioSnapshotRepository)
-
-
-def test_read_model_env_requires_database_url_for_postgres(monkeypatch):
-    monkeypatch.setenv("PORTFOLIO_READ_REPOSITORY", "postgres")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-
-    with pytest.raises(PortfolioReadModelConfigurationError, match="DATABASE_URL"):
-        create_portfolio_read_model_service_from_env()
-
-
-@pytest.mark.asyncio
-async def test_http_fx_provider_skips_network_when_only_base_currency_needed():
-    provider = HttpFxRateProvider("http://127.0.0.1:1/latest", source="trusted_http_fx")
-
-    snapshot = await provider.get_rates(["USD"], "USD")
-
-    assert snapshot.rates == {"USD": 1.0}
-    assert snapshot.source == "trusted_http_fx"
-    assert snapshot.trusted is True

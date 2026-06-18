@@ -135,6 +135,7 @@ export interface ConfirmationItem {
     | 'rule_change'
     | 'sell_put_trade_draft'
     | 'broker_conflict'
+    | 'source_conflict'
     | 'portfolio_view_change';
   title: string;
   summary: string;
@@ -279,7 +280,7 @@ const baseWorkspace: WorkspaceSnapshot = {
       { id: 'option-income', name: '期权现金流', baseCurrency: 'USD', scope: 'Sell Put', sourceCount: 1, highImpactChangePending: true },
     ],
     sources: [
-      { key: 'futu', label: '富途券商账户', tier: 'L1', status: 'fresh', freshnessLabel: '32s', lastUpdated: '2026-05-10 09:32', actionability: 'ready' },
+      { key: 'futu', label: '系统 Futu 行情源', tier: 'L1', status: 'fresh', freshnessLabel: '32s', lastUpdated: '2026-05-10 09:32', actionability: 'ready' },
       { key: 'option-chain', label: '期权链行情', tier: 'L1', status: 'fresh', freshnessLabel: '44s', lastUpdated: '2026-05-10 09:31', actionability: 'ready' },
       { key: 'tencent', label: '腾讯财经校验', tier: 'L3', status: 'fresh', freshnessLabel: '3m', lastUpdated: '2026-05-10 09:29', actionability: 'analysis_only' },
     ],
@@ -298,7 +299,7 @@ const baseWorkspace: WorkspaceSnapshot = {
       { label: '股票 / ETF 市值', value: '$279,800', hint: '8 个活跃标的' },
       { label: '期权市值', value: '-$18,420', hint: '空头期权按市值展示', tone: 'warning' },
       { label: '现金担保 / 保证金占用', value: '$92,000 / $18,000', hint: '拆分展示，不混总资产' },
-      { label: '可用现金', value: '$57,260', hint: '最近一次券商账户同步' },
+      { label: '可用现金', value: '$57,260', hint: '用户确认资金数据' },
       { label: '待处理', value: '6', hint: '确认 / 冲突 / 修正', tone: 'danger' },
     ],
     riskRadar: [
@@ -307,18 +308,18 @@ const baseWorkspace: WorkspaceSnapshot = {
       { id: 'risk-3', title: '纪律冲突待处理', detail: '1 条规则例外还没有补充理由。', level: 'medium', badge: '纪律' },
     ],
     actions: [
-      { id: 'action-1', title: '确认券商账户与手工记录差异', detail: 'AAPL 买入记录与券商账户里的持仓数量不一致。', severity: 'critical', href: '/confirmations', badge: '重要' },
+      { id: 'action-1', title: '确认截图与手工记录差异', detail: 'AAPL 买入记录与截图识别里的持仓数量不一致。', severity: 'critical', href: '/confirmations', badge: '重要' },
       { id: 'action-2', title: '复核图片 / 语音识别结果', detail: '截图和语音口令中的价格字段置信度较低，等待人工确认。', severity: 'warning', href: '/confirmations' },
       { id: 'action-3', title: '查看 Sell Put 候选限制原因', detail: '期权链更新接近阈值，当前只输出观察结论。', severity: 'normal', href: '/sell-put?state=degraded' },
     ],
     holdingsPreview: [
-      { symbol: 'NVDA', name: 'NVIDIA', market: 'US', quantity: '180', marketValue: '$162,900', pnl: '+18.4%', concentration: '21%', discipline: 'watch', freshness: '32s', source: '富途行情' },
-      { symbol: 'AAPL', name: 'Apple', market: 'US', quantity: '240', marketValue: '$47,200', pnl: '+6.2%', concentration: '11%', discipline: 'clear', freshness: '32s', source: '富途行情' },
+      { symbol: 'NVDA', name: 'NVIDIA', market: 'US', quantity: '180', marketValue: '$162,900', pnl: '+18.4%', concentration: '21%', discipline: 'watch', freshness: '32s', source: '系统行情' },
+      { symbol: 'AAPL', name: 'Apple', market: 'US', quantity: '240', marketValue: '$47,200', pnl: '+6.2%', concentration: '11%', discipline: 'clear', freshness: '32s', source: '系统行情' },
       { symbol: '0700.HK', name: 'Tencent', market: 'HK', quantity: '500', marketValue: '$31,400', pnl: '-3.1%', concentration: '8%', discipline: 'blocked', freshness: '4m', source: '腾讯财经' },
     ],
     optionsPreview: [
-      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要复核', freshness: '44s', source: '富途期权链', actionability: 'ready' },
-      { id: 'opt-2', underlying: 'AMD', contract: 'AMD 2026-06-07 130P', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', optionMarketValue: '-$250', cashRequired: '$13,000', marginRequired: '$0', risk: 'medium', assignment: '愿接股池内', freshness: '44s', source: '富途期权链', actionability: 'ready' },
+      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要复核', freshness: '44s', source: '系统期权链', actionability: 'ready' },
+      { id: 'opt-2', underlying: 'AMD', contract: 'AMD 2026-06-07 130P', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', optionMarketValue: '-$250', cashRequired: '$13,000', marginRequired: '$0', risk: 'medium', assignment: '愿接股池内', freshness: '44s', source: '系统期权链', actionability: 'ready' },
     ],
   },
   holdings: {
@@ -329,14 +330,14 @@ const baseWorkspace: WorkspaceSnapshot = {
       { label: '需注意数据', value: '2', hint: '会说明更新延迟或来源限制', tone: 'warning' },
     ],
     equity: [
-      { symbol: 'NVDA', name: 'NVIDIA', market: 'US', quantity: '180', marketValue: '$162,900', pnl: '+18.4%', concentration: '21%', discipline: 'watch', freshness: '32s', source: '富途行情' },
-      { symbol: 'AAPL', name: 'Apple', market: 'US', quantity: '240', marketValue: '$47,200', pnl: '+6.2%', concentration: '11%', discipline: 'clear', freshness: '32s', source: '富途行情' },
-      { symbol: 'QQQ', name: 'Invesco QQQ', market: 'US', quantity: '90', marketValue: '$38,160', pnl: '+4.6%', concentration: '9%', discipline: 'clear', freshness: '32s', source: '富途行情' },
+      { symbol: 'NVDA', name: 'NVIDIA', market: 'US', quantity: '180', marketValue: '$162,900', pnl: '+18.4%', concentration: '21%', discipline: 'watch', freshness: '32s', source: '系统行情' },
+      { symbol: 'AAPL', name: 'Apple', market: 'US', quantity: '240', marketValue: '$47,200', pnl: '+6.2%', concentration: '11%', discipline: 'clear', freshness: '32s', source: '系统行情' },
+      { symbol: 'QQQ', name: 'Invesco QQQ', market: 'US', quantity: '90', marketValue: '$38,160', pnl: '+4.6%', concentration: '9%', discipline: 'clear', freshness: '32s', source: '系统行情' },
       { symbol: '0700.HK', name: 'Tencent', market: 'HK', quantity: '500', marketValue: '$31,400', pnl: '-3.1%', concentration: '8%', discipline: 'blocked', freshness: '4m', source: '腾讯财经' },
     ],
     options: [
-      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要高注意确认', freshness: '44s', source: '富途期权链', actionability: 'ready' },
-      { id: 'opt-2', underlying: 'AMD', contract: 'AMD 2026-06-07 130P', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', optionMarketValue: '-$250', cashRequired: '$13,000', marginRequired: '$0', risk: 'medium', assignment: '愿接股池内', freshness: '44s', source: '富途期权链', actionability: 'ready' },
+      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要高注意确认', freshness: '44s', source: '系统期权链', actionability: 'ready' },
+      { id: 'opt-2', underlying: 'AMD', contract: 'AMD 2026-06-07 130P', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', optionMarketValue: '-$250', cashRequired: '$13,000', marginRequired: '$0', risk: 'medium', assignment: '愿接股池内', freshness: '44s', source: '系统期权链', actionability: 'ready' },
       { id: 'opt-3', underlying: 'BABA', contract: 'BABA 2026-05-24 70P', dte: '14', delta: '0.23', iv: '54%', premium: '$1.48', optionMarketValue: '-$296', cashRequired: '$7,000', marginRequired: '$0', risk: 'high', assignment: '财报前限制', freshness: '5m', source: '备用行情', actionability: 'analysis_only' },
     ],
     riskRadar: [
@@ -345,14 +346,14 @@ const baseWorkspace: WorkspaceSnapshot = {
       { id: 'radar-3', title: '1 条视图变更待确认', detail: '期权现金流视图的数据来源修改仍待确认。', level: 'low', badge: '资产视图' },
     ],
     sources: [
-      { id: 'src-1', label: '富途券商账户', type: '券商同步', priority: '最高', confidence: '0.98', freshness: '32s', lineage: '券商账户同步后汇总持仓' },
+      { id: 'src-1', label: '系统 Futu 行情源', type: '系统行情', priority: '行情参考', confidence: '0.98', freshness: '32s', lineage: '管理员侧行情源用于估值和期权链校验' },
       { id: 'src-2', label: '手工交易记录', type: '手工录入', priority: '辅助', confidence: '0.91', freshness: '8m', lineage: '确认后计入持仓变化' },
       { id: 'src-3', label: '截图识别结果', type: '截图识别', priority: '待确认', confidence: '0.72', freshness: '12m', lineage: '图片识别后等待人工确认' },
     ],
   },
   sellPut: {
     metrics: [
-      { label: '可用现金', value: '$57,260', hint: '以券商账户同步为准' },
+      { label: '可用现金', value: '$57,260', hint: '以用户确认资金为准' },
       { label: '现金担保', value: '$92,000', hint: '用于覆盖卖出认沽' },
       { label: '保证金占用', value: '$18,000', hint: '与现金担保分开展示' },
       { label: '7 天内到期', value: '2', hint: '高注意合约', tone: 'danger' },
@@ -366,7 +367,7 @@ const baseWorkspace: WorkspaceSnapshot = {
       { bucket: '45 天以上', contracts: '0', exposure: '$0' },
     ],
     positions: [
-      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要复核', freshness: '44s', source: '富途期权链', actionability: 'ready' },
+      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要复核', freshness: '44s', source: '系统期权链', actionability: 'ready' },
       { id: 'opt-3', underlying: 'BABA', contract: 'BABA 2026-05-24 70P', dte: '14', delta: '0.23', iv: '54%', premium: '$1.48', optionMarketValue: '-$296', cashRequired: '$7,000', marginRequired: '$0', risk: 'high', assignment: '财报前限制', freshness: '5m', source: '备用行情', actionability: 'analysis_only' },
     ],
     candidates: [
@@ -386,36 +387,36 @@ const baseWorkspace: WorkspaceSnapshot = {
       { label: '待处理总数', value: '6', hint: '全部待确认对象' },
       { label: '交易录入 / 修正', value: '3', hint: '手工记录、截图、语音' },
       { label: '规则 / 视图变更', value: '2', hint: '影响风险或资金口径的设置' },
-      { label: '券商账户差异', value: '1', hint: '必须人工确认', tone: 'danger' },
+      { label: '来源差异', value: '1', hint: '必须人工确认', tone: 'danger' },
     ],
     items: [
       { id: 'cfm-1', type: 'trade_input', title: '手工录入买入交易', summary: 'NVDA 买入 20 股，等待你确认后记录到持仓。', risk: 'medium', status: 'pending', freshness: '5m', evidence: ['手工输入内容', '持仓影响预览', '纪律检查通过'], nextStep: '确认并记录' },
       { id: 'cfm-2', type: 'ocr_fix', title: '截图识别修正：价格需要确认', summary: '截图识别到 AAPL 价格字段置信度 0.71，需要人工校正。', risk: 'medium', status: 'needs_input', freshness: '12m', evidence: ['截图识别结果', '原始截图记录', '置信度低于阈值'], nextStep: '修正字段后再提交' },
       { id: 'cfm-3', type: 'asr_fix', title: '语音识别修正：数量需要确认', summary: '语音口令识别“十张 / 四张”冲突，待二次确认。', risk: 'medium', status: 'needs_input', freshness: '9m', evidence: ['语音转写文本', '识别出的意图', '数量存在歧义'], nextStep: '确认正确数量' },
       { id: 'cfm-4', type: 'rule_change', title: '纪律规则变更', summary: '调整 Sell Put 最大现金占用上限从 60% 到 65%。', risk: 'high', status: 'pending', freshness: '2m', evidence: ['规则变更前后对比', '账户影响预览', '受影响候选清单'], nextStep: '确认并保留记录' },
-      { id: 'cfm-5', type: 'sell_put_trade_draft', title: 'Sell Put 草稿', summary: 'AMD 130P 候选满足规则，可确认生成执行清单。', risk: 'high', status: 'pending', freshness: '44s', evidence: ['风险复核结果', '现金占用模拟', '富途行情来源'], nextStep: '确认生成草稿' },
-      { id: 'cfm-6', type: 'broker_conflict', title: '券商账户差异', summary: 'AAPL 持仓数量在券商账户与手工记录间不一致。', risk: 'high', status: 'blocked', freshness: '3m', evidence: ['券商账户数量', '手工记录数量', '来源优先级规则'], nextStep: '选择可信来源' },
+      { id: 'cfm-5', type: 'sell_put_trade_draft', title: 'Sell Put 草稿', summary: 'AMD 130P 候选满足规则，可确认生成执行清单。', risk: 'high', status: 'pending', freshness: '44s', evidence: ['风险复核结果', '现金占用模拟', '系统行情来源'], nextStep: '确认生成草稿' },
+      { id: 'cfm-6', type: 'source_conflict', title: '来源差异', summary: 'AAPL 持仓数量在截图识别与手工记录间不一致。', risk: 'high', status: 'blocked', freshness: '3m', evidence: ['截图识别数量', '手工记录数量', '来源优先级规则'], nextStep: '选择可信来源' },
     ],
   },
   data: {
     summary: [
-      { label: '已连接账户', value: '2', hint: '当前只读取持仓和资金信息' },
-      { label: '资产来源', value: '4', hint: '券商、手工、截图、页面估算' },
+      { label: '系统行情源', value: '1', hint: '管理员侧只读行情与期权链' },
+      { label: '资产来源', value: '4', hint: '系统行情、手工、截图、页面估算' },
       { label: '更新异常', value: '1', hint: '需检查原因', tone: 'warning' },
       { label: '微信绑定', value: '1', hint: '可接收提醒和确认消息' },
     ],
     connections: [
-      { id: 'bc-1', provider: 'Futu 账户连接', accountLabel: '美股保证金账户', authStatus: 'connected', permissionScope: '持仓 / 现金 / 期权链只读', lastSync: '2026-05-10 09:32', freshness: '32s' },
-      { id: 'bc-2', provider: 'Futu 账户连接', accountLabel: '港股现金账户', authStatus: 'degraded', permissionScope: '持仓只读', lastSync: '2026-05-10 09:26', freshness: '6m', degradation: '本地连接暂未返回最新现金数据' },
+      { id: 'bc-1', provider: '系统 Futu 行情源', accountLabel: '美股行情 / 期权链', authStatus: 'connected', permissionScope: '管理员只读行情 / 期权链', lastSync: '2026-05-10 09:32', freshness: '32s' },
+      { id: 'bc-2', provider: '系统 Futu 行情源', accountLabel: '港股行情', authStatus: 'degraded', permissionScope: '管理员只读行情', lastSync: '2026-05-10 09:26', freshness: '6m', degradation: '系统源暂未返回最新港股行情' },
     ],
     assetSources: [
-      { id: 'source-1', label: '富途券商账户', type: '券商账户数据', priority: '最高', confidence: '0.98', freshness: '32s', lineage: '账户绑定后读取并汇总持仓' },
+      { id: 'source-1', label: '系统 Futu 行情源', type: '系统行情数据', priority: '行情参考', confidence: '0.98', freshness: '32s', lineage: '管理员侧 OpenD 提供行情，不同步普通用户个人账户' },
       { id: 'source-2', label: '手工交易记录', type: '手工录入', priority: '辅助', confidence: '0.91', freshness: '8m', lineage: '确认后计入持仓变化' },
       { id: 'source-3', label: '截图识别结果', type: '截图识别', priority: '待确认', confidence: '0.72', freshness: '12m', lineage: '图片识别后等待人工确认' },
     ],
     syncEvents: [
-      { id: 'sync-1', title: '美股保证金账户更新', status: 'success', startedAt: '09:32', detail: '持仓、现金、期权数据已更新。' },
-      { id: 'sync-2', title: '港股现金账户更新', status: 'warning', startedAt: '09:26', detail: '现金余额缺失，相关建议暂时仅供参考。' },
+      { id: 'sync-1', title: '美股系统行情更新', status: 'success', startedAt: '09:32', detail: '行情和期权链数据已更新。' },
+      { id: 'sync-2', title: '港股系统行情更新', status: 'warning', startedAt: '09:26', detail: '部分行情缺失，相关建议暂时仅供参考。' },
       { id: 'sync-3', title: '手工记录影响测算', status: 'running', startedAt: '09:30', detail: '待确认交易正在预估对持仓的影响。' },
     ],
   },
@@ -457,12 +458,12 @@ const baseWorkspace: WorkspaceSnapshot = {
       { id: 'delivery-1', channel: '微信摘要', reason: '当前处于免打扰时段，已排队等待补发。', lastAttempt: '08:58', recovery: '09:35 自动重试' },
     ],
     brokerSyncs: [
-      { id: 'ops-sync-1', title: '富途美股账户数据', status: 'success', startedAt: '09:32', detail: '美股账户连接正常。' },
-      { id: 'ops-sync-2', title: '富途港股账户数据', status: 'failed', startedAt: '09:26', detail: '现金数据读取超时，相关建议暂时仅供参考。' },
+      { id: 'ops-sync-1', title: '系统美股行情', status: 'success', startedAt: '09:32', detail: '美股行情源连接正常。' },
+      { id: 'ops-sync-2', title: '系统港股行情', status: 'failed', startedAt: '09:26', detail: '港股行情读取超时，相关建议暂时仅供参考。' },
     ],
     replayQueue: [
       { id: 'replay-1', objectType: '手工交易记录', reason: '等待你确认后刷新持仓数字', status: 'pending' },
-      { id: 'replay-2', objectType: '券商账户差异', reason: '需要选择可信来源后才能继续', status: 'blocked' },
+      { id: 'replay-2', objectType: '来源差异', reason: '需要选择可信来源后才能继续', status: 'blocked' },
     ],
   },
 };
@@ -546,7 +547,7 @@ function applyAccountWorkspace(
   workspace.data.summary[1] = {
     label: '资产来源',
     value: String(account.assetSources.length),
-    hint: '券商、手工、买卖消息、截图和语音来源已按账户隔离',
+    hint: '系统行情、手工、买卖消息、截图和语音来源已按账户隔离',
   };
   workspace.data.summary[3] = {
     label: '清单视图',
@@ -574,7 +575,7 @@ function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: Accou
     { label: '股票 / ETF', value: '0', hint: '尚未记录持仓' },
     { label: '期权持仓', value: '0', hint: 'Sell Put 数据会独立展示' },
     { label: '账户空间', value: '已初始化', hint: `account_id ${account.accountId.slice(0, 8)}` },
-    { label: '资产来源', value: String(account.assetSources.length), hint: '手工、消息、OCR、语音和券商来源已建好' },
+    { label: '资产来源', value: String(account.assetSources.length), hint: '手工、消息、OCR、语音和系统行情来源已建好' },
     { label: '待处理', value: '0', hint: '暂无待确认动作' },
   ];
   workspace.dashboard.holdingsPreview = [];
@@ -588,11 +589,11 @@ function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: Accou
       href: '/data',
     },
     {
-      id: 'account-empty-connect-futu',
-      title: '稍后连接富途 OpenD',
-      detail: '本地 OpenD 连接只读取持仓与现金，仍然按当前 tenant_id 隔离。',
+      id: 'account-empty-add-image',
+      title: '用截图初始化持仓',
+      detail: '普通用户不连接个人 Futu OpenD，可以通过微信发送持仓截图识别后确认写入。',
       severity: 'normal',
-      href: '/data',
+      href: '/onboarding/wechat',
     },
   ];
   workspace.dashboard.riskRadar = [
@@ -608,22 +609,22 @@ function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: Accou
     { label: '资产视图', value: workspace.holdings.metrics[0]?.value || '全部资产', hint: workspace.holdings.metrics[0]?.hint || account.baseCurrency },
     { label: '股票 / ETF', value: '0', hint: '没有当前持仓' },
     { label: '期权持仓', value: '0', hint: '没有当前期权仓位' },
-    { label: '数据状态', value: '等待录入', hint: '暂无券商同步或手工持仓', tone: 'warning' },
+    { label: '数据状态', value: '等待录入', hint: '暂无手工、OCR 或微信确认持仓', tone: 'warning' },
   ];
   workspace.holdings.equity = [];
   workspace.holdings.options = [];
   workspace.holdings.riskRadar = workspace.dashboard.riskRadar;
   workspace.holdings.sources = account.assetSources.map((source) => ({
     id: source.id,
-    label: source.sourceName,
+    label: sourceDisplayName(source.sourceName, source.sourceType),
     type: sourceLabel(source.sourceType),
     priority: source.isActive ? `优先级 ${source.priority}` : '未启用',
     confidence: source.sourceQuality,
     freshness: source.lastSeenAt ? formatFreshness(source.lastSeenAt) : '等待数据',
-    lineage: `${source.provider} · ${source.sourceKey}`,
+    lineage: `${sourceProviderLabel(source.provider)} · ${source.sourceKey}`,
   }));
   workspace.sellPut.metrics = [
-    { label: '可用现金', value: '$0', hint: '等待券商或手工资金数据' },
+    { label: '可用现金', value: '$0', hint: '等待手工资金数据或系统行情补充' },
     { label: '现金担保', value: '$0', hint: '暂无 Sell Put 持仓' },
     { label: '保证金占用', value: '$0', hint: '暂无期权保证金占用' },
     { label: '7 天内到期', value: '0', hint: '暂无近到期期权' },
@@ -643,8 +644,19 @@ function sourceLabel(sourceType: string) {
   if (sourceType === 'message_trade_input') return '买卖消息';
   if (sourceType === 'ocr') return '截图识别';
   if (sourceType === 'voice_asr') return '语音识别';
-  if (sourceType === 'broker_api') return '券商只读连接';
+  if (sourceType === 'broker_api') return '系统行情源';
   return sourceType;
+}
+
+function sourceDisplayName(sourceName: string, sourceType?: string) {
+  if (sourceType === 'broker_api' || sourceName.includes('富途') || sourceName.includes('券商')) {
+    return '系统 Futu 行情源';
+  }
+  return sourceName;
+}
+
+function sourceProviderLabel(provider: string) {
+  return provider.toLowerCase().includes('futu') ? 'system_market_data' : provider;
 }
 
 function buildManualP0Snapshot(
@@ -660,14 +672,14 @@ function buildManualP0Snapshot(
     dataState: {
       mode: 'live',
       label: '手工持仓已接入',
-      detail: '当前页面展示的是本账号手工确认录入的持仓数据；金额按录入价格估算，仅供巡检和后续同步前使用。',
+      detail: '当前页面展示的是本账号手工确认录入的持仓数据；金额按录入价格估算，仅供巡检和补充行情前使用。',
       updatedAt,
       baseUrl,
       sourcePath: 'webapp_manual_positions',
       baseCurrency,
       fxSource: 'manual_input',
       usesEstimatedFx: true,
-      valuationDetail: `手工录入数据已按 ${baseCurrency} 页面口径展示；未连接券商前仅供参考。`,
+      valuationDetail: `手工录入数据已按 ${baseCurrency} 页面口径展示；未补充实时行情前仅供参考。`,
     },
     overview: {
       currency: baseCurrency,
@@ -720,7 +732,7 @@ function buildManualP0Snapshot(
         permissionScope: '用户确认录入',
         lastSync: updatedAt,
         updatedAt,
-        detail: '由 WebApp 手工录入生成，未自动连接券商。',
+        detail: '由 WebApp 手工录入生成，未补充系统行情。',
       },
     ],
     syncEvents: [
@@ -734,12 +746,12 @@ function buildManualP0Snapshot(
     ],
     assetSources: account.assetSources.map((source) => ({
       id: source.id,
-      label: source.sourceName,
+      label: sourceDisplayName(source.sourceName, source.sourceType),
       type: sourceLabel(source.sourceType),
-      priority: source.isActive ? `优先级 ${source.priority}` : '待连接',
+      priority: source.isActive ? `优先级 ${source.priority}` : '待启用',
       confidence: source.sourceQuality,
       freshness: source.lastSeenAt ? formatFreshness(source.lastSeenAt) : source.sourceKey === 'manual-webapp' ? formatFreshness(updatedAt) : '等待数据',
-      lineage: `${source.provider} · ${source.sourceKey}`,
+      lineage: `${sourceProviderLabel(source.provider)} · ${source.sourceKey}`,
     })),
   };
 }
@@ -860,7 +872,7 @@ function buildHoldingsMetrics(
     {
       label: '期权持仓',
       value: String(overview?.optionCount ?? options.length),
-      hint: '期权金额用于巡检，不等同券商净资产结单',
+      hint: '期权金额用于巡检，不等同交易账户结单',
     },
     {
       label: '数据状态',
@@ -912,7 +924,7 @@ function buildRiskRadar(
     items.push({
       id: 'live-risk-fx-estimate',
       title: '多币种金额按估算汇率折算',
-      detail: '当前页面金额按估算汇率折算，仅供参考；请结合原币金额与券商结单复核。',
+      detail: '当前页面金额按估算汇率折算，仅供参考；请结合原币金额与交易账户结单复核。',
       level: 'medium',
       badge: '折算口径',
     });
@@ -1050,9 +1062,9 @@ function buildDataSummary(live: P0ApiSnapshot): Metric[] {
 
   return [
     {
-      label: 'Futu 连接',
+      label: '系统行情源',
       value: String(live.connections.length || 1),
-      hint: `${connectedCount} 条连接状态正常`,
+      hint: `${connectedCount} 条系统源状态正常`,
       tone: connectedCount ? 'positive' : 'warning',
     },
     {
@@ -1070,7 +1082,7 @@ function buildDataSummary(live: P0ApiSnapshot): Metric[] {
     {
       label: '数据来源',
       value: live.dataState.mode === 'live' ? '实时' : live.dataState.mode === 'partial' ? '部分实时' : '参考数据',
-      hint: live.dataState.mode === 'live' ? '页面优先展示最新数据' : '仍有部分区块暂未拿到最新账户数据',
+      hint: live.dataState.mode === 'live' ? '页面优先展示最新数据' : '仍有部分区块暂未拿到最新系统数据',
       tone: live.dataState.mode === 'live' ? 'positive' : 'warning',
     },
   ];
@@ -1093,8 +1105,8 @@ function buildDataConnections(live: P0ApiSnapshot): BrokerConnection[] {
   return [
     {
       id: 'fallback-connection',
-      provider: 'Futu 账户连接',
-      accountLabel: '参考视图',
+      provider: '系统行情源',
+      accountLabel: '管理员侧参考视图',
       authStatus: 'degraded',
       permissionScope: '当前仅展示参考数据',
       lastSync: '等待同步',
@@ -1138,7 +1150,7 @@ function buildDataSources(live: P0ApiSnapshot): AssetSourceRow[] {
       priority: '临时展示',
       confidence: '--',
       freshness: live.dataState.updatedAt ? formatFreshness(live.dataState.updatedAt) : '等待同步',
-      lineage: '实时数据暂不可用时，页面会保留参考数据，并明确标记为非实时账户数据。',
+      lineage: '实时数据暂不可用时，页面会保留参考数据，并明确标记为非实时系统数据。',
     },
   ];
 }
@@ -1210,8 +1222,8 @@ function buildChromeSources(live: P0ApiSnapshot): SourceStatus[] {
       actionability: live.equityPositions.length || live.optionPositions.length ? 'ready' : 'analysis_only',
     },
     {
-      key: 'futu-connection',
-      label: 'Futu 账户连接',
+      key: 'system-futu-source',
+      label: '系统 Futu 行情源',
       tier: 'L2',
       status:
         live.connections[0]?.authStatus === 'connected'
@@ -1297,11 +1309,11 @@ function buildOptionHoldings(items: P0ApiOptionPosition[]): OptionHolding[] {
 }
 
 function normalizeProviderName(value: string) {
-  return value.toLowerCase().includes('futu') ? 'Futu 账户连接' : value;
+  return value.toLowerCase().includes('futu') ? '系统 Futu 行情源' : value;
 }
 
 function normalizePermissionScope(value: string) {
-  if (value === 'read_only') return '只查看持仓和资金';
+  if (value === 'read_only') return '管理员只读行情 / 期权链';
   return value
     .replaceAll('/', ' / ')
     .replaceAll('_', ' ')
@@ -1310,8 +1322,8 @@ function normalizePermissionScope(value: string) {
 
 function normalizeSourceLabel(value: string) {
   const lower = value.toLowerCase();
-  if (lower.includes('futu')) return 'Futu 实时数据';
-  if (lower.includes('broker')) return '券商账户数据';
+  if (lower.includes('futu')) return '系统 Futu 行情';
+  if (lower.includes('broker')) return '系统行情数据';
   return value;
 }
 
@@ -1497,7 +1509,7 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
     workspace.sellPut.positions = workspace.sellPut.positions.map((position) => ({
       ...position,
       actionability: 'analysis_only',
-      source: position.source === '富途期权链' ? '富途行情更新延迟' : position.source,
+      source: position.source === '系统期权链' ? '系统行情更新延迟' : position.source,
       freshness: position.freshness === '44s' ? '92s' : position.freshness,
     }));
     workspace.sellPut.candidates = workspace.sellPut.candidates.map((candidate) => ({

@@ -60,13 +60,12 @@
   - 用于微信 / WebApp inbox / delivery 侧状态聚合。
   - 不是资产真相源。
 - `broker_connection_id`：
-  - 券商 read-only 连接边界。
-  - 表示某个 tenant 下的一个券商账户 / 资产来源，不表示本机 OpenD 进程。
-  - P0 不保存云端 token，`permission_scope` 被约束为 `read_only`。
+  - 历史券商 read-only 连接边界，保留用于兼容旧表和导入数据。
+  - 当前多用户生产口径不让普通用户绑定个人 Futu OpenD；普通用户持仓来自手工、消息、OCR 和确认写入。
+  - Futu OpenD 只作为管理员侧系统行情源，用于行情、期权链和估值参考。
 - `connector_instance_id`：
-  - 用户本地连接器实例边界，例如“Jerry 的 Mac 上运行的 Futu OpenD sidecar”。
-  - 生产默认 `runtime_mode=user_local_polling`，由本地连接器主动拉取同步任务并回传脱敏快照；云端不直接连接用户的 `localhost`。
-  - 本地单用户开发可使用 `runtime_mode=local_dev_direct`，让 data-service 直连 `FUTU_CONNECTOR_BASE_URL`。
+  - 历史本地连接器实例边界，生产用户注册流程不再创建 tenant 级 Futu connector。
+  - 旧 `user_local_polling` / `local_dev_direct` 控制面仅作为兼容和内部运维能力保留，不能作为普通用户个人账户同步方案。
 - `asset_source_id`：
   - 所有来源 lineage 根节点。
   - Agent 2 写 snapshot / read model 时应尽量带上它。

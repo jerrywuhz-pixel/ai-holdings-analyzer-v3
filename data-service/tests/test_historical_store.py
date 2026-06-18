@@ -10,6 +10,7 @@ from services.historical_store import (
     HistoricalDataStore,
     HistoricalManifestCreateRequest,
     SupabaseStorageHistoricalBlobStore,
+    SupabaseStorageHistoricalManifestRepository,
 )
 
 
@@ -259,3 +260,60 @@ def test_supabase_storage_blob_store_round_trips_with_signed_rest_contract():
     assert calls[0]["headers"]["authorization"] == "Bearer service-role-key"
     assert calls[0]["headers"]["x-upsert"] == "true"
     assert json.loads(stored["https://supabase.example/storage/v1/object/market-data/tenant=tenant-1/source=futu/AAPL.json"]) == _sample_bars()
+
+
+def test_supabase_storage_manifest_repository_uses_index_object():
+    calls: list[dict] = []
+    stored: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append({"method": request.method, "url": str(request.url), "headers": dict(request.headers)})
+        key = str(request.url)
+        if request.method == "GET":
+            if key not in stored:
+                return httpx.Response(404, json={"message": "not found"})
+            return httpx.Response(200, content=stored[key], headers={"content-type": "application/json"})
+        if request.method == "POST":
+            stored[key] = request.content
+            return httpx.Response(200, json={"Key": "market-data/.manifests/market_data_manifests.json"})
+        return httpx.Response(405)
+
+    repository = SupabaseStorageHistoricalManifestRepository(
+        "https://supabase.example",
+        "service-role-key",
+        bucket="market-data",
+        transport=httpx.MockTransport(handler),
+    )
+    store = HistoricalDataStore(manifest_repository=repository)
+    manifest = asyncio.run(
+        store.register_manifest(
+            HistoricalManifestCreateRequest(
+                tenant_id="tenant-index",
+                source_key="futu_openapi",
+                market="US",
+                symbol="AAPL",
+                instrument_type="stock",
+                interval="1d",
+                coverage_start=date(2026, 5, 1),
+                coverage_end=date(2026, 5, 9),
+                quality_status="validated",
+            )
+        )
+    )
+
+    restored = asyncio.run(repository.get(manifest.id))
+    matches = asyncio.run(
+        repository.list_matching(
+            tenant_id="tenant-index",
+            symbol="AAPL",
+            market="US",
+            bar_interval="1d",
+        )
+    )
+
+    assert restored is not None
+    assert restored.id == manifest.id
+    assert [item.id for item in matches] == [manifest.id]
+    assert calls[0]["method"] == "GET"
+    assert calls[1]["method"] == "POST"
+    assert calls[1]["headers"]["authorization"] == "Bearer service-role-key"

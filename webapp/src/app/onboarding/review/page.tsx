@@ -37,15 +37,15 @@ function CheckRow({
 
 export default async function OnboardingReviewPage() {
   const state = await getOnboardingState();
-  const ready = state.checks.profile && state.checks.wechat && state.checks.broker;
+  const ready = state.checks.profile && state.checks.wechat;
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="注册初始化"
         title="完成前检查"
-        description="这里会确认账号配置、微信 ClawBot 绑定、Futu connector 配对都已经建立。"
-        actions={<StatusPill tone="muted">4 / 4</StatusPill>}
+        description="这里会确认账号配置和微信 ClawBot 绑定都已经建立。系统行情源由管理员统一维护，不再要求普通用户绑定 Futu OpenD。"
+        actions={<StatusPill tone="muted">3 / 3</StatusPill>}
       />
 
       <Panel
@@ -63,14 +63,8 @@ export default async function OnboardingReviewPage() {
           <CheckRow
             ok={state.checks.wechat}
             title="微信 ClawBot 绑定"
-            detail={state.wechatBinding ? state.wechatBinding.openclaw_account_id : '尚未完成二维码授权和绑定码验证'}
+            detail={state.wechatBinding ? (state.wechatBinding.channel_account_id || state.wechatBinding.openclaw_account_id) : '尚未完成二维码授权和绑定码验证'}
             href="/onboarding/wechat"
-          />
-          <CheckRow
-            ok={state.checks.broker}
-            title="Futu 本地 connector"
-            detail={state.brokerConnector ? `${state.brokerConnector.device_label} / ${state.brokerConnector.runtime_mode}` : '尚未创建本地 connector 配对'}
-            href="/onboarding/broker"
           />
         </div>
 

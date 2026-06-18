@@ -12,7 +12,7 @@ export default async function OnboardingDonePage() {
       <PageHeader
         eyebrow="注册初始化"
         title="初始化完成"
-        description="账号已经切换到 3.0 持仓系统，后续页面会按当前租户、微信绑定和 Futu connector 读取数据。"
+        description="账号已经切换到 3.0 持仓系统，后续页面会按当前租户、微信绑定和系统行情源读取数据。"
         actions={<StatusPill tone="positive">已完成</StatusPill>}
       />
 
@@ -20,8 +20,8 @@ export default async function OnboardingDonePage() {
         <div className="grid gap-3 text-sm text-slate-300 md:grid-cols-2">
           <p>Tenant ID: <span className="font-mono text-white">{state.tenantId}</span></p>
           <p>账号: <span className="text-white">{state.userEmail || '-'}</span></p>
-          <p>微信: <span className="break-all font-mono text-white">{state.wechatBinding?.openclaw_account_id || '-'}</span></p>
-          <p>Futu Connector: <span className="break-all font-mono text-white">{state.brokerConnector?.id || '-'}</span></p>
+          <p>微信: <span className="break-all font-mono text-white">{state.wechatBinding?.channel_account_id || state.wechatBinding?.openclaw_account_id || '-'}</span></p>
+          <p>行情源: <span className="text-white">管理员统一维护</span></p>
         </div>
         <Link
           href="/dashboard"

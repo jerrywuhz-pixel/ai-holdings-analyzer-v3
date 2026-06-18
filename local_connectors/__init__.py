@@ -1,1 +1,1 @@
-"""Local connector processes for user-owned broker integrations."""
+"""Local connector processes for admin-managed market data integrations."""

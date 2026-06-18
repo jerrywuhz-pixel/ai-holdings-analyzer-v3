@@ -23,7 +23,7 @@
 | `15-environment-orchestrator.md` | Environment Orchestrator、tenant-scoped run contract、模型策略、工具权限、memory gate 和审计 |
 | `16-wechat-conversation-experience.md` | 微信 claw 对话体验、交互种类、内容类型、确认流、推送和长任务体验 |
 | `17-webapp-product-experience.md` | WebApp 产品体验、信息架构、移动端适配、确认中心、绑定授权和页面级 AI 入口 |
-| `18-webapp-site-map-and-prototype.md` | WebApp 站点层级图、红色主色桌面/移动端高保真 Dashboard 原型、暗色交易终端视觉规范 |
+| `18-webapp-site-map-and-prototype.md` | WebApp 登录前/登录后 sitemap、B+C 登录前站点原型、红色主色登录后 Dashboard 原型 |
 | `19-webapp-core-pages.md` | WebApp P0 核心页面拆解：持仓工作台、股票/ETF 详情、Sell Put 工作台、确认中心 |
 | `20-holdings-feature-task-list.md` | 持仓功能 P0 任务清单、Epic 拆解、验收标准、里程碑和最小可验收版本 |
 | `21-options-sellput-strategy-rulebook.md` | Sell Put 期权策略规则说明书：标的适合性、期权链排序、评分模型、默认阈值、市场状态参数、持仓管理 |
@@ -43,6 +43,8 @@
 | `35-implementation-review-2026-05-20.md` | 最新实现 review：阿里云轻量服务器、MiniMax live、OpenAI/Codex bridge、readiness gate、代码审查和 GitHub 同步边界 |
 | `36-product-feature-readiness-checklist.md` | 3.0 产品功能 readiness：注册/onboarding、微信绑定、Futu 同步、股票/期权分析和阿里云基础依赖 |
 | `37-production-dependency-config-package.md` | 生产依赖配置包：本地 secret 文件、仍需外部提供的域名/云资源/API key/授权清单 |
+| `38-webapp-growth-onboarding-design-concepts.md` | WebApp 增长型站点与新用户引导三套高保真方案：首页、核心功能页、会员页、onboarding |
+| `39-webapp-prelogin-site-bc-design.md` | 登录前站点定稿方向：以长期资产管家为主，融合 AI 投研任务流，覆盖移动端适配 |
 | `prd/00-README.md` | PRD 索引：持仓核心、数据/券商/对账、交互/确认/Agent 体验 |
 | `system-analysis/00-README.md` | 系统分析索引：PRD 完成后的编码前架构分析入口 |
 | `system-analysis/04-architecture-integration-and-coding-entry.md` | 三份 PRD 与三份系统分析的架构整合、共享契约、编码任务切分和编码前确认结果 |

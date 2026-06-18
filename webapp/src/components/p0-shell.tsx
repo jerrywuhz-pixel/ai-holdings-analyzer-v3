@@ -31,7 +31,7 @@ function isActive(pathname: string, href: string) {
   return href === '/' ? pathname === href : pathname.startsWith(href);
 }
 
-const standalonePaths = new Set(['/', '/features', '/pricing', '/onboarding/welcome']);
+const standalonePaths = new Set(['/', '/features', '/pricing', '/intro', '/wechat-clawbot', '/onboarding/welcome']);
 
 export default function AppShell({
   chrome,
@@ -86,7 +86,7 @@ export default function AppShell({
                 <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 lg:flex">
                   <span className="max-w-[180px] truncate">{userLabel}</span>
                   <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-slate-300">
-                    {user.provider === 'local' ? '本地' : 'Supabase'}
+                  {user.provider === 'supabase' ? 'Supabase' : '已登录'}
                   </span>
                 </div>
               ) : null}
@@ -199,7 +199,7 @@ export default function AppShell({
                   交易录入 / 识别修正
                 </Link>
                 <Link href="/data" className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200 transition hover:bg-white/[0.08]">
-                  账户连接 / 数据更新
+                  数据来源 / 系统行情
                 </Link>
                 <Link href="/ops" className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200 transition hover:bg-white/[0.08]">
                   处理进度 / 消息状态

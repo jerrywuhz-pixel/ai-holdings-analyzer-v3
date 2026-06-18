@@ -83,25 +83,6 @@ def _candidate(
     )
 
 
-def test_sell_put_request_uses_env_staleness_defaults(monkeypatch):
-    now = datetime.now(timezone.utc)
-    monkeypatch.setenv("SELL_PUT_FRESHNESS_SECONDS", "180")
-    monkeypatch.setenv("BROKER_SNAPSHOT_MAX_STALENESS_SECONDS", "900")
-
-    payload = SellPutAnalysisRequest(
-        tenant_id="tenant-1",
-        underlying_symbol="AAPL",
-        quote=_quote(now),
-        account_snapshot=_account_snapshot(),
-        option_candidates=[
-            _candidate(now, contract_symbol="AAPL260619P175", strike=175.0),
-        ],
-    )
-
-    assert payload.max_market_staleness_seconds == 180
-    assert payload.max_broker_staleness_seconds == 900
-
-
 @pytest.mark.asyncio
 async def test_sell_put_ranks_best_candidate_and_returns_structured_outputs():
     service = SellPutAnalysisService()

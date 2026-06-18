@@ -1,6 +1,6 @@
 import type { ModelResponse } from "./model-adapter.js";
 
-export type HermesRuntimeTarget = "openclaw_side" | "hermes" | "domain_worker";
+export type HermesRuntimeTarget = "channel_adapter" | "hermes" | "domain_worker";
 export type HermesJobType =
   | "deep_research"
   | "equity_analysis"

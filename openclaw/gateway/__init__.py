@@ -41,6 +41,12 @@ from openclaw.gateway.outbox import (
     SupabaseOutboxRepository,
     is_within_quiet_hours,
 )
+from openclaw.gateway.post_confirmation_worker import (
+    InMemoryPostConfirmationWorkerRepository,
+    PostConfirmationJobWorker,
+    PostConfirmationWorkerStats,
+    SupabasePostConfirmationWorkerRepository,
+)
 
 __all__ = [
     "BrainOps",
@@ -69,4 +75,8 @@ __all__ = [
     "SlidingWindowRateLimiter",
     "SupabaseOutboxRepository",
     "is_within_quiet_hours",
+    "InMemoryPostConfirmationWorkerRepository",
+    "PostConfirmationJobWorker",
+    "PostConfirmationWorkerStats",
+    "SupabasePostConfirmationWorkerRepository",
 ]

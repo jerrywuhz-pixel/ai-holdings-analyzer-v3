@@ -29,7 +29,7 @@ export default async function HomePage({
       <PageHeader
         eyebrow="总览"
         title="30 秒看清资产、风险和今天该处理什么"
-        description="总览优先展示资产、Sell Put 资金占用、数据更新状态与待处理事项。多币种金额按当前展示币种统一口径汇总，用于巡检与比较，不等同券商结单净资产。"
+        description="总览优先展示资产、Sell Put 资金占用、数据更新状态与待处理事项。多币种金额按当前展示币种统一口径汇总，用于巡检与比较，不等同交易账户结单净资产。"
         actions={
           <>
             <InlineLink href="/confirmations">待处理确认</InlineLink>
@@ -113,7 +113,7 @@ export default async function HomePage({
           <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
             <Panel
               title="重点持仓"
-              description="股票 / ETF 与期权分开展示；金额会标明原币与页面折算口径，避免误读为券商净资产精确值。"
+              description="股票 / ETF 与期权分开展示；金额会标明原币与页面折算口径，避免误读为交易账户净资产精确值。"
               aside={<InlineLink href="/holdings">查看完整持仓</InlineLink>}
             >
               <div className="space-y-3 md:hidden">

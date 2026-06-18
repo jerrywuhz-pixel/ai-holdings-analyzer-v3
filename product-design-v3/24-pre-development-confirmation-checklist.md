@@ -130,7 +130,7 @@
 | A-03 | GPT-5.5 与 MiniMax M2.7 的严格分工 | OpenClaw-side 日常意图/文本使用 MiniMax M2.7；Hermes-side 深研/长任务使用 GPT-5.5；高风险输出走规则/风控复核 | model adapter、run policy、成本控制 | `00`、`12`、`16`、`system-analysis/03` |
 | A-04 | MiniMax 失败降级方式 | 统一 model adapter 内置 fallback 模板；业务层不直接依赖 MiniMax SDK/CLI | 对话可靠性、错误补偿 | `02`、`system-analysis/03` |
 | A-05 | Object Storage 首选方案 | P0 使用 Supabase Storage；本地研发用 MinIO；路径和 metadata 按第 23 号文档执行 | 历史行情、图片/语音、Hermes artifact、replay evidence | `09`、`23` |
-| A-06 | Futu local connector 的产品形态 | 接受用户电脑运行本地 connector/OpenD；生产使用 tenant-scoped local connector 主动领取任务并上报脱敏 snapshot，云端不直接连用户 OpenD；本地开发保留 `local_dev_direct` | 券商同步、安全模型、部署说明 | `05`、`13`、`14`、`23`、`system-analysis/02` |
+| A-06 | Futu local connector 的产品形态 | 更新为管理员侧系统行情源：普通用户不运行个人 Futu connector，不同步自己的富途账号；管理员 OpenD 只提供行情、期权链和估值参考；历史 `user_local_polling` / `local_dev_direct` 仅兼容保留 | 行情源、安全模型、部署说明 | `05`、`13`、`14`、`23`、`system-analysis/02` |
 | A-07 | 券商 token 是否允许云端保存 | P0 不保存生产券商 token；云端只保存连接状态、脱敏快照和 source lineage | Secret 管理、合规、安全边界 | `05`、`13`、`23`、`system-analysis/02` |
 | A-08 | Futu 行情/期权链 entitlement 与同步频率 | P0 先按已有富途账号实际权限实现；同步频率配置化；期权链字段缺失时阻断 Sell Put 交易级建议 | data-service、freshness gate、Sell Put | `05`、`08`、`system-analysis/02` |
 | A-09 | 腾讯财经的定位与商用边界 | P0 维持 L3 补充/校验源，不作为交易级主事实；商用授权/SLA 未确认前不升级 | market data routing、降级策略 | `08`、`system-analysis/02` |

@@ -27,7 +27,7 @@ LOW_ATTENTION_TTL_HOURS = 24
 LOW_CONFIDENCE_ASR_THRESHOLD = 0.72
 LOW_CONFIDENCE_OCR_THRESHOLD = 0.72
 NO_FACT_WRITE_TEXT = "当前没有改动持仓，也没有下单。"
-WEBAPP_CONFIRMATION_CENTER_HINT = "必要时请去 WebApp 确认中心查看最新状态。"
+CONFIRMATION_CENTER_STATUS_HINT = "必要时可在确认中心查看最新状态；微信口令仍可用于二次确认。"
 POSITION_SCREENSHOT_KEYWORDS = (
     "持仓",
     "持有",
@@ -301,6 +301,9 @@ def classify_high_attention_text(
             normalized_summary=summary,
             fingerprint_seed=f"broker:{broker_trade['fingerprint']}",
         )
+
+    if _looks_like_analysis_request(lowered):
+        return None
 
     if _looks_like_sell_put(lowered):
         summary = {
@@ -718,8 +721,12 @@ def normalize_position_snapshot_rows(positions: list[dict[str, Any]]) -> list[di
     for raw_position in positions:
         stock_name = _clean_stock_name(raw_position.get("stock_name") or raw_position.get("name"))
         symbol = str(raw_position.get("symbol") or "").upper().strip()
+        requires_symbol_review = bool(raw_position.get("requires_symbol_review"))
+        symbol_confidence = raw_position.get("symbol_confidence")
         if not symbol and stock_name:
             symbol = _name_only_symbol(stock_name)
+            requires_symbol_review = True
+            symbol_confidence = "name_only"
         if not symbol or symbol in seen_symbols:
             continue
 
@@ -731,6 +738,9 @@ def normalize_position_snapshot_rows(positions: list[dict[str, Any]]) -> list[di
         provider_symbol = str(raw_position.get("provider_symbol") or symbol).strip() or symbol
         market = str(raw_position.get("market") or "").upper().strip()
         exchange = str(raw_position.get("exchange") or "").upper().strip()
+        if requires_symbol_review:
+            market = market or "CN"
+            exchange = exchange or "UNKNOWN"
         if not market or not exchange:
             inferred_market, inferred_exchange = _infer_position_market_exchange(symbol)
             market = market or inferred_market
@@ -746,6 +756,8 @@ def normalize_position_snapshot_rows(positions: list[dict[str, Any]]) -> list[di
                 "stock_name": stock_name,
                 "quantity": quantity,
                 "average_cost": average_cost,
+                "requires_symbol_review": requires_symbol_review,
+                "symbol_confidence": symbol_confidence,
             }
         )
         available_quantity = _as_float(raw_position.get("available_quantity"))
@@ -823,14 +835,23 @@ def _parse_name_only_position_line(line: str, raw_line: str) -> dict[str, Any] |
     if len(values) < 5:
         return None
 
-    quantity = values[-2]
-    if quantity <= 0:
+    if len(values) >= 7 and values[-2] > 0 and values[-1] >= 0:
+        quantity = values[-2]
+        available_quantity = values[-1]
+        average_cost = values[-4]
+        current_price = values[-3]
+        market_value = values[0]
+        unrealized_pnl = values[1]
+    elif len(values) >= 5 and values[0] > 0:
+        quantity = values[0]
+        available_quantity = values[0]
+        average_cost = values[1]
+        current_price = values[2]
+        market_value = values[3]
+        unrealized_pnl = values[4]
+    else:
         return None
-    available_quantity = values[-1]
-    average_cost = values[-4]
-    current_price = values[-3]
-    market_value = values[0] if values else None
-    unrealized_pnl = values[1] if len(values) >= 2 else None
+
     percent_match = re.search(r"([-+]?\d+(?:\.\d+)?)\s*%", line)
     pnl_ratio = float(percent_match.group(1)) / 100 if percent_match else None
 
@@ -939,6 +960,7 @@ def build_position_snapshot_candidate(
     summary_lines = [
         f"{position.get('stock_name') or position['symbol']} {position['quantity']:g}股"
         + (f" 成本 {position['average_cost']:g}" if position.get("average_cost") is not None else "")
+        + ("（需补证券代码）" if position.get("requires_symbol_review") else "")
         for position in positions[:6]
     ]
     if len(positions) > 6:
@@ -951,7 +973,7 @@ def build_position_snapshot_candidate(
         source_surface=source_surface,
         risk_level="high",
         confirmation_strength="high_attention",
-        actionability_level="fact_record",
+        actionability_level="info_only",
         action_payload={
             source_field: raw_text,
             "normalized_text": normalized_text,
@@ -967,10 +989,17 @@ def build_position_snapshot_candidate(
             "source_type": "ocr",
             "source_tier": source_policy["source_tier"],
             "actionability": source_policy["actionability"],
-            "risk_note": "图片识别出的持仓会先进入确认；确认后只写入持仓系统，不会自动下单。",
+            "risk_note": _position_snapshot_risk_note(positions),
         },
         fingerprint_seed=f"position-ocr:{media_id or ''}:{','.join(symbols)}:{normalized_text}",
     )
+
+
+def _position_snapshot_risk_note(positions: list[dict[str, Any]]) -> str:
+    base = "图片识别出的持仓会先进入确认；确认后只写入持仓系统，不会自动下单。"
+    if any(position.get("requires_symbol_review") for position in positions):
+        return f"{base} 有些行只有证券名称没有代码，系统会先标记为需补代码，不能作为交易草稿依据。"
+    return base
 
 
 def _position_snapshot_source_policy(
@@ -1022,6 +1051,19 @@ def classify_image_text_candidate(
     if not normalized:
         return None
 
+    position_rows = supplied_positions or normalize_position_snapshot_rows(parse_position_snapshot_rows(text))
+    if _looks_like_position_snapshot(normalized, position_rows):
+        return build_position_snapshot_candidate(
+            normalized,
+            position_rows,
+            ocr_confidence=ocr_confidence,
+            media_id=media_id,
+            metadata=metadata,
+            source_field=source_field,
+            raw_text=text,
+            source_surface=source_surface,
+        )
+
     if ocr_confidence is not None and ocr_confidence < LOW_CONFIDENCE_OCR_THRESHOLD:
         return build_image_review_candidate(
             normalized,
@@ -1041,18 +1083,6 @@ def classify_image_text_candidate(
         "media_id": media_id,
         "metadata": metadata or {},
         }
-    position_rows = supplied_positions or normalize_position_snapshot_rows(parse_position_snapshot_rows(text))
-    if _looks_like_position_snapshot(normalized, position_rows):
-        return build_position_snapshot_candidate(
-            normalized,
-            position_rows,
-            ocr_confidence=ocr_confidence,
-            media_id=media_id,
-            metadata=metadata,
-            source_field=source_field,
-            raw_text=text,
-            source_surface=source_surface,
-        )
 
     candidate = classify_high_attention_text(
         normalized,
@@ -1295,24 +1325,82 @@ class SupabaseConfirmationRepository:
 
 class PostgresConfirmationRepository:
     def __init__(self, database_url: str) -> None:
+        if not database_url:
+            raise ValueError("database_url is required")
         self._database_url = database_url
 
-    @staticmethod
-    def _adapt(value: Any) -> Any:
-        if isinstance(value, (dict, list)):
-            from psycopg.types.json import Jsonb
-
-            return Jsonb(value)
-        return value
-
     async def create_pending_action(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._insert("pending_actions", payload)
+        return await asyncio.to_thread(
+            self._insert_returning,
+            "pending_actions",
+            payload,
+            (
+                "id",
+                "tenant_id",
+                "channel_binding_id",
+                "source_run_id",
+                "source_agent_role",
+                "action_type",
+                "action_scope",
+                "target_entity_type",
+                "target_entity_id",
+                "source_type",
+                "source_surface",
+                "action_payload",
+                "normalized_summary",
+                "rule_check_ref",
+                "risk_review_ref",
+                "requires_override",
+                "confirmation_strength",
+                "risk_level",
+                "actionability_cap",
+                "status",
+                "fingerprint",
+                "version",
+                "expires_at",
+                "created_at",
+                "updated_at",
+            ),
+            json_columns={"action_payload", "normalized_summary"},
+        )
 
     async def create_confirmation_session(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._insert("confirmation_sessions", payload)
+        return await asyncio.to_thread(
+            self._insert_returning,
+            "confirmation_sessions",
+            payload,
+            (
+                "id",
+                "pending_action_id",
+                "tenant_id",
+                "channel",
+                "channel_binding_id",
+                "session_status",
+                "session_token",
+                "presented_version",
+                "decision_deadline",
+                "created_at",
+            ),
+        )
 
     async def append_event(self, payload: dict[str, Any]) -> None:
-        await self._insert("confirmation_events", payload)
+        await asyncio.to_thread(
+            self._insert_returning,
+            "confirmation_events",
+            payload,
+            (
+                "id",
+                "tenant_id",
+                "pending_action_id",
+                "confirmation_session_id",
+                "event_type",
+                "actor_type",
+                "actor_ref",
+                "event_payload",
+                "created_at",
+            ),
+            json_columns={"event_payload"},
+        )
 
     async def get_active_session(
         self,
@@ -1343,63 +1431,41 @@ class PostgresConfirmationRepository:
         )
 
     async def get_pending_action(self, pending_action_id: str) -> dict[str, Any] | None:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
         def _query() -> dict[str, Any] | None:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT * FROM public.pending_actions WHERE id = %s LIMIT 1", [pending_action_id])
-                    row = cur.fetchone()
-                    return dict(row) if row else None
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                row = conn.execute(
+                    "SELECT * FROM public.pending_actions WHERE id = %s LIMIT 1",
+                    (pending_action_id,),
+                ).fetchone()
+                return dict(row) if row else None
 
         return await asyncio.to_thread(_query)
 
     async def update_pending_action(self, pending_action_id: str, updates: dict[str, Any]) -> None:
-        await self._update("pending_actions", pending_action_id, updates)
+        await asyncio.to_thread(
+            self._update,
+            "pending_actions",
+            "id",
+            pending_action_id,
+            updates,
+            json_columns={"action_payload", "normalized_summary"},
+        )
 
     async def update_confirmation_session(
         self,
         confirmation_session_id: str,
         updates: dict[str, Any],
     ) -> None:
-        await self._update("confirmation_sessions", confirmation_session_id, updates)
-
-    async def _insert(self, table: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from psycopg import connect, sql
-        from psycopg.rows import dict_row
-
-        def _insert() -> dict[str, Any]:
-            columns = list(payload.keys())
-            query = sql.SQL("INSERT INTO public.{table} ({columns}) VALUES ({values}) RETURNING *").format(
-                table=sql.Identifier(table),
-                columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
-                values=sql.SQL(", ").join(sql.Placeholder() for _ in columns),
-            )
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(query, [self._adapt(payload[column]) for column in columns])
-                    row = cur.fetchone()
-                    return dict(row) if row else dict(payload)
-
-        return await asyncio.to_thread(_insert)
-
-    async def _update(self, table: str, record_id: str, updates: dict[str, Any]) -> None:
-        from psycopg import connect, sql
-
-        def _update() -> None:
-            query = sql.SQL("UPDATE public.{table} SET {updates} WHERE id = %s").format(
-                table=sql.Identifier(table),
-                updates=sql.SQL(", ").join(
-                    sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
-                    for column in updates
-                ),
-            )
-            with connect(self._database_url) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(query, [*[self._adapt(value) for value in updates.values()], record_id])
-
-        await asyncio.to_thread(_update)
+        await asyncio.to_thread(
+            self._update,
+            "confirmation_sessions",
+            "id",
+            confirmation_session_id,
+            updates,
+        )
 
     async def _get_session(
         self,
@@ -1409,39 +1475,83 @@ class PostgresConfirmationRepository:
         channel_binding_id: str | None,
         active_only: bool,
     ) -> dict[str, Any] | None:
-        from psycopg import connect, sql
-        from psycopg.rows import dict_row
-
-        fields = ["session_token"]
-        if session_hint and _is_uuid_like(session_hint):
-            fields.extend(["id", "pending_action_id"])
-        if not session_hint:
-            fields = [""]
-
         def _query() -> dict[str, Any] | None:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    for field in fields:
-                        clauses = [sql.SQL("tenant_id = {}").format(sql.Placeholder())]
-                        params: list[Any] = [tenant_id]
-                        if active_only:
-                            clauses.append(sql.SQL("session_status = 'active'"))
-                        if channel_binding_id:
-                            clauses.append(sql.SQL("channel_binding_id = {}").format(sql.Placeholder()))
-                            params.append(channel_binding_id)
-                        if field:
-                            clauses.append(sql.SQL("{} = {}").format(sql.Identifier(field), sql.Placeholder()))
-                            params.append(session_hint)
-                        query = sql.SQL(
-                            "SELECT * FROM public.confirmation_sessions WHERE {where} ORDER BY created_at DESC LIMIT 1"
-                        ).format(where=sql.SQL(" AND ").join(clauses))
-                        cur.execute(query, params)
-                        row = cur.fetchone()
-                        if row:
-                            return dict(row)
-            return None
+            import psycopg
+            from psycopg.rows import dict_row
+
+            clauses = ["tenant_id = %s"]
+            params: list[Any] = [tenant_id]
+            if active_only:
+                clauses.append("session_status = 'active'")
+            if channel_binding_id:
+                clauses.append("channel_binding_id = %s")
+                params.append(channel_binding_id)
+            if session_hint:
+                clauses.append("(lower(id::text) = %s OR lower(pending_action_id::text) = %s OR lower(session_token) = %s)")
+                hint = session_hint.lower()
+                params.extend([hint, hint, hint])
+            sql = f"""
+                SELECT *
+                FROM public.confirmation_sessions
+                WHERE {' AND '.join(clauses)}
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                row = conn.execute(sql, params).fetchone()
+                return dict(row) if row else None
 
         return await asyncio.to_thread(_query)
+
+    def _insert_returning(
+        self,
+        table: str,
+        payload: dict[str, Any],
+        columns: tuple[str, ...],
+        *,
+        json_columns: set[str] | None = None,
+    ) -> dict[str, Any]:
+        import psycopg
+        from psycopg.rows import dict_row
+        from psycopg.types.json import Jsonb
+
+        json_columns = json_columns or set()
+        values = [Jsonb(payload[column]) if column in json_columns else payload.get(column) for column in columns]
+        placeholders = ", ".join(["%s"] * len(columns))
+        column_sql = ", ".join(columns)
+        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+            row = conn.execute(
+                f"INSERT INTO public.{table} ({column_sql}) VALUES ({placeholders}) RETURNING *",
+                values,
+            ).fetchone()
+            conn.commit()
+            return dict(row) if row else dict(payload)
+
+    def _update(
+        self,
+        table: str,
+        id_column: str,
+        id_value: str,
+        updates: dict[str, Any],
+        *,
+        json_columns: set[str] | None = None,
+    ) -> None:
+        if not updates:
+            return
+        import psycopg
+        from psycopg.types.json import Jsonb
+
+        json_columns = json_columns or set()
+        columns = tuple(updates.keys())
+        assignments = ", ".join(f"{column} = %s" for column in columns)
+        values = [Jsonb(updates[column]) if column in json_columns else updates[column] for column in columns]
+        values.append(id_value)
+        with psycopg.connect(self._database_url) as conn:
+            conn.execute(
+                f"UPDATE public.{table} SET {assignments} WHERE {id_column} = %s",
+                values,
+            )
+            conn.commit()
 
 
 class ConfirmationCenterService:
@@ -1913,7 +2023,7 @@ class ConfirmationCenterService:
         if action_status in {"confirmed", "committing", "committed"}:
             reply = (
                 "这条确认已经处理过或正在处理中，不会重复记录，也不会重复下单。"
-                f"{WEBAPP_CONFIRMATION_CENTER_HINT}"
+                f"{CONFIRMATION_CENTER_STATUS_HINT}"
             )
             outcome = "already_confirmed"
         elif action_status == "rejected":
@@ -1937,7 +2047,7 @@ class ConfirmationCenterService:
         else:
             reply = (
                 "这条确认已经处理过。为避免重复处理，请查看确认页面里的最新状态。"
-                f"{WEBAPP_CONFIRMATION_CENTER_HINT}"
+                f"{CONFIRMATION_CENTER_STATUS_HINT}"
             )
             outcome = "already_processed"
 
@@ -1959,7 +2069,7 @@ def _default_expiry(now: datetime, confirmation_strength: str) -> datetime:
 def _reply_with_no_fact_write(prefix: str, *, include_webapp_hint: bool = False) -> str:
     reply = f"{prefix}{NO_FACT_WRITE_TEXT}"
     if include_webapp_hint:
-        reply = f"{reply}{WEBAPP_CONFIRMATION_CENTER_HINT}"
+        reply = f"{reply}{CONFIRMATION_CENTER_STATUS_HINT}"
     return reply
 
 
@@ -1991,13 +2101,23 @@ def _looks_like_trade_input(text: str) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
-def _looks_like_sell_put(text: str) -> bool:
+def _looks_like_analysis_request(text: str) -> bool:
     patterns = (
-        r"sell put",
-        r"\bput\b",
-        r"(认沽|卖沽|期权草稿|现金担保)",
+        r"(分析|研究|怎么看|怎么样|候选|排序|筛选|机会|策略|适合|能不能|可不可以)",
+        r"\b(analy[sz]e|research|rank|screen|candidate|strategy|suitable)\b",
     )
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def _looks_like_sell_put(text: str) -> bool:
+    action_patterns = (
+        r"(生成|创建|建立|准备|草稿|开仓|下单)",
+        r"(卖出|卖)\s*(put|认沽|沽)",
+        r"(sell\s+put).*(草稿|开仓|订单|下单|draft|order|open)",
+        r"(draft|order|open)\s+.*(sell\s+put|\bput\b)",
+        r"(期权草稿|现金担保.*put|现金担保.*认沽)",
+    )
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in action_patterns)
 
 
 def _looks_like_rule_change(text: str) -> bool:

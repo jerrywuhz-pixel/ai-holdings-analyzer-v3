@@ -14,9 +14,9 @@ export default async function OnboardingWechatPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="注册初始化"
-        title="绑定微信 ClawBot"
-        description="系统会通过 Tencent OpenClaw Weixin 的二维码连接流程授权微信，并把确认后的账号写入当前 tenant 的 channel binding。"
-        actions={<StatusPill tone="muted">2 / 4</StatusPill>}
+        title="绑定 Hermes 微信助手"
+        description="系统会通过微信二维码连接流程授权消息渠道，并把确认后的账号写入当前 tenant 的 channel binding。"
+        actions={<StatusPill tone="muted">2 / 3</StatusPill>}
       />
 
       <div className="grid gap-5 xl:grid-cols-[0.86fr_1.14fr]">
@@ -28,21 +28,21 @@ export default async function OnboardingWechatPage() {
           <WechatBindingPanel initialAuth={auth} initialBinding={binding} />
         </Panel>
 
-        <Panel title="绑定后的路由" description="微信消息会进入 OpenClaw 网关，再按 tenant/channel binding 回到持仓系统。">
+        <Panel title="绑定后的路由" description="微信消息会进入 Hermes 微信入口，再按 tenant/channel binding 回到持仓系统。">
           <div className="space-y-4 text-sm leading-6 text-slate-300">
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
               <p className="font-medium text-white">消息归属</p>
-              <p className="mt-2">绑定成功后，`openclaw_account_id` 会作为当前 tenant 的微信账号标识，OpenClaw 网关用它解析用户消息和确认指令。</p>
+              <p className="mt-2">绑定成功后，微信账号标识会归属到当前 tenant，Hermes 用它解析用户消息和确认指令。</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
               <p className="font-medium text-white">下一步</p>
-              <p className="mt-2">微信绑定完成后继续连接 Futu 本地只读 connector，用于同步股票、期权、现金和保证金快照。</p>
+              <p className="mt-2">微信绑定完成后进入最终检查。普通用户不需要连接本地 Futu OpenD，系统行情由管理员侧数据源统一提供。</p>
               {binding ? (
                 <Link
-                  href="/onboarding/broker"
+                  href="/onboarding/review"
                   className="mt-4 inline-flex rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-400"
                 >
-                  继续连接 Futu
+                  继续最终检查
                 </Link>
               ) : null}
             </div>

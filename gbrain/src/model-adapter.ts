@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { ContextPack, HermesComplexity, ModelPolicy, ModelProviderId, ModelRoute } from "./hermes-types.js";
+import type { ContextPack, HermesComplexity, HermesJobType, ModelPolicy, ModelProviderId, ModelRoute } from "./hermes-types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -89,7 +89,7 @@ function liveModelsEnabled(): boolean {
 function hasProviderCredentials(provider: ModelProviderId): boolean {
   if (provider === "openai") return resolveOpenAIApiKey() !== "";
   if (provider === "openai-codex") return hasOpenAICodexAuthBridge();
-  if (provider === "minimax") return resolveMiniMaxApiKey() !== "" || (resolveMiniMaxApiFormat() === "openclaw-cli" && openClawMiniMaxCliEnabled());
+  if (provider === "minimax") return resolveMiniMaxApiKey() !== "" || (resolveMiniMaxApiFormat() === "hermes-cli" && hermesMiniMaxCliEnabled());
   return false;
 }
 
@@ -119,15 +119,18 @@ function resolveMiniMaxBaseUrl(): string {
   ).replace(/\/+$/, "");
 }
 
-function resolveMiniMaxApiFormat(): "openai" | "anthropic" | "openclaw-cli" {
+function resolveMiniMaxApiFormat(): "openai" | "anthropic" | "hermes-cli" {
   const configured = (process.env.MINIMAX_API_FORMAT || "").toLowerCase();
-  if (configured === "anthropic" || configured === "openai" || configured === "openclaw-cli") return configured;
+  if (configured === "anthropic" || configured === "openai" || configured === "hermes-cli") return configured;
+  if (configured === "openclaw-cli") return "hermes-cli";
   if (process.env.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY) return "anthropic";
   return resolveMiniMaxBaseUrl().includes("/anthropic") ? "anthropic" : "openai";
 }
 
-function openClawMiniMaxCliEnabled(): boolean {
-  return ["1", "true", "yes"].includes((process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase());
+function hermesMiniMaxCliEnabled(): boolean {
+  return ["1", "true", "yes"].includes(
+    (process.env.HERMES_MINIMAX_CLI_ENABLED || process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase(),
+  );
 }
 
 function miniMaxAnthropicStreamingEnabled(): boolean {
@@ -406,8 +409,8 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
   id: ModelProviderId = "minimax";
 
   override async generate(route: ModelRoute, invocation: ModelInvocation): Promise<ModelResponse> {
-    if (resolveMiniMaxApiFormat() === "openclaw-cli") {
-      return this.generateWithOpenClawCli(route, invocation);
+    if (resolveMiniMaxApiFormat() === "hermes-cli") {
+      return this.generateWithHermesCli(route, invocation);
     }
     if (resolveMiniMaxApiFormat() === "anthropic" && miniMaxAnthropicStreamingEnabled()) {
       return this.generateWithAnthropicStream(route, invocation);
@@ -578,9 +581,9 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
     return { responseId, text, inputTokens, outputTokens };
   }
 
-  private async generateWithOpenClawCli(route: ModelRoute, invocation: ModelInvocation): Promise<ModelResponse> {
-    const cli = process.env.OPENCLAW_CLI_PATH || "openclaw";
-    const model = process.env.OPENCLAW_MINIMAX_MODEL || `minimax-portal/${route.model}`;
+  private async generateWithHermesCli(route: ModelRoute, invocation: ModelInvocation): Promise<ModelResponse> {
+    const cli = process.env.HERMES_CLI_PATH || process.env.OPENCLAW_CLI_PATH || "hermes";
+    const model = process.env.HERMES_MINIMAX_MODEL || process.env.OPENCLAW_MINIMAX_MODEL || `minimax-portal/${route.model}`;
     const promptParts = [
       invocation.systemPrompt ? `System:\n${invocation.systemPrompt}` : "",
       ...(invocation.messages ?? []).map((message) => `${message.role}:\n${message.content}`),
@@ -618,7 +621,7 @@ export class MiniMaxChatCompletionProvider extends HttpChatCompletionProvider {
         outputTokens,
         estimatedCostUsd: estimateCost(this.id, inputTokens, outputTokens),
       },
-      attemptedRoutes: [`${this.id}:${route.model}:openclaw-cli`],
+      attemptedRoutes: [`${this.id}:${route.model}:hermes-cli`],
     };
   }
 }
@@ -699,13 +702,31 @@ export function buildDefaultModelAdapter(): ModelAdapter {
   ]);
 }
 
-function shouldUseDeepResearchRoute(timeoutMs: number, complexity?: HermesComplexity): boolean {
-  return complexity === "deep" || complexity === "background" || timeoutMs > 300_000;
+function shouldUseDeepResearchRoute(timeoutMs: number, complexity?: HermesComplexity, jobType?: HermesJobType): boolean {
+  return (
+    complexity === "deep" ||
+    complexity === "background" ||
+    timeoutMs > 300_000 ||
+    jobType === "equity_analysis" ||
+    jobType === "options_sell_put" ||
+    jobType === "portfolio_review"
+  );
 }
 
-export function createDefaultHermesModelPolicy(timeoutMs: number, complexity?: HermesComplexity): ModelPolicy {
-  const primaryProvider: ModelProviderId = shouldUseDeepResearchRoute(timeoutMs, complexity) ? resolveDeepProvider() : "minimax";
+export function createDefaultHermesModelPolicy(timeoutMs: number, complexity?: HermesComplexity, jobType?: HermesJobType): ModelPolicy {
+  const primaryProvider: ModelProviderId = shouldUseDeepResearchRoute(timeoutMs, complexity, jobType) ? resolveDeepProvider() : "minimax";
   const primaryModel = primaryProvider === "minimax" ? resolveLightModel() : resolveDeepModel();
+  const fallbacks: ModelRoute[] =
+    primaryProvider === "minimax"
+      ? []
+      : [
+          {
+            provider: "minimax",
+            model: resolveLightModel(),
+            mode: resolveRouteMode("minimax"),
+            timeoutMs: Math.min(timeoutMs, 120_000),
+          },
+        ];
 
   return {
     primary: {
@@ -715,6 +736,7 @@ export function createDefaultHermesModelPolicy(timeoutMs: number, complexity?: H
       timeoutMs,
     },
     fallbacks: [
+      ...fallbacks,
       {
         provider: "fallback-template",
         model: "hermes-fallback-v1",
@@ -740,7 +762,7 @@ export function createDefaultOpenClawModelPolicy(timeoutMs: number): ModelPolicy
     fallbacks: [
       {
         provider: "fallback-template",
-        model: "openclaw-fallback-v1",
+        model: "hermes-fallback-v1",
         mode: "stub",
         timeoutMs: Math.min(timeoutMs, 10_000),
       },

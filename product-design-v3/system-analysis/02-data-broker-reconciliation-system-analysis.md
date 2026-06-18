@@ -11,14 +11,16 @@
 5. Dashboard / 账户页 / 持仓页的 freshness 与状态投影。
 6. 对账冲突、降级决策和用户确认入口。
 
+> 2026-05-26 决策更新：多用户生产形态下，Futu OpenD 不再作为普通用户个人券商同步方案。管理员侧 Mac mini / OpenD 只提供系统行情、期权链和估值参考；普通用户持仓、现金、成本来自手工录入、微信消息、截图 OCR 和确认写入。本文件中关于用户本地 connector、broker truth 主源的早期设计仅作为历史方案和兼容背景保留，后续实现以本决策为准。
+
 本分析遵循以下硬性系统口径：
 
-1. **Futu 是 P0 主源。** P0 以 Futu 作为美股、港股、ETF、期权、现金、保证金和账户仓位的主事实源与主行情源。
+1. **Futu 是 P0 系统行情源。** P0 以管理员侧 Futu OpenD 作为美股、港股、ETF 和期权链的系统行情源；不作为普通用户个人持仓、现金、保证金和账户仓位主事实源。
 2. **腾讯财经不是交易级唯一依据。** 它只作为稳定校验源与 fallback，不单独驱动交易级判断。
 3. **Dashboard 不放同步主按钮。** 同步主入口只在数据页 / 账户页；Dashboard 只展示 freshness、异常和跳转入口。
 4. **P0 不自动下单。** 同步、对账、确认、降级都不能直接演化为券商自动交易动作。
 5. **前台只读 read model。** raw snapshot、标准化事实和对账中间态不直接暴露给页面。
-6. **多来源可并存，但主事实源不可模糊。** broker truth、用户输入、OCR、消息解析和系统派生必须显式保留来源与确认状态。
+6. **多来源可并存，但主事实源不可模糊。** 用户确认输入、OCR、消息解析、系统行情和系统派生必须显式保留来源与确认状态。
 
 系统目标不是再重复 PRD，而是把“谁是主源、同步后如何入模、冲突后谁说了算、页面怎么安全展示”收敛成稳定的实现边界。
 
@@ -58,8 +60,8 @@
 
 | 模块 | 负责 | 不负责 | 上下游依赖 |
 | --- | --- | --- | --- |
-| `BrokerConnector` | 通过用户本地 connector 连接 Futu，读取持仓、成交、现金、保证金、期权仓位，生成原始同步结果 | 页面聚合、对账裁决、直接交易、云端直连用户 localhost | Futu OpenAPI / OpenD、`broker_connector_instances`、`broker_connections` |
-| `MarketQuoteConnector` | 读取 Futu 行情与期权链快照 | 账户同步、read model 投影 | Futu Quote / Option Chain |
+| `BrokerConnector` | 历史兼容边界；不再作为普通用户生产入口 | 页面聚合、对账裁决、直接交易、云端直连用户 localhost、普通用户个人 Futu 同步 | 旧 `broker_connector_instances`、`broker_connections` |
+| `MarketQuoteConnector` | 读取管理员侧 Futu 行情与期权链快照 | 普通用户账户同步、read model 投影 | Futu Quote / Option Chain |
 | `CrossCheckConnector` | 拉取腾讯财经等 L3 稳定源，生成校验结果 | 替代主源成为交易级依据 | Tencent Finance adapter |
 | `SnapshotNormalizer` | 把原始结果标准化为统一 symbol / market / instrument / currency 口径 | 页面 DTO、风险裁决 | symbol registry、instrument master |
 | `ReconciliationEngine` | 对比 broker truth、本地交易事件、行情校验结果，生成冲突对象与对账结论 | 自行给用户风险话术 | `trade_events`、normalized snapshots |

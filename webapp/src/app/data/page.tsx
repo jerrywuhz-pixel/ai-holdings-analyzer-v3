@@ -43,8 +43,8 @@ export default async function DataPage({
     <div className="space-y-6">
       <PageHeader
         eyebrow="数据与账户"
-        title="账户连接、最近更新和数字来源都在这里"
-        description="这里优先说明 Futu 账户是否连通、最近什么时候拿到新数据，以及页面金额当前按什么币种展示。若存在估算汇率折算，会在这里明确提示。"
+        title="数据来源、最近更新和数字口径都在这里"
+        description="这里说明当前账号的数据来源、最近更新时间和页面金额口径。系统行情源由管理员统一维护，不代表普通用户自己的富途账户同步。"
       />
 
       <LiveDataBanner dataState={snapshot.liveData} />
@@ -52,8 +52,8 @@ export default async function DataPage({
       <DataStateView
         state={snapshot.state}
         errorMessage={snapshot.errorMessage}
-        emptyTitle="暂无可用数据连接"
-        emptyDetail="等待账户连接、资产来源或最近更新记录接入。"
+        emptyTitle="暂无可用数据来源"
+        emptyDetail="等待资产来源、系统行情或最近更新记录接入。"
       />
 
       {snapshot.data ? (
@@ -88,7 +88,7 @@ export default async function DataPage({
               </div>
             </Panel>
 
-            <Panel title="手工录入持仓" description="适合先把券商 App 里看到的持仓录进来；系统会记录来源并刷新当前账号的持仓快照。">
+            <Panel title="手工录入持仓" description="适合先把交易 App 里看到的持仓录进来；系统会记录来源并刷新当前账号的持仓快照。">
               <ManualPositionForm />
             </Panel>
           </div>
@@ -100,7 +100,7 @@ export default async function DataPage({
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-            <Panel title="Futu 账户连接" description="这里只说明是否成功读到持仓和资金，不会在这里触发下单。">
+            <Panel title="系统行情源" description="这里只说明系统级行情源是否可用；普通用户持仓和现金不从个人 Futu 账号自动同步。">
               <div className="space-y-3">
                 {snapshot.data.data.connections.map((connection) => (
                   <div key={connection.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
@@ -154,7 +154,7 @@ export default async function DataPage({
             </Panel>
           </div>
 
-          <Panel title="资产数据来源" description="展示券商、手工录入、截图识别以及多币种折算口径的优先级、可信度和更新时间。">
+          <Panel title="资产数据来源" description="展示系统行情、手工录入、截图识别以及多币种折算口径的优先级、可信度和更新时间。">
             <div className="space-y-3 md:hidden">
               {snapshot.data.data.assetSources.map((source) => (
                 <div key={source.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">

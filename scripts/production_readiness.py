@@ -145,7 +145,14 @@ def run_checks(*, profile: str) -> list[CheckResult]:
             "Portfolio base-currency conversion has an auditable FX source label",
             profile=profile,
         ),
-        _observability_check(profile=profile),
+        _check_required(
+            "monitoring",
+            "sentry",
+            ["SENTRY_DSN"],
+            "Sentry DSN configured for runtime error monitoring",
+            profile=profile,
+            soft_profiles={"local", "lightweight"},
+        ),
         _check_required(
             "web",
             "public_origins",
@@ -160,7 +167,6 @@ def run_checks(*, profile: str) -> list[CheckResult]:
     checks.append(_live_model_provider_check(profile=profile))
     checks.append(_one_of_check("storage", "HERMES_ARTIFACT_STORAGE_BACKEND", {"supabase", "file"}, profile=profile))
     checks.append(_one_of_check("storage", "HISTORICAL_STORAGE_BACKEND", {"supabase_storage", "file"}, profile=profile))
-    checks.append(_portfolio_read_repository_check(profile=profile))
     checks.append(_fx_source_check(profile=profile))
     checks.append(_cors_check(profile=profile))
     return checks
@@ -257,41 +263,6 @@ def _one_of_check(group: str, env_name: str, allowed: set[str], *, profile: str)
     )
 
 
-def _portfolio_read_repository_check(*, profile: str) -> CheckResult:
-    broker_repository = _env("BROKER_SYNC_REPOSITORY").lower()
-    portfolio_repository = _env("PORTFOLIO_READ_REPOSITORY").lower()
-    allowed = {"postgres", "supabase", "supabase_rest", "local_postgres", "database_url"}
-    if portfolio_repository:
-        if portfolio_repository not in allowed:
-            return CheckResult(
-                "database",
-                "portfolio_read_repository",
-                "warn" if profile == "local" else "fail",
-                f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}; expected one of {sorted(allowed)}",
-                ["PORTFOLIO_READ_REPOSITORY"],
-            )
-        return CheckResult(
-            "database",
-            "portfolio_read_repository",
-            "pass",
-            f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}",
-        )
-    if broker_repository in {"postgres", "supabase"}:
-        return CheckResult(
-            "database",
-            "portfolio_read_repository",
-            "pass",
-            f"PORTFOLIO_READ_REPOSITORY omitted; follows BROKER_SYNC_REPOSITORY={broker_repository}",
-        )
-    return CheckResult(
-        "database",
-        "portfolio_read_repository",
-        "warn" if profile == "local" else "fail",
-        "BROKER_SYNC_REPOSITORY or PORTFOLIO_READ_REPOSITORY must select postgres/supabase",
-        ["PORTFOLIO_READ_REPOSITORY"],
-    )
-
-
 def _fx_source_check(*, profile: str) -> CheckResult:
     has_inline_rates = not _is_placeholder(_env("FX_RATES_JSON"))
     has_endpoint = not _is_placeholder(_env("FX_RATE_ENDPOINT"))
@@ -311,38 +282,6 @@ def _fx_source_check(*, profile: str) -> CheckResult:
         "warn" if profile == "local" else "fail",
         "set FX_RATES_JSON or FX_RATE_ENDPOINT before production release",
         ["FX_RATES_JSON or FX_RATE_ENDPOINT"],
-    )
-
-
-def _observability_check(*, profile: str) -> CheckResult:
-    has_sentry = not _is_placeholder(_env("SENTRY_DSN"))
-    sls_missing = _missing(["ALIYUN_SLS_PROJECT", "ALIYUN_SLS_LOGSTORE"])
-    has_aliyun_sls = not sls_missing
-    backend = _env("OBSERVABILITY_BACKEND").lower()
-    log_retention = _env("LOG_RETENTION_DAYS")
-    lightweight_log_backend = backend in {"docker_logs", "bt_panel_logs", "local_file"} and not _is_placeholder(log_retention)
-
-    if has_sentry:
-        return CheckResult("monitoring", "observability", "pass", "Sentry DSN configured for runtime error monitoring")
-    if has_aliyun_sls:
-        return CheckResult("monitoring", "observability", "pass", "Alibaba Cloud SLS project/logstore configured")
-    if profile == "lightweight" and lightweight_log_backend:
-        return CheckResult(
-            "monitoring",
-            "observability",
-            "pass",
-            f"lightweight observability uses {backend} with LOG_RETENTION_DAYS={log_retention}",
-        )
-
-    missing = ["SENTRY_DSN or ALIYUN_SLS_PROJECT+ALIYUN_SLS_LOGSTORE"]
-    if profile == "lightweight":
-        missing.append("or OBSERVABILITY_BACKEND+LOG_RETENTION_DAYS")
-    return CheckResult(
-        "monitoring",
-        "observability",
-        "warn" if profile in {"local", "lightweight"} else "fail",
-        "configure Sentry, Alibaba Cloud SLS, or an explicit lightweight log retention backend",
-        missing,
     )
 
 

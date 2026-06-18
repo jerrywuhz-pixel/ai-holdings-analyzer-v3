@@ -23,6 +23,12 @@ from openclaw.gateway.confirmation_center import (
     PostgresConfirmationRepository,
     SupabaseConfirmationRepository,
 )
+from openclaw.gateway.conversation_memory import (
+    ConversationMemoryService,
+    InMemoryConversationMemoryRepository,
+    PostgresConversationMemoryRepository,
+    SupabaseConversationMemoryRepository,
+)
 from openclaw.gateway.confirmation_dispatcher import (
     ConfirmationPostDecisionDispatcher,
     InMemoryPostConfirmationTaskRepository,
@@ -33,13 +39,19 @@ from openclaw.gateway.heartbeat_reporter import HeartbeatReporter
 from openclaw.gateway.middleware import GatewayDataMiddleware
 from openclaw.gateway.outbox import (
     DeliveryOutboxService,
-    create_outbox_repository_from_env,
+    InMemoryOutboxRepository,
+    PostgresOutboxRepository,
+    SupabaseOutboxRepository,
 )
-from openclaw.gateway.routers import miniprogram, openclaw_gateway, wechat_auth
+from openclaw.gateway.routers import hermes_domain_tools, miniprogram, openclaw_gateway, wechat_auth
 from openclaw.gateway.runtime_status import (
     build_runtime_status,
     local_gateway_snapshot,
     prefer_external_or_local_gateway,
+)
+from openclaw.gateway.skill_registry import (
+    build_data_source_status,
+    discover_openclaw_skills,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,22 +121,37 @@ async def lifespan(app: FastAPI):
     )
     app.state.webapp_base_url = os.getenv("WEBAPP_BASE_URL", "http://localhost:3000")
 
-    database_url = os.getenv("DATABASE_URL", "").strip()
-    repository_mode = os.getenv("OPENCLAW_GATEWAY_REPOSITORY", "postgres").strip().lower()
-    use_postgres_repository = bool(database_url and repository_mode in {"postgres", "direct_postgres", "auto"})
+    database_url = os.getenv("DATABASE_URL") or os.getenv("GBRAIN_DATABASE_URL")
 
-    if use_postgres_repository:
+    repository_backend = os.getenv("OPENCLAW_CONFIRMATION_REPOSITORY", "").strip().lower()
+    use_postgres_repositories = bool(database_url) and (
+        repository_backend == "postgres"
+        or (
+            not repository_backend
+            and os.getenv("OPENCLAW_DEPLOYMENT_MODE", os.getenv("DEPLOYMENT_MODE", "")).lower()
+            in {"lightweight_server", "local", "server"}
+        )
+    )
+
+    if use_postgres_repositories:
         confirmation_repository = PostgresConfirmationRepository(database_url)
-        outbox_repository = create_outbox_repository_from_env(app.state.supabase)
+        outbox_repository = PostgresOutboxRepository(database_url)
         post_confirmation_repository = PostgresPostConfirmationTaskRepository(database_url)
     elif app.state.supabase is not None:
         confirmation_repository = SupabaseConfirmationRepository(app.state.supabase)
-        outbox_repository = create_outbox_repository_from_env(app.state.supabase)
+        outbox_repository = SupabaseOutboxRepository(app.state.supabase)
         post_confirmation_repository = SupabasePostConfirmationTaskRepository(app.state.supabase)
     else:
         confirmation_repository = InMemoryConfirmationRepository()
-        outbox_repository = create_outbox_repository_from_env()
+        outbox_repository = InMemoryOutboxRepository()
         post_confirmation_repository = InMemoryPostConfirmationTaskRepository()
+
+    if database_url:
+        conversation_repository = PostgresConversationMemoryRepository(database_url)
+    elif app.state.supabase is not None:
+        conversation_repository = SupabaseConversationMemoryRepository(app.state.supabase)
+    else:
+        conversation_repository = InMemoryConversationMemoryRepository()
 
     app.state.post_confirmation_task_repository = post_confirmation_repository
     app.state.post_confirmation_dispatcher = ConfirmationPostDecisionDispatcher(
@@ -137,14 +164,12 @@ async def lifespan(app: FastAPI):
         post_decision_dispatcher=app.state.post_confirmation_dispatcher,
     )
     app.state.outbox_service = DeliveryOutboxService(outbox_repository)
+    app.state.conversation_memory_service = ConversationMemoryService(conversation_repository)
 
     # 心跳上报
     _heartbeat_reporter = HeartbeatReporter()
-    _heartbeat_reporter.register_skill("opportunity-hunter")
-    _heartbeat_reporter.register_skill("position-aggregate")
-    _heartbeat_reporter.register_skill("daily-analysis")
-    _heartbeat_reporter.register_skill("quant-options-strategy")
-    _heartbeat_reporter.register_skill("profit-taking")
+    for skill_name in discover_openclaw_skills():
+        _heartbeat_reporter.register_skill(skill_name)
     _heartbeat_reporter.start(interval_seconds=300)
 
     logger.info("OpenClaw Gateway started (mode=%s)", os.getenv("DEPLOYMENT_MODE", "local"))
@@ -189,6 +214,7 @@ app.add_middleware(
 app.include_router(wechat_auth.router)
 app.include_router(miniprogram.router)
 app.include_router(openclaw_gateway.router)
+app.include_router(hermes_domain_tools.router)
 
 
 # ── 健康检查 ─────────────────────────────────────────────────
@@ -210,7 +236,7 @@ async def health():
                 "deployment_mode": os.getenv("DEPLOYMENT_MODE", "local"),
                 "active_skills": list(_heartbeat_reporter._active_skills),
             },
-            "data_sources": [],
+                "data_sources": build_data_source_status(),
         }
 
     local_status = local_gateway_snapshot(_heartbeat_reporter)
@@ -225,7 +251,7 @@ async def health():
         "service": "openclaw-gateway",
         "gateway": gateway,
         "runtime": build_runtime_status(),
-        "data_sources": gateway_status.get("data_sources", []),
+        "data_sources": gateway_status.get("data_sources") or build_data_source_status(),
     }
 
 
@@ -316,16 +342,13 @@ async def cron_profit_taking(request: Request):
     """
     _verify_cron_request(request)
 
-    scheduler_job_id = request.headers.get("X-OpenClaw-Scheduler-Job-Id")
-    job_id = scheduler_job_id
-    manages_job_lifecycle = scheduler_job_id is None
+    job_id = None
     try:
-        if manages_job_lifecycle:
-            from openclaw.gateway.job_manager import JobManager
+        from openclaw.gateway.job_manager import JobManager
 
-            mgr = JobManager()
-            job_id = await mgr.create_job("daily-profit-taking")
-            await mgr.start_job(job_id)
+        mgr = JobManager()
+        job_id = await mgr.create_job("daily-profit-taking")
+        await mgr.start_job(job_id)
 
         import importlib
         profit_mod = importlib.import_module(
@@ -334,16 +357,15 @@ async def cron_profit_taking(request: Request):
         orchestrator = profit_mod.ProfitTakingOrchestrator()
         result = await orchestrator.generate_daily_plans(job_run_id=job_id)
 
-        if manages_job_lifecycle:
-            if result.get("ok"):
-                await mgr.complete_job(job_id, result=result)
-            else:
-                await mgr.fail_job(job_id, result.get("message") or str(result.get("errors", [])))
+        if result.get("ok"):
+            await mgr.complete_job(job_id, result=result)
+        else:
+            await mgr.fail_job(job_id, result.get("message") or str(result.get("errors", [])))
 
         return result
     except Exception as exc:
         logger.error("Profit-taking cron failed: %s", exc)
-        if job_id and manages_job_lifecycle:
+        if job_id:
             try:
                 from openclaw.gateway.job_manager import JobManager
 
@@ -390,6 +412,40 @@ async def cron_stale_jobs(request: Request):
         }
     except Exception as exc:
         logger.error("Stale jobs check failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/cron/post-confirmation")
+async def cron_post_confirmation(request: Request):
+    """
+    Cron/API: 处理用户确认后的持仓/交易写入任务。
+
+    这是微信确认链路的提交阶段：
+    pending_actions confirmed -> job_runs(PENDING) -> position_snapshots/trade_events。
+    """
+    _verify_cron_request(request)
+
+    try:
+        from openclaw.gateway.post_confirmation_worker import create_post_confirmation_worker_from_env
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        limit = int(body.get("limit") or os.getenv("POST_CONFIRMATION_WORKER_BATCH_LIMIT", "20"))
+        worker = create_post_confirmation_worker_from_env()
+        stats = await worker.process_once(limit=limit)
+        return {
+            "ok": True,
+            "scanned": stats.scanned,
+            "succeeded": stats.succeeded,
+            "failed": stats.failed,
+            "skipped": stats.skipped,
+            "receipts_queued": stats.receipts_queued,
+            "receipts_failed": stats.receipts_failed,
+        }
+    except Exception as exc:
+        logger.error("Post-confirmation worker failed: %s", exc)
         return {"ok": False, "error": str(exc)}
 
 

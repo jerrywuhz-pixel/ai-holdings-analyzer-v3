@@ -8,7 +8,7 @@ declare global {
   var __aiHoldingsOnboardingSql: ReturnType<typeof postgres> | undefined;
 }
 
-export type OnboardingStep = 'profile' | 'wechat' | 'broker' | 'review' | 'done';
+export type OnboardingStep = 'profile' | 'wechat' | 'review' | 'done';
 
 export interface OnboardingState {
   tenantId: string;
@@ -17,11 +17,9 @@ export interface OnboardingState {
   settings: Record<string, any> | null;
   latestWechatAuth: Record<string, any> | null;
   wechatBinding: Record<string, any> | null;
-  brokerConnector: Record<string, any> | null;
   checks: {
     profile: boolean;
     wechat: boolean;
-    broker: boolean;
   };
 }
 
@@ -32,15 +30,6 @@ export interface TenantProfileInput {
   accountTypes: string[];
   riskProfile: string;
   sellPutEnabled: boolean;
-}
-
-export interface FutuPairingInput {
-  connectorInstanceId: string;
-  deviceLabel: string;
-  endpointRef: string;
-  pollEndpoint: string;
-  uploadEndpoint: string;
-  pairingTokenConfigured: boolean;
 }
 
 function databaseUrl() {
@@ -85,7 +74,9 @@ export async function ensureOnboardingSchema() {
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'channel_type') THEN
-        CREATE TYPE public.channel_type AS ENUM ('openclaw_wechat', 'webapp_inbox', 'email', 'push');
+        CREATE TYPE public.channel_type AS ENUM ('openclaw_wechat', 'hermes_wechat', 'webapp_inbox', 'email', 'push');
+      ELSE
+        ALTER TYPE public.channel_type ADD VALUE IF NOT EXISTS 'hermes_wechat';
       END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'channel_binding_status') THEN
         CREATE TYPE public.channel_binding_status AS ENUM ('pending', 'active', 'paused', 'revoked');
@@ -215,6 +206,7 @@ export async function ensureOnboardingSchema() {
       tenant_id UUID NOT NULL REFERENCES public.tenant_accounts(tenant_id) ON DELETE CASCADE,
       channel public.channel_type NOT NULL,
       openclaw_account_id TEXT NOT NULL,
+      channel_account_id TEXT,
       channel_user_ref TEXT,
       account_label TEXT,
       human_name TEXT,
@@ -233,9 +225,27 @@ export async function ensureOnboardingSchema() {
       CONSTRAINT channel_bindings_openclaw_not_blank CHECK (btrim(openclaw_account_id) <> '')
     )
   `;
+  await sql`ALTER TABLE public.channel_bindings ADD COLUMN IF NOT EXISTS channel_account_id TEXT`;
+  await sql`UPDATE public.channel_bindings SET channel_account_id = openclaw_account_id WHERE channel_account_id IS NULL`;
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_bindings_tenant_channel_account
       ON public.channel_bindings (tenant_id, channel, openclaw_account_id)
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_bindings_tenant_channel_channel_account
+      ON public.channel_bindings (tenant_id, channel, channel_account_id)
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_bindings_wechat_active
+      ON public.channel_bindings (tenant_id, channel)
+      WHERE channel IN ('openclaw_wechat', 'hermes_wechat')
+        AND binding_status = 'active'
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_bindings_hermes_wechat_active
+      ON public.channel_bindings (tenant_id, channel)
+      WHERE channel = 'hermes_wechat'
+        AND binding_status = 'active'
   `;
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_bindings_primary
@@ -329,7 +339,7 @@ export async function saveTenantProfile(user: AppUser, input: TenantProfileInput
       status = 'profile_configured',
       current_step = 'wechat',
       profile_configured_at = ${now},
-      required_checks = ${sql.json({ profile: true, wechat: false, broker: false } as any)},
+      required_checks = ${sql.json({ profile: true, wechat: false } as any)},
       updated_at = now()
     WHERE tenant_id = ${user.id}
   `;
@@ -340,64 +350,6 @@ export async function saveTenantProfile(user: AppUser, input: TenantProfileInput
     primary_markets: input.primaryMarkets,
     account_types: input.accountTypes,
     risk_profile: input.riskProfile,
-  });
-}
-
-export async function createFutuPairing(user: AppUser, input: FutuPairingInput) {
-  const session = await ensureOnboardingSession(user);
-  const sql = sqlClient();
-  const now = nowIso();
-
-  await sql`
-    INSERT INTO public.broker_connector_instances (
-      id,
-      tenant_id,
-      broker,
-      connector_kind,
-      runtime_mode,
-      device_label,
-      pairing_status,
-      heartbeat_status,
-      capabilities,
-      permission_scope,
-      endpoint_ref,
-      instance_metadata
-    )
-    VALUES (
-      ${input.connectorInstanceId},
-      ${user.id},
-      'futu',
-      'futu_opend',
-      'user_local_polling',
-      ${input.deviceLabel},
-      'pairing',
-      'offline',
-      ${sql.json({ positions: true, cash: true, option_chain: true, read_only: true } as any)},
-      'read_only',
-      ${input.endpointRef},
-      ${sql.json({
-        source: 'registration_onboarding',
-        pairing_token_configured: input.pairingTokenConfigured,
-        poll_endpoint: input.pollEndpoint,
-        upload_endpoint: input.uploadEndpoint,
-      } as any)}
-    )
-  `;
-
-  await sql`
-    UPDATE public.onboarding_sessions
-    SET
-      status = 'broker_pairing',
-      current_step = 'review',
-      broker_pairing_at = ${now},
-      required_checks = ${sql.json({ profile: true, wechat: true, broker: true } as any)},
-      updated_at = now()
-    WHERE tenant_id = ${user.id}
-  `;
-
-  await auditOnboardingEvent(user.id, session.id, 'futu_connector_pairing_created', {
-    connector_instance_id: input.connectorInstanceId,
-    pairing_token_configured: input.pairingTokenConfigured,
   });
 }
 
@@ -412,7 +364,7 @@ export async function completeOnboarding(tenantId: string) {
       current_step = 'done',
       data_initialized_at = ${now},
       completed_at = ${now},
-      required_checks = ${sql.json({ profile: true, wechat: true, broker: true } as any)},
+      required_checks = ${sql.json({ profile: true, wechat: true, system_market_data: 'admin_managed' } as any)},
       updated_at = now()
     WHERE tenant_id = ${tenantId}
   `;
@@ -427,7 +379,6 @@ export async function getOnboardingState(): Promise<OnboardingState> {
     settingsRows,
     wechatAuthRows,
     bindingRows,
-    connectorRows,
   ] = await Promise.all([
     sql<Record<string, any>[]>`
       SELECT * FROM public.tenant_settings
@@ -462,16 +413,8 @@ export async function getOnboardingState(): Promise<OnboardingState> {
     sql<Record<string, any>[]>`
       SELECT * FROM public.channel_bindings
       WHERE tenant_id = ${user.id}
-        AND channel = 'openclaw_wechat'
+        AND channel IN ('hermes_wechat', 'openclaw_wechat')
         AND binding_status = 'active'
-        AND COALESCE(binding_metadata->>'context_token', '') <> ''
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `,
-    sql<Record<string, any>[]>`
-      SELECT * FROM public.broker_connector_instances
-      WHERE tenant_id = ${user.id}
-        AND broker = 'futu'
       ORDER BY updated_at DESC
       LIMIT 1
     `,
@@ -480,8 +423,6 @@ export async function getOnboardingState(): Promise<OnboardingState> {
   const settings = settingsRows[0] || null;
   const latestWechatAuth = wechatAuthRows[0] || null;
   const wechatBinding = bindingRows[0] || null;
-  const brokerConnector = connectorRows[0] || null;
-
   return {
     tenantId: user.id,
     userEmail: user.email ?? null,
@@ -489,24 +430,21 @@ export async function getOnboardingState(): Promise<OnboardingState> {
     settings,
     latestWechatAuth,
     wechatBinding,
-    brokerConnector,
     checks: {
       profile: Boolean(settings),
       wechat: Boolean(wechatBinding),
-      broker: Boolean(brokerConnector),
     },
   };
 }
 
 export function isOnboardingComplete(state: OnboardingState) {
-  return state.session.status === 'completed' && state.checks.profile && state.checks.wechat && state.checks.broker;
+  return state.session.status === 'completed' && state.checks.profile && state.checks.wechat;
 }
 
 export function nextOnboardingPath(state: OnboardingState) {
   if (isOnboardingComplete(state)) return '/dashboard';
   if (!state.checks.profile) return '/onboarding/welcome';
   if (!state.checks.wechat) return '/onboarding/wechat';
-  if (!state.checks.broker) return '/onboarding/broker';
   return '/onboarding/review';
 }
 
@@ -531,6 +469,7 @@ export function safeWechatBinding(binding: Record<string, any> | null) {
   if (!binding) return null;
   return {
     id: binding.id,
+    channel_account_id: binding.channel_account_id || binding.openclaw_account_id,
     openclaw_account_id: binding.openclaw_account_id,
     channel_user_ref: binding.channel_user_ref,
     account_label: binding.account_label,

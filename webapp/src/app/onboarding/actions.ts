@@ -1,14 +1,11 @@
 'use server';
 
-import crypto from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { getDataServiceBaseUrl } from '@/lib/p0-api';
 import {
   auditOnboardingEvent,
   getOnboardingState,
   completeOnboarding,
-  createFutuPairing,
   saveTenantProfile,
 } from '@/lib/onboarding';
 import {
@@ -78,26 +75,6 @@ export async function verifyWechatConversation(formData: FormData) {
   const result = await verifyWechatBindingConversation(user, authSessionId);
   revalidatePath('/onboarding/wechat');
   if (!result.binding) redirect('/onboarding/wechat');
-  redirect('/onboarding/broker');
-}
-
-export async function startFutuPairing(formData: FormData) {
-  const { user } = await requireUser();
-  const connectorInstanceId = crypto.randomUUID();
-  const deviceLabel = formString(formData, 'device_label', '本机 Futu OpenD');
-  const baseUrl = getDataServiceBaseUrl();
-  const pairingTokenConfigured = Boolean(process.env.FUTU_CONNECTOR_PAIRING_TOKEN);
-
-  await createFutuPairing(user, {
-    connectorInstanceId,
-    deviceLabel,
-    endpointRef: `${baseUrl}/api/v3/connectors/poll`,
-    pollEndpoint: `${baseUrl}/api/v3/connectors/poll`,
-    uploadEndpoint: `${baseUrl}/api/v3/connectors/upload`,
-    pairingTokenConfigured,
-  });
-
-  revalidatePath('/onboarding/broker');
   redirect('/onboarding/review');
 }
 
@@ -105,7 +82,6 @@ export async function finishOnboarding() {
   const state = await getOnboardingState();
   if (!state.checks.profile) redirect('/onboarding/profile');
   if (!state.checks.wechat) redirect('/onboarding/wechat');
-  if (!state.checks.broker) redirect('/onboarding/broker');
 
   await completeOnboarding(state.tenantId);
 

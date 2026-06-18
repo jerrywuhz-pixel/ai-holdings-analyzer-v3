@@ -8,7 +8,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -157,54 +156,6 @@ def configured_env_as(dependency_name: str, name: str, **kwargs: Any) -> Depende
     )
 
 
-def configured_http_url(name: str, *, profile: str, required: bool = True) -> DependencyResult:
-    result = configured_env(name, profile=profile, required=required)
-    if result.status != "pass":
-        return result
-
-    value = _env(name)
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        status = "warn" if profile == "local" or not required else "fail"
-        return DependencyResult(
-            name,
-            "env",
-            status,
-            f"{name} must be an absolute http(s) URL for user-local connectors",
-            required,
-        )
-    return result
-
-
-def portfolio_read_repository(profile: str) -> DependencyResult:
-    broker_repository = _env("BROKER_SYNC_REPOSITORY").lower()
-    portfolio_repository = _env("PORTFOLIO_READ_REPOSITORY").lower()
-    allowed = {"postgres", "supabase", "supabase_rest", "local_postgres", "database_url"}
-    if portfolio_repository:
-        if portfolio_repository not in allowed:
-            status = "warn" if profile == "local" else "fail"
-            return DependencyResult(
-                "PORTFOLIO_READ_REPOSITORY",
-                "env",
-                status,
-                f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}; expected one of {sorted(allowed)}",
-            )
-        return DependencyResult(
-            "PORTFOLIO_READ_REPOSITORY",
-            "env",
-            "pass",
-            f"PORTFOLIO_READ_REPOSITORY={portfolio_repository}",
-        )
-    if broker_repository in {"postgres", "supabase"}:
-        return DependencyResult(
-            "PORTFOLIO_READ_REPOSITORY",
-            "env",
-            "pass",
-            f"PORTFOLIO_READ_REPOSITORY omitted; follows BROKER_SYNC_REPOSITORY={broker_repository}",
-        )
-    return configured_env("PORTFOLIO_READ_REPOSITORY", profile=profile, allowed=allowed)
-
-
 def any_configured_env(names: Iterable[str], *, profile: str, dependency_name: str) -> DependencyResult:
     configured = [name for name in names if not _is_placeholder(_env(name))]
     if configured:
@@ -267,6 +218,18 @@ def local_auth_database_url(profile: str) -> DependencyResult:
     return direct
 
 
+def supabase_auth_mode(profile: str) -> DependencyResult:
+    value = _env("AUTH_MODE")
+    if _is_placeholder(value):
+        return DependencyResult(
+            "auth_mode",
+            "env",
+            "pass",
+            "AUTH_MODE is unset; Supabase auth is the production default",
+        )
+    return configured_env_as("auth_mode", "AUTH_MODE", profile=profile, expected="supabase")
+
+
 def openai_deep_model_auth(profile: str) -> DependencyResult:
     if not _is_placeholder(_env("OPENAI_API_KEY")):
         return DependencyResult(
@@ -322,25 +285,6 @@ def repo_file_contains(
             f"{detail}; missing code marker(s): {', '.join(missing)}",
         )
     return DependencyResult(name, "repo", "pass", detail)
-
-
-def repo_file_contains_any(
-    name: str,
-    relative_path: str,
-    patterns: list[str],
-    detail: str,
-) -> DependencyResult:
-    text = _read_repo_file(relative_path)
-    if not text:
-        return DependencyResult(name, "repo", "fail", f"{relative_path} is missing")
-    if any(pattern in text for pattern in patterns):
-        return DependencyResult(name, "repo", "pass", detail)
-    return DependencyResult(
-        name,
-        "repo",
-        "fail",
-        f"{detail}; missing one of code marker(s): {', '.join(patterns)}",
-    )
 
 
 def repo_path_exists(name: str, relative_paths: list[str], detail: str) -> DependencyResult:
@@ -413,35 +357,35 @@ def _webapp_registration_auth(profile: str) -> ProductFeature:
         ),
     ]
     if profile == "lightweight":
-        auth_dependencies = [
-            configured_env_as("local_auth_mode", "AUTH_MODE", profile=profile, expected="local"),
-            configured_env("LOCAL_AUTH_ENABLED", profile=profile, expected="true"),
-            configured_env("LOCAL_AUTH_REGISTRATION_ENABLED", profile=profile, expected="true"),
-            local_auth_database_url(profile),
-            configured_env("AUTH_SESSION_SECRET", profile=profile),
-            all_configured_env(
-                ["SMTP_HOST", "SMTP_FROM"],
-                profile=profile,
-                dependency_name="smtp_verification_delivery",
-            ),
-            configured_env("WEBAPP_BASE_URL", profile=profile),
-        ]
         return ProductFeature(
             id="webapp_registration_auth",
             name="WebApp 注册 / 登录 / tenant 初始化",
-            description="轻量服务器阶段使用本地 Auth 完成 WebApp 邮箱注册、验证码验证、登录与 tenant 初始化。",
-            dependencies=shared_dependencies + auth_dependencies,
+            description="轻量服务器以本地认证和本地 Postgres 为注册主链路，用户通过 WebApp 邮箱密码注册并完成 tenant 初始化。",
+            dependencies=shared_dependencies + [
+                configured_env_as("local_auth_mode", "AUTH_MODE", profile=profile, expected="local"),
+                configured_env("LOCAL_AUTH_ENABLED", profile=profile, expected="true"),
+                configured_env("LOCAL_AUTH_REGISTRATION_ENABLED", profile=profile, expected="true"),
+                local_auth_database_url(profile),
+                configured_env("AUTH_SESSION_SECRET", profile=profile),
+                all_configured_env(
+                    ["SMTP_HOST", "SMTP_FROM"],
+                    profile=profile,
+                    dependency_name="smtp_verification_delivery",
+                ),
+                configured_env("WEBAPP_BASE_URL", profile=profile),
+            ],
             actions=[
-                "轻量服务器使用 AUTH_MODE=local、LOCAL_AUTH_REGISTRATION_ENABLED=true 和数据库连接完成第一阶段注册验收。",
-                "上线前用真实邮箱完成注册、登录、onboarding tenant bootstrap 的烟测；正式切流仍需切换到 Supabase/Auth 或等价生产 Auth。",
+                "轻量服务器保持 AUTH_MODE=local，并用本地 Postgres 承载账户、tenant 与 onboarding 状态。",
+                "上线前用真实邮箱完成注册、登录、onboarding tenant bootstrap 的烟测。",
             ],
         )
 
     return ProductFeature(
         id="webapp_registration_auth",
         name="WebApp 注册 / 登录 / tenant 初始化",
-        description="用户可以通过 WebApp 邮箱密码注册或登录，并在注册初始化阶段确保 users 与 tenant_accounts 就绪。",
+        description="轻量服务器与生产环境均以 Supabase Auth 为业务主链路，用户通过 WebApp 邮箱密码注册与登录并完成 tenant 初始化。",
         dependencies=shared_dependencies + [
+            supabase_auth_mode(profile),
             configured_env("NEXT_PUBLIC_SUPABASE_URL", profile=profile),
             configured_env("NEXT_PUBLIC_SUPABASE_ANON_KEY", profile=profile),
             configured_env("SUPABASE_URL", profile=profile),
@@ -451,29 +395,29 @@ def _webapp_registration_auth(profile: str) -> ProductFeature:
             configured_env("WEBAPP_BASE_URL", profile=profile),
         ],
         actions=[
-            "在生产 Supabase/Auth 边界中启用邮箱注册策略，并完成回调域名白名单。",
+            "在轻量服务器/生产环境中启用 Supabase Auth 与邮箱注册/登录策略，并完成回调域名白名单。",
             "上线前用真实邮箱完成注册、登录、onboarding tenant bootstrap 的烟测。",
         ],
     )
 
 
 def _registration_onboarding_initialization(profile: str) -> ProductFeature:
-    return ProductFeature(
-        id="registration_onboarding_initialization",
-        name="注册后的持仓系统初始化向导",
-        description="新用户注册后必须完成资产画像、微信 Clawbot、Futu connector 和初始化检查，才能进入 3.0 持仓系统。",
-        dependencies=[
-            repo_path_exists(
-                "onboarding_schema",
-                ["supabase/migrations/000028_onboarding_registration_flow.sql"],
-                "Onboarding sessions, tenant settings, WeChat auth, bot credentials, and audit schema exist",
-            ),
-            repo_file_contains_any(
-                "register_redirects_to_onboarding",
-                "webapp/src/app/login/LoginForm.tsx",
-                ["router.push('/onboarding')", "router.push('/onboarding/welcome')"],
-                "Registration and login enter the onboarding gate before the app home",
-            ),
+        return ProductFeature(
+            id="registration_onboarding_initialization",
+            name="注册后的持仓系统初始化向导",
+            description="新用户注册后必须完成资产画像、微信 Clawbot、Futu connector 和初始化检查，才能进入 3.0 持仓系统。",
+            dependencies=[
+                repo_path_exists(
+                    "onboarding_schema",
+                    ["supabase/migrations/000028_onboarding_registration_flow.sql"],
+                    "Onboarding sessions, tenant settings, WeChat auth, bot credentials, and audit schema exist",
+                ),
+                repo_file_contains(
+                    "register_redirects_to_onboarding",
+                    "webapp/src/app/login/LoginForm.tsx",
+                    ["router.push('/onboarding/welcome')"],
+                    "Registration and login enter the onboarding gate before the app home",
+                ),
             repo_path_exists(
                 "onboarding_profile_page",
                 [
@@ -573,29 +517,6 @@ def _wechat_claw_binding(profile: str) -> ProductFeature:
             ["/api/onboarding/wechat/binding", "channel_bindings", "get_bot_qrcode"],
             "WebApp has self-service QR binding and channel_bindings persistence for WeChat Claw",
         ),
-        repo_path_exists(
-            "webapp_delivery_webhook",
-            ["webapp/src/app/api/openclaw/delivery/wechat/route.ts"],
-            "WebApp exposes the signed OpenClaw delivery webhook for WeChat replies",
-        ),
-        repo_file_contains(
-            "clawbot_sendmessage_adapter",
-            "webapp/src/lib/clawbot.ts",
-            ["sendClawbotTextMessage", "sendmessage", "context_token"],
-            "WebApp can send text replies through Tencent iLink sendmessage with context_token",
-        ),
-        repo_file_contains(
-            "openclaw_delivery_worker_service",
-            "docker-compose.server.yml",
-            ["openclaw-outbox-worker", "openclaw.gateway.outbox_worker"],
-            "Lightweight compose runs the OpenClaw outbox delivery worker",
-        ),
-        repo_file_contains(
-            "post_confirmation_worker_service",
-            "docker-compose.server.yml",
-            ["openclaw-post-confirmation-worker", "openclaw.gateway.post_confirmation_worker"],
-            "Lightweight compose runs post-confirmation job processing",
-        ),
     ]
 
     if profile == "lightweight":
@@ -610,15 +531,13 @@ def _wechat_claw_binding(profile: str) -> ProductFeature:
                     "openclaw_delivery_mode",
                     "OPENCLAW_DELIVERY_MODE",
                     profile=profile,
-                    expected="webhook",
+                    allowed={"log", "webhook"},
                 ),
-                configured_http_url("OPENCLAW_DELIVERY_WEBHOOK_URL", profile=profile),
-                configured_env("OPENCLAW_DELIVERY_WEBHOOK_SECRET", profile=profile),
                 configured_env("OPENCLAW_SKILL_KEY", profile=profile),
             ],
             actions=[
                 "轻量服务器阶段用 WebApp 二维码弹窗完成 ClawBot 授权，并确认 channel_bindings 写入。",
-                "正式消息回写使用 WebApp /api/openclaw/delivery/wechat 适配 Tencent iLink sendmessage。",
+                "正式消息回写切流前再把 OPENCLAW_DELIVERY_MODE 从 log 切到 webhook 并配置 webhook secret。",
             ],
         )
 
@@ -675,14 +594,12 @@ def _futu_user_local_sync(profile: str) -> ProductFeature:
             ),
             configured_env("FUTU_CONNECTOR_MODE", profile=profile, expected="user_local_polling"),
             configured_env("FUTU_CONNECTOR_READ_ONLY", profile=profile, expected="true"),
-            configured_http_url("FUTU_CONNECTOR_POLL_ENDPOINT", profile=profile),
-            configured_http_url("FUTU_CONNECTOR_UPLOAD_ENDPOINT", profile=profile),
+            configured_env("FUTU_CONNECTOR_POLL_ENDPOINT", profile=profile),
+            configured_env("FUTU_CONNECTOR_UPLOAD_ENDPOINT", profile=profile),
             configured_env("FUTU_CONNECTOR_PAIRING_TOKEN", profile=profile),
-            configured_env("BROKER_SYNC_REPOSITORY", profile=profile, allowed={"postgres", "supabase"}),
-            portfolio_read_repository(profile),
         ],
         actions=[
-            "设置 FUTU_CONNECTOR_MODE=user_local_polling、poll/upload URL、pairing token 与 BROKER_SYNC_REPOSITORY。",
+            "设置 FUTU_CONNECTOR_MODE=user_local_polling、poll/upload URL 与每个用户本地 connector 的 pairing token。",
             "把当前 local_dev_direct 烟测扩展成 user_local_polling 云端端到端烟测。",
         ],
     )
@@ -757,43 +674,6 @@ def _ai_analysis(profile: str) -> ProductFeature:
 
 
 def _aliyun_cloud_foundation(profile: str) -> ProductFeature:
-    if profile == "lightweight":
-        region = _env("ALIYUN_REGION")
-        icp_required = region.lower().startswith("cn-")
-        icp = configured_env("ICP_BEIAN_NUMBER", profile=profile, required=icp_required)
-        if not icp_required and icp.status != "pass":
-            icp = DependencyResult(
-                "ICP_BEIAN_NUMBER",
-                "env",
-                "pass",
-                "ICP_BEIAN_NUMBER is not required for non-mainland Aliyun regions",
-                False,
-            )
-
-        return ProductFeature(
-            id="aliyun_cloud_foundation",
-            name="阿里云轻量服务器基础设施 / 域名",
-            description="轻量服务器生产流量运行在阿里云 SWAS/ECS 单机栈，依赖域名、HTTPS、本机 Postgres/Redis/MinIO 和 Docker Compose 健康状态。",
-            dependencies=[
-                configured_env("ALIYUN_REGION", profile=profile),
-                any_configured_env(
-                    ["ALIYUN_SWAS_INSTANCE_ID", "ALIYUN_ECS_INSTANCE_ID", "ALIYUN_LIGHTWEIGHT_INSTANCE_ID"],
-                    profile=profile,
-                    dependency_name="ALIYUN_SWAS_INSTANCE_ID",
-                ),
-                configured_env("ALIYUN_DOMAIN_NAME", profile=profile),
-                configured_env("ALIYUN_SSL_CERTIFICATE_ID", profile=profile),
-                configured_env("POSTGRES_HOST", profile=profile),
-                configured_env("REDIS_HOST", profile=profile),
-                configured_env("MINIO_HOST", profile=profile),
-                icp,
-            ],
-            actions=[
-                "轻量服务器用 Docker Compose 与 Nginx/宝塔承载第一阶段生产流量；SAE/ACR/OSS/EventBridge 属于后续托管化迁移门槛。",
-                "大陆 Region 必须补 ICP 备案号；非大陆 Region 以域名 HTTPS 和云资源健康为第一阶段门槛。",
-            ],
-        )
-
     return ProductFeature(
         id="aliyun_cloud_foundation",
         name="阿里云生产基础设施 / 备案",

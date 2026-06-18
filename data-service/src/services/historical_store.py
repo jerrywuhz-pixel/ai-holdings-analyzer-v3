@@ -351,7 +351,16 @@ class FileSystemHistoricalManifestRepository:
             return {}
         if not isinstance(payload, dict):
             return {}
-        return {str(key): dict(value) for key, value in payload.items() if isinstance(value, dict)}
+        records: dict[str, dict[str, Any]] = {}
+        for key, value in payload.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                record = HistoricalManifestRecord.model_validate(value)
+            except Exception:
+                continue
+            records[str(record.id or key)] = record.model_dump(mode="json")
+        return records
 
 
 class SupabaseHistoricalManifestRepository:
@@ -416,11 +425,112 @@ class SupabaseHistoricalManifestRepository:
         )
 
 
+class SupabaseStorageHistoricalManifestRepository:
+    def __init__(
+        self,
+        supabase_url: str,
+        service_role_key: str,
+        *,
+        bucket: str = "market-data",
+        index_path: str = ".manifests/market_data_manifests.json",
+        transport: httpx.AsyncBaseTransport | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        self._supabase_url = supabase_url.rstrip("/")
+        self._service_role_key = service_role_key
+        self._bucket = bucket.strip("/") or "market-data"
+        self._index_path = index_path.lstrip("/") or ".manifests/market_data_manifests.json"
+        self._transport = transport
+        self._timeout_seconds = timeout_seconds
+
+    async def save(self, manifest: HistoricalManifestRecord) -> None:
+        records = await self._read_all()
+        records[manifest.id] = manifest.model_dump(mode="json")
+        await self._write_all(records)
+
+    async def get(self, manifest_id: str) -> Optional[HistoricalManifestRecord]:
+        payload = (await self._read_all()).get(manifest_id)
+        if payload is None:
+            return None
+        return HistoricalManifestRecord.model_validate(payload)
+
+    async def list_matching(
+        self,
+        *,
+        symbol: str,
+        market: str,
+        bar_interval: str,
+        tenant_id: Optional[str],
+    ) -> list[HistoricalManifestRecord]:
+        rows = [HistoricalManifestRecord.model_validate(item) for item in (await self._read_all()).values()]
+        return _filter_manifest_records(
+            rows,
+            symbol=symbol,
+            market=market,
+            bar_interval=bar_interval,
+            tenant_id=tenant_id,
+        )
+
+    async def _read_all(self) -> dict[str, dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=self._timeout_seconds, transport=self._transport) as client:
+            response = await client.get(
+                f"{self._supabase_url}/storage/v1/object/{self._bucket}/{self._index_path}",
+                headers={
+                    "apikey": self._service_role_key,
+                    "Authorization": f"Bearer {self._service_role_key}",
+                    "Accept": "application/json",
+                },
+            )
+            if response.status_code == 404:
+                return {}
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            return {}
+        records: dict[str, dict[str, Any]] = {}
+        for key, value in payload.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                record = HistoricalManifestRecord.model_validate(value)
+            except Exception:
+                continue
+            records[str(record.id or key)] = record.model_dump(mode="json")
+        return records
+
+    async def _write_all(self, records: dict[str, dict[str, Any]]) -> None:
+        body = json.dumps(records, ensure_ascii=True, indent=2, sort_keys=True, default=str).encode("utf-8")
+        async with httpx.AsyncClient(timeout=self._timeout_seconds, transport=self._transport) as client:
+            response = await client.post(
+                f"{self._supabase_url}/storage/v1/object/{self._bucket}/{self._index_path}",
+                content=body,
+                headers={
+                    "apikey": self._service_role_key,
+                    "Authorization": f"Bearer {self._service_role_key}",
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-store",
+                    "x-upsert": "true",
+                },
+            )
+            response.raise_for_status()
+
+
 def create_historical_manifest_repository_from_env() -> Optional[HistoricalManifestRepository]:
     backend = os.getenv("HISTORICAL_MANIFEST_BACKEND", "").strip().lower()
     if backend == "file":
         return FileSystemHistoricalManifestRepository(
             os.getenv("HISTORICAL_MANIFEST_FILE_ROOT", ".historical-manifests")
+        )
+    if backend in {"supabase_storage", "supabase_object", "supabase_storage_index"}:
+        supabase_url = os.getenv("SUPABASE_URL", "").strip()
+        service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        if not supabase_url or not service_role_key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for historical manifest Supabase Storage backend")
+        return SupabaseStorageHistoricalManifestRepository(
+            supabase_url,
+            service_role_key,
+            bucket=os.getenv("SUPABASE_STORAGE_BUCKET_MARKET_DATA", "market-data"),
+            index_path=os.getenv("HISTORICAL_MANIFEST_STORAGE_INDEX_PATH", ".manifests/market_data_manifests.json"),
         )
     if backend in {"supabase", "supabase_table", "database"}:
         supabase_url = os.getenv("SUPABASE_URL", "").strip()

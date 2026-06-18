@@ -5,6 +5,8 @@ const REQUEST_TIMEOUT_MS = 2500;
 type ApiResultMode = 'live' | 'partial' | 'fallback';
 type ConnectionStatus = 'connected' | 'degraded' | 'disconnected';
 type SyncStatus = 'success' | 'warning' | 'failed' | 'running';
+export type P0QualityFreshness = 'fresh' | 'degraded' | 'stale' | 'missing' | 'unknown';
+export type P0QualityActionability = 'trade_draft' | 'analysis_only' | 'blocked';
 
 interface CandidateFetchResult {
   path: string;
@@ -118,6 +120,19 @@ export interface P0ApiAssetSource {
   lineage: string;
 }
 
+export interface P0QualityDisplay {
+  schemaVersion: 'quality_display_v1';
+  source: string;
+  asOf?: string;
+  freshness: P0QualityFreshness;
+  freshnessLabel: string;
+  actionability: P0QualityActionability;
+  actionabilityLabel: string;
+  degradeReason?: string;
+  degradeReasonLabel: string;
+  summary: string;
+}
+
 export interface P0ApiDataState {
   mode: ApiResultMode;
   label: string;
@@ -165,6 +180,69 @@ export function getP0TenantId(tenantId?: string) {
     process.env.P0_TENANT_ID ||
     DEFAULT_P0_TENANT_ID
   );
+}
+
+export function normalizeQualityDisplay(payload: unknown): P0QualityDisplay {
+  const quality = findQualityDisplayRecord(payload);
+  const dataQuality = findDataQualityRecord(payload);
+  const source =
+    getString(quality, ['source', 'source_key', 'sourceKey']) ||
+    getString(dataQuality, ['source', 'quote_source', 'quoteSource', 'source_key', 'sourceKey']) ||
+    'unknown';
+  const asOf =
+    getString(quality, ['as_of', 'asOf']) ||
+    getString(dataQuality, ['as_of', 'asOf', 'quote_as_of', 'quoteAsOf', 'updated_at', 'updatedAt']);
+  const freshness = normalizeQualityFreshness(
+    getString(quality, ['freshness']) ||
+      getString(asRecord(quality?.freshness), ['status']) ||
+      getString(dataQuality, ['freshness']) ||
+      getString(asRecord(dataQuality?.freshness), ['status']),
+    getNumber(dataQuality, ['freshness_seconds', 'freshnessSeconds']),
+    Boolean(asOf || source !== 'unknown')
+  );
+  const actionability = normalizeQualityActionability(
+    getString(quality, ['actionability']) ||
+      getString(dataQuality, ['actionability', 'actionability_cap', 'actionabilityCap', 'quote_actionability', 'quoteActionability'])
+  );
+  const degradeReason =
+    getString(quality, ['degrade_reason', 'degradeReason']) ||
+    getString(dataQuality, ['degrade_reason', 'degradeReason']) ||
+    inferQualityDegradeReason({
+      freshness,
+      actionability,
+      portfolioContext: getString(dataQuality, ['portfolio_context', 'portfolioContext']),
+      missing: getStringArray(dataQuality, ['missing']),
+    });
+  const freshnessLabel =
+    getString(quality, ['freshness_label', 'freshnessLabel']) || qualityFreshnessLabel(freshness);
+  const actionabilityLabel =
+    getString(quality, ['actionability_label', 'actionabilityLabel']) ||
+    qualityActionabilityLabel(actionability);
+  const degradeReasonLabel =
+    getString(quality, ['degrade_reason_label', 'degradeReasonLabel']) ||
+    qualityDegradeReasonLabel(degradeReason);
+  const summary =
+    getString(quality, ['summary']) ||
+    qualityDisplaySummary({
+      source,
+      freshnessLabel,
+      actionabilityLabel,
+      degradeReason,
+      degradeReasonLabel,
+    });
+
+  return {
+    schemaVersion: 'quality_display_v1',
+    source,
+    asOf,
+    freshness,
+    freshnessLabel,
+    actionability,
+    actionabilityLabel,
+    degradeReason,
+    degradeReasonLabel,
+    summary,
+  };
 }
 
 export async function fetchP0ApiSnapshot(options: FetchP0ApiSnapshotOptions = {}): Promise<P0ApiSnapshot> {
@@ -624,7 +702,7 @@ function normalizeEquityPosition(
       computeUnrealizedPnlPct(originalMarketPrice, originalAverageCost),
     updatedAt:
       getString(data, ['updated_at', 'updatedAt', 'as_of', 'asOf']) || defaults.updatedAt,
-    source: getString(data, ['source', 'provider', 'source_key', 'sourceKey']) || '券商账户同步',
+    source: getString(data, ['source', 'provider', 'source_key', 'sourceKey']) || '用户确认持仓',
     fxSource,
     sourceQuality,
   };
@@ -711,7 +789,7 @@ function normalizeOptionPosition(
     baseMarginRequired: baseMarginRequired ?? (baseCurrency === currency ? originalMarginRequired : undefined),
     updatedAt:
       getString(data, ['updated_at', 'updatedAt', 'as_of', 'asOf']) || defaults.updatedAt,
-    source: getString(data, ['source', 'provider', 'source_key', 'sourceKey']) || '券商期权持仓',
+    source: getString(data, ['source', 'provider', 'source_key', 'sourceKey']) || '用户确认期权持仓',
     fxSource,
     sourceQuality,
   };
@@ -756,12 +834,12 @@ function normalizeConnections(
           'connected';
         return {
           id: getString(data, ['id', 'broker_connection_id', 'brokerConnectionId']) || `connection-${index}`,
-          provider: getString(data, ['provider', 'broker']) || 'Futu 账户连接',
+          provider: getString(data, ['provider', 'broker']) || '系统行情源',
           accountLabel:
             getString(data, ['account_label', 'accountLabel', 'label', 'name']) || `账户 ${index + 1}`,
           authStatus: mapConnectionStatus(status),
           permissionScope:
-            getString(data, ['permission_scope', 'permissionScope']) || '只查看持仓和资金',
+            getString(data, ['permission_scope', 'permissionScope']) || '管理员只读行情 / 期权链',
           lastSync:
             getString(data, ['last_sync', 'lastSync', 'last_synced_at', 'lastSyncedAt']) || updatedAt,
           updatedAt:
@@ -778,7 +856,7 @@ function normalizeConnections(
   const connectorMode = getString(capabilities, ['connector_mode', 'connectorMode']) || 'unknown';
   const supports = asRecord(capabilities.supports);
   const permissionScope =
-    getString(capabilities, ['permission_scope', 'permissionScope']) || '只查看持仓和资金';
+    getString(capabilities, ['permission_scope', 'permissionScope']) || '管理员只读行情 / 期权链';
   const notes = Array.isArray(capabilities.notes)
     ? capabilities.notes.filter((item): item is string => typeof item === 'string')
     : [];
@@ -787,8 +865,8 @@ function normalizeConnections(
   return [
     {
       id: 'futu-capability',
-      provider: 'Futu 账户连接',
-      accountLabel: isConnected ? '本机只读连接' : '等待账户连接',
+      provider: '系统 Futu 行情源',
+      accountLabel: isConnected ? '管理员侧行情源' : '等待系统行情源',
       authStatus: isConnected ? 'connected' : 'degraded',
       permissionScope,
       lastSync: updatedAt,
@@ -837,13 +915,13 @@ function normalizeSyncEvents(
   return [
     {
       id: 'health-check',
-      title: '账户数据连接',
+      title: '系统行情源',
       status: gatewayStatus === 'ok' ? 'success' : 'warning',
       startedAt: updatedAt,
       detail:
         gatewayStatus === 'ok'
-          ? '账户数据可访问，页面会优先尝试读取最新资产数据。'
-          : '账户数据可访问，但尚未返回完整更新状态。',
+          ? '系统行情源可访问，页面会优先尝试读取最新行情数据。'
+          : '系统行情源可访问，但尚未返回完整更新状态。',
     },
   ];
 }
@@ -890,15 +968,15 @@ function normalizeAssetSources(
   return [
     {
       id: 'source-futu',
-      label: 'Futu 账户数据',
-      type: '券商同步',
-      priority: '主要',
+      label: '系统 Futu 行情源',
+      type: '系统行情',
+      priority: '行情参考',
       confidence: '0.95',
       freshness: formatFreshness(updatedAt),
       lineage:
         isConnected
-          ? '通过本机只读连接读取账户持仓和资金；不会触发下单。'
-          : '等待本机账户连接返回持仓和资金；当前仅展示可用的参考数据。',
+          ? '通过管理员侧 OpenD 读取行情和期权链；不会同步普通用户个人账户。'
+          : '等待系统行情源返回行情；当前仅展示可用的参考数据。',
     },
   ];
 }
@@ -922,8 +1000,8 @@ function normalizeUserFacingLineage(value: string): string {
     .replaceAll('data-service', '资产汇总结果')
     .replaceAll('fallback', '参考数据')
     .replaceAll('sidecar', '本机连接服务')
-    .replaceAll('broker sync', '账户数据更新')
-    .replaceAll('broker', '账户')
+    .replaceAll('broker sync', '数据来源更新')
+    .replaceAll('broker', '数据来源')
     .replaceAll('tenant', '账户空间');
 }
 
@@ -987,6 +1065,115 @@ function deriveOverview(
   };
 
   return hasAnyDefinedValue(derived) ? derived : undefined;
+}
+
+function findQualityDisplayRecord(payload: unknown): Record<string, unknown> | undefined {
+  const data = asRecord(payload);
+  if (!data) return undefined;
+  const direct = asRecord(data.quality_display) || asRecord(data.qualityDisplay);
+  if (direct) return direct;
+
+  for (const key of ['analysis', 'data', 'result', 'artifact_metadata', 'artifactMetadata', 'data_quality_summary', 'dataQualitySummary']) {
+    const nested = asRecord(data[key]);
+    const found = findQualityDisplayRecord(nested);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findDataQualityRecord(payload: unknown): Record<string, unknown> | undefined {
+  const data = asRecord(payload);
+  if (!data) return undefined;
+  const direct = asRecord(data.data_quality) || asRecord(data.dataQuality) || asRecord(data.data_quality_summary) || asRecord(data.dataQualitySummary);
+  if (direct) return direct;
+
+  for (const key of ['analysis', 'data', 'result', 'artifact_metadata', 'artifactMetadata']) {
+    const nested = asRecord(data[key]);
+    const found = findDataQualityRecord(nested);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function normalizeQualityFreshness(
+  value: string | undefined,
+  freshnessSeconds: number | undefined,
+  hasAnyData: boolean
+): P0QualityFreshness {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'fresh' || normalized === 'ok' || normalized === 'complete') return 'fresh';
+  if (normalized === 'degraded' || normalized === 'partial' || normalized === 'limited') return 'degraded';
+  if (normalized === 'stale' || normalized === 'expired' || normalized === 'blocked') return 'stale';
+  if (normalized === 'missing' || normalized === 'unavailable' || normalized === 'not_available') return 'missing';
+  if (freshnessSeconds !== undefined) {
+    if (freshnessSeconds > 15 * 60) return 'stale';
+    if (freshnessSeconds > 5 * 60) return 'degraded';
+    return 'fresh';
+  }
+  return hasAnyData ? 'unknown' : 'missing';
+}
+
+function normalizeQualityActionability(value: string | undefined): P0QualityActionability {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'trade_draft' || normalized === 'ready' || normalized === 'actionable') return 'trade_draft';
+  if (normalized === 'blocked' || normalized === 'not_actionable') return 'blocked';
+  return 'analysis_only';
+}
+
+function inferQualityDegradeReason(input: {
+  freshness: P0QualityFreshness;
+  actionability: P0QualityActionability;
+  portfolioContext?: string;
+  missing: string[];
+}): string | undefined {
+  if (input.freshness === 'missing') return 'quote_unavailable';
+  if (input.freshness === 'stale') return 'data_stale';
+  if (input.missing.includes('positions')) return 'no_portfolio_context';
+  if (input.portfolioContext === 'not_held_or_unavailable') return 'no_position_context';
+  if (input.actionability === 'blocked') return 'action_blocked';
+  if (input.actionability === 'analysis_only') return 'analysis_only';
+  if (input.freshness === 'degraded' || input.freshness === 'unknown') return 'freshness_uncertain';
+  return undefined;
+}
+
+function qualityFreshnessLabel(value: P0QualityFreshness) {
+  if (value === 'fresh') return '数据新鲜';
+  if (value === 'degraded') return '数据降级';
+  if (value === 'stale') return '数据过期';
+  if (value === 'missing') return '数据缺失';
+  return '新鲜度未知';
+}
+
+function qualityActionabilityLabel(value: P0QualityActionability) {
+  if (value === 'trade_draft') return '可行动';
+  if (value === 'blocked') return '不可行动';
+  return '只能观察';
+}
+
+function qualityDegradeReasonLabel(value?: string) {
+  if (!value) return '无降级';
+  if (value === 'quote_unavailable') return '行情不可用';
+  if (value === 'data_stale') return '数据过期';
+  if (value === 'no_portfolio_context' || value === 'no_position_context') return '无持仓上下文';
+  if (value === 'action_blocked') return '纪律或数据阻断';
+  if (value === 'analysis_only') return '只能观察';
+  if (value === 'freshness_uncertain') return '新鲜度待复核';
+  return value;
+}
+
+function qualityDisplaySummary(input: {
+  source: string;
+  freshnessLabel: string;
+  actionabilityLabel: string;
+  degradeReason?: string;
+  degradeReasonLabel: string;
+}) {
+  const parts = [input.actionabilityLabel, input.freshnessLabel];
+  if (input.degradeReason && !parts.includes(input.degradeReasonLabel)) {
+    parts.push(input.degradeReasonLabel);
+  }
+  parts.push(`来源 ${input.source || 'unknown'}`);
+  return parts.join(' / ');
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

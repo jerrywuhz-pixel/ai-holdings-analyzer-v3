@@ -130,6 +130,28 @@ def test_classify_high_attention_text_prioritizes_broker_parse_over_generic_trad
     assert candidate.normalized_summary["title"] == "待确认富途牛牛成交提醒"
 
 
+def test_sell_put_analysis_request_stays_in_dialogue_lane() -> None:
+    candidate = classify_high_attention_text(
+        "帮我分析一下 TSLA 的 Sell Put 候选排序",
+        source_type="message_text",
+        source_surface="wechat",
+    )
+
+    assert candidate is None
+
+
+def test_explicit_sell_put_draft_requires_confirmation() -> None:
+    candidate = classify_high_attention_text(
+        "帮我生成 TSLA Sell Put 草稿，准备卖出 100P",
+        source_type="message_text",
+        source_surface="wechat",
+    )
+
+    assert candidate is not None
+    assert candidate.action_type == "trade_draft_ack"
+    assert candidate.object_type == "sell_put_trade_draft"
+
+
 def test_classify_image_text_candidate_supports_ocr_and_image_text_fields() -> None:
     trade_candidate = classify_image_text_candidate(
         "买入 AAPL 10 股 180",
@@ -196,6 +218,8 @@ def test_parse_position_snapshot_rows_supports_futu_name_only_layout() -> None:
     assert rows[0]["symbol"].startswith("CNNAME_")
     assert rows[0]["market"] == "CN"
     assert rows[0]["exchange"] == "UNKNOWN"
+    assert rows[0]["requires_symbol_review"] is True
+    assert rows[0]["symbol_confidence"] == "name_only"
     assert rows[0]["quantity"] == 10000
     assert rows[0]["available_quantity"] == 10000
     assert rows[0]["average_cost"] == 53.858
@@ -204,6 +228,50 @@ def test_parse_position_snapshot_rows_supports_futu_name_only_layout() -> None:
     assert rows[0]["unrealized_pnl"] == -53475.75
     assert rows[0]["pnl_ratio"] == -0.0993
     assert rows[1]["stock_name"] == "东山精密"
+
+
+def test_parse_position_snapshot_rows_supports_name_first_quantity_first_ocr() -> None:
+    rows = parse_position_snapshot_rows(
+        "\n".join(
+            [
+                "持仓 数量 成本价 现价 市值 浮动盈亏 盈亏比例",
+                "盛新锂能 10000 53.858 48.510 485100.00 -53475.75 -9.93%",
+                "东山精密 500 216.022 226.240 113120.00 5109.20 4.73%",
+            ]
+        )
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["symbol"].startswith("CNNAME_")
+    assert rows[0]["stock_name"] == "盛新锂能"
+    assert rows[0]["quantity"] == 10000
+    assert rows[0]["average_cost"] == 53.858
+    assert rows[0]["current_price"] == 48.510
+    assert rows[0]["market_value"] == 485100.00
+    assert rows[0]["unrealized_pnl"] == -53475.75
+    assert rows[0]["pnl_ratio"] == -0.0993
+    assert rows[1]["stock_name"] == "东山精密"
+    assert rows[1]["quantity"] == 500
+
+
+def test_position_screenshot_candidate_marks_name_only_symbols_for_review() -> None:
+    candidate = classify_image_text_candidate(
+        "\n".join(
+            [
+                "持仓 证券名称 证券市值 浮动盈亏 盈亏比例 成本价 现价 实际数量 可用数量",
+                "盛新锂能 485100.00 -53475.75 -9.93% 53.858 48.510 10000 10000",
+            ]
+        ),
+        ocr_confidence=0.93,
+        media_id="position-media-name-only",
+    )
+
+    assert candidate is not None
+    position = candidate.action_payload["positions"][0]
+    assert position["symbol"].startswith("CNNAME_")
+    assert position["requires_symbol_review"] is True
+    assert "需补证券代码" in candidate.normalized_summary["body"]
+    assert "需补代码" in candidate.normalized_summary["risk_note"]
 
 
 def test_low_confidence_ocr_trade_text_stays_in_review_center() -> None:
@@ -222,6 +290,29 @@ def test_low_confidence_ocr_trade_text_stays_in_review_center() -> None:
     assert candidate.action_payload["media_id"] == "media-low-confidence"
     assert "识别把握不高" in candidate.normalized_summary["risk_note"]
     assert "不会改动持仓，也不会下单" in candidate.normalized_summary["risk_note"]
+
+
+def test_low_confidence_position_screenshot_still_creates_position_confirmation() -> None:
+    candidate = classify_image_text_candidate(
+        "\n".join(
+            [
+                "持仓 证券名称 证券市值 浮动盈亏 盈亏比例 成本价 现价 实际数量 可用数量",
+                "盛新锂能 485100.00 -53475.75 -9.93% 53.858 48.510 10000 10000",
+                "东山精密 113120.00 5109.20 4.73% 216.022 226.240 500 500",
+            ]
+        ),
+        ocr_confidence=0.46,
+        media_id="position-media-low-confidence",
+        source_field="ocr_text",
+    )
+
+    assert candidate is not None
+    assert candidate.action_type == "position_snapshot_input"
+    assert candidate.object_type == "position_snapshot_input"
+    assert candidate.action_payload["ocr_confidence"] == 0.46
+    assert candidate.action_payload["source_policy"]["confidence"] == 0.46
+    assert candidate.normalized_summary["title"] == "待确认持仓截图导入"
+    assert "盛新锂能" in candidate.normalized_summary["body"]
 
 
 @pytest.mark.asyncio
@@ -338,7 +429,8 @@ async def test_confirmation_service_rejects_instead_of_writing_facts() -> None:
     assert result.outcome == "rejected"
     assert "没有改动持仓" in result.reply_text
     assert "没有下单" in result.reply_text
-    assert "WebApp 确认中心" in result.reply_text
+    assert "确认中心查看最新状态" in result.reply_text
+    assert "微信口令仍可用于二次确认" in result.reply_text
     assert repository.pending_actions[created.pending_action_id]["status"] == "rejected"
 
 
@@ -374,7 +466,8 @@ async def test_confirmation_service_expires_and_records_event() -> None:
     assert result.status == "expired"
     assert "没有改动持仓" in result.reply_text
     assert "没有下单" in result.reply_text
-    assert "WebApp 确认中心" in result.reply_text
+    assert "确认中心查看最新状态" in result.reply_text
+    assert "微信口令仍可用于二次确认" in result.reply_text
     assert repository.pending_actions[created.pending_action_id]["status"] == "expired"
     assert repository.sessions[created.confirmation_session_id]["session_status"] == "expired"
     assert repository.events[-1]["event_type"] == "expired"
@@ -444,6 +537,7 @@ async def test_confirmation_service_returns_retryable_copy_when_dispatch_fails()
     assert result.status == "failed_retryable"
     assert "没有改动持仓" in result.reply_text
     assert "没有下单" in result.reply_text
-    assert "WebApp 确认中心" in result.reply_text
+    assert "确认中心查看最新状态" in result.reply_text
+    assert "微信口令仍可用于二次确认" in result.reply_text
     assert repository.pending_actions[created.pending_action_id]["status"] == "failed_retryable"
     assert repository.events[-1]["event_type"] == "commit_failed"

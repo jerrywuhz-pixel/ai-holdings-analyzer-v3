@@ -56,12 +56,22 @@
 | 多来源资产 | 手工、消息、OCR、券商快照、Futu connector 契约已落地 | 真实微信消息写入还需接 OpenClaw delivery/confirmation hook |
 | 股票和期权分产品 | WebApp 和 read model 已区分股票/ETF 与期权 | 期权高阶 EV/Greeks 仍以规则和架构为主，需实盘数据校验 |
 | Sell Put 策略 | 适合性、候选排序、freshness、现金担保、风险阻断已进入 P0 | 允许草稿，不自动下单 |
-| 历史行情 | P0 historical store、manifest、file/supabase_storage backend 已实现 | 生产建议迁移到 OSS 或等价对象存储 |
+| 历史行情 | P0 historical store、manifest、Supabase Storage / Supabase manifest backend 已实现 | 后续可按成本和合规迁移到 OSS/RDS 等托管资源 |
 | GBrain 四层存储 | schema、adapter、artifact registry、memory gate 已具备 | 真实长期记忆运营和冷启动导入仍是下一阶段 |
 | 微信交互 | 文本/语音/OCR/URL 设计已完成，确认流已收敛 | 当前服务器还未接真实微信 claw bot 投递 |
 | 云端部署 | 阿里云轻量服务器第一阶段已跑通 | SAE/RDS/OSS/Tair/SLS/ARMS 是正式生产迁移路径 |
 
-## 6. 代码 Review 摘要
+## 6. 数据基础层补齐（2026-05-25）
+
+| 项 | 最新状态 | 说明 |
+| --- | --- | --- |
+| 关注清单 / 清仓回溯 | 已固化到 migration | `000030_account_lists_manual_positions_trading_rules.sql` 将 `follow_views`、`follow_view_items`、`list_views`、`list_view_items` 从 WebApp runtime DDL 提升为正式 schema |
+| 手工持仓 | 已固化到 migration | `webapp_manual_positions` 成为正式表；WebApp runtime schema repair 仅作为开发兜底 |
+| 交易纪律 | 已接入产品闭环 | `trading_rules` 支持规则管理；手工持仓录入会实际调用规则引擎并写入 `discipline_checks` |
+| 历史行情 manifest | 已支持 Supabase 持久化 | data-service 使用 `HISTORICAL_MANIFEST_BACKEND=supabase_storage`；manifest 索引写入 Supabase Storage，不再写入本机 file volume |
+| 应用层 schema 初始化 | 已收敛 | `WEBAPP_RUNTIME_SCHEMA_REPAIR=false` 时 WebApp 不再运行建表逻辑，部署路径必须先执行 migrations |
+
+## 7. 代码 Review 摘要
 
 ### 阻断级问题
 
@@ -80,7 +90,7 @@
 3. SMTP 未完成真实域名邮箱配置，验证码邮件仍不应作为生产用户链路宣称。
 4. `production_readiness.py --profile production` 预计仍会失败，这是正确结果，表示正式生产切流前的配置项尚未补齐。
 
-## 7. GitHub 同步边界
+## 8. GitHub 同步边界
 
 当前源码工作目录不是 Git 仓库。GitHub 同步应使用旁边的：
 
@@ -100,11 +110,11 @@
 - `__pycache__/`
 - 日志、运行缓存和临时上传文件
 
-## 8. 下一阶段建议
+## 9. 下一阶段建议
 
 1. 先把 fresh-deploy 仓库同步到 GitHub，作为 3.0 当前代码基线。
 2. 补 SSH 安全组/防火墙/密钥登录排查，减少对宝塔终端依赖。
 3. 补真实 SMTP 或改为明确的测试验证码链路。
 4. 启用 OpenAI API key 或系统级 `openai-codex` bridge，让 GPT-5.5 深研路径通过 smoke。
 5. 接真实微信 OpenClaw delivery/confirmation hook。
-6. 把 MinIO/file backend 迁移到 OSS/RDS/Tair/SLS 生产托管资源。
+6. 根据成本和访问量评估是否把 Supabase Storage / manifest 表迁移到 OSS/RDS/Tair/SLS 生产托管资源。

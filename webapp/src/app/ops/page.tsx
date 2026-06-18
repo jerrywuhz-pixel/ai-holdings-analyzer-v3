@@ -87,7 +87,7 @@ export default async function OpsPage({
               </div>
             </Panel>
 
-            <Panel title="消息与账户连接" description="微信提醒、账户连接和自动补发状态统一展示。">
+            <Panel title="消息与系统行情" description="微信提醒、系统行情源和自动补发状态统一展示。">
               <div className="space-y-3">
                 {snapshot.data.ops.deliveries.map((item) => (
                   <div key={item.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">

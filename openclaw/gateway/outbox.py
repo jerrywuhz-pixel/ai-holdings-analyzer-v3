@@ -10,8 +10,8 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 import uuid
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
@@ -19,6 +19,28 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 RETRY_SCHEDULE_SECONDS = (30, 300, 1800)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_content_types(raw_value: str) -> set[str]:
+    return {item.strip().lower() for item in raw_value.split(",") if item.strip()}
+
+
+def _wechat_system_delivery_suppressed_content_types() -> set[str]:
+    suppressed = _parse_content_types(os.getenv("OPENCLAW_WECHAT_SUPPRESSED_DELIVERY_CONTENT_TYPES", ""))
+    if suppressed:
+        return suppressed
+
+    if _env_bool("OPENCLAW_SKIP_GATEWAY_SYSTEM_DELIVERIES", False):
+        return {"confirmation_card", "task_update", "runtime_status"}
+
+    return set()
 
 
 @dataclass
@@ -189,145 +211,126 @@ class SupabaseOutboxRepository:
 
 class PostgresOutboxRepository:
     def __init__(self, database_url: str) -> None:
+        if not database_url:
+            raise ValueError("database_url is required")
         self._database_url = database_url
 
     async def create_or_get(self, payload: dict[str, Any]) -> dict[str, Any]:
-        from psycopg import connect, sql
-        from psycopg.rows import dict_row
-        from psycopg.types.json import Jsonb
-
-        columns = [
-            "id",
-            "tenant_id",
-            "channel_binding_id",
-            "openclaw_account_id",
-            "content_type",
-            "content",
-            "content_snapshot_hash",
-            "priority",
-            "dedupe_key",
-            "status",
-            "attempt_count",
-            "next_retry_at",
-            "target_conversation",
-            "context_token",
-            "confirmation_session_id",
-            "source_run_id",
-            "asset_source_refs",
-            "data_snapshot_refs",
-            "held_reason",
-            "created_at",
-            "updated_at",
-        ]
-
-        def _value(column: str) -> Any:
-            value = payload.get(column)
-            if column in {"content", "asset_source_refs", "data_snapshot_refs"}:
-                return Jsonb(value if value is not None else ([] if column.endswith("_refs") else {}))
-            return value
-
         def _insert() -> dict[str, Any]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    query = sql.SQL(
-                        """
-                        INSERT INTO public.delivery_outbox ({columns})
-                        VALUES ({placeholders})
-                        ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
-                        RETURNING *
-                        """
-                    ).format(
-                        columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
-                        placeholders=sql.SQL(", ").join(sql.Placeholder() for _ in columns),
-                    )
-                    cur.execute(query, [_value(column) for column in columns])
-                    row = cur.fetchone()
-                    if row:
-                        return dict(row)
-                    cur.execute(
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg.types.json import Jsonb
+
+            columns = (
+                "id",
+                "tenant_id",
+                "channel_binding_id",
+                "openclaw_account_id",
+                "content_type",
+                "content",
+                "content_snapshot_hash",
+                "priority",
+                "dedupe_key",
+                "status",
+                "attempt_count",
+                "next_retry_at",
+                "target_conversation",
+                "context_token",
+                "confirmation_session_id",
+                "source_run_id",
+                "asset_source_refs",
+                "data_snapshot_refs",
+                "created_at",
+                "updated_at",
+                "held_reason",
+            )
+            values = [
+                Jsonb(payload[column]) if column in {"content", "asset_source_refs", "data_snapshot_refs"} else payload.get(column)
+                for column in columns
+            ]
+            placeholders = ", ".join(["%s"] * len(columns))
+            column_sql = ", ".join(columns)
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                try:
+                    row = conn.execute(
+                        f"INSERT INTO public.delivery_outbox ({column_sql}) VALUES ({placeholders}) RETURNING *",
+                        values,
+                    ).fetchone()
+                    conn.commit()
+                    return dict(row) if row else dict(payload)
+                except psycopg.errors.UniqueViolation:
+                    conn.rollback()
+                    row = conn.execute(
                         """
                         SELECT *
                         FROM public.delivery_outbox
                         WHERE tenant_id = %s AND dedupe_key = %s
                         LIMIT 1
                         """,
-                        [payload["tenant_id"], payload["dedupe_key"]],
-                    )
-                    existing = cur.fetchone()
-                    if not existing:
-                        raise RuntimeError("delivery_outbox insert conflict but existing row was not found")
-                    return dict(existing)
+                        (payload["tenant_id"], payload["dedupe_key"]),
+                    ).fetchone()
+                    if row:
+                        return dict(row)
+                    raise
 
         return await asyncio.to_thread(_insert)
 
     async def update(self, delivery_id: str, updates: dict[str, Any]) -> None:
-        from psycopg import connect, sql
-        from psycopg.types.json import Jsonb
-
-        normalized: list[Any] = []
-        for value in updates.values():
-            if isinstance(value, (dict, list)):
-                normalized.append(Jsonb(value))
-            else:
-                normalized.append(value)
+        if not updates:
+            return
 
         def _update() -> None:
-            with connect(self._database_url) as conn:
-                with conn.cursor() as cur:
-                    query = sql.SQL("UPDATE public.delivery_outbox SET {updates} WHERE id = %s").format(
-                        updates=sql.SQL(", ").join(
-                            sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
-                            for column in updates
-                        )
-                    )
-                    cur.execute(query, [*normalized, delivery_id])
+            import psycopg
+            from psycopg.types.json import Jsonb
+
+            json_columns = {"content", "content_summary", "asset_source_refs", "data_snapshot_refs"}
+            columns = tuple(updates.keys())
+            assignments = ", ".join(f"{column} = %s" for column in columns)
+            values = [Jsonb(updates[column]) if column in json_columns else updates[column] for column in columns]
+            values.append(delivery_id)
+            with psycopg.connect(self._database_url) as conn:
+                conn.execute(
+                    f"UPDATE public.delivery_outbox SET {assignments} WHERE id = %s",
+                    values,
+                )
+                conn.commit()
 
         await asyncio.to_thread(_update)
 
     async def get(self, delivery_id: str) -> dict[str, Any] | None:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
         def _query() -> dict[str, Any] | None:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT * FROM public.delivery_outbox WHERE id = %s LIMIT 1", [delivery_id])
-                    row = cur.fetchone()
-                    return dict(row) if row else None
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                row = conn.execute(
+                    "SELECT * FROM public.delivery_outbox WHERE id = %s LIMIT 1",
+                    (delivery_id,),
+                ).fetchone()
+                return dict(row) if row else None
 
         return await asyncio.to_thread(_query)
 
     async def list_retry_ready(self, now: datetime, limit: int = 50) -> list[dict[str, Any]]:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
         def _query() -> list[dict[str, Any]]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT *
-                        FROM public.delivery_outbox
-                        WHERE status IN ('retrying', 'pending')
-                          AND (next_retry_at IS NULL OR next_retry_at <= %s)
-                        ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC
-                        LIMIT %s
-                        """,
-                        [now, limit],
-                    )
-                    return [dict(row) for row in cur.fetchall()]
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM public.delivery_outbox
+                    WHERE status IN ('retrying', 'pending')
+                      AND (next_retry_at IS NULL OR next_retry_at <= %s)
+                    ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC
+                    LIMIT %s
+                    """,
+                    (now, limit),
+                ).fetchall()
+                return [dict(row) for row in rows]
 
         return await asyncio.to_thread(_query)
-
-
-def create_outbox_repository_from_env(supabase_client: Any | None = None) -> OutboxRepository:
-    repository_mode = os.getenv("OPENCLAW_OUTBOX_REPOSITORY", "postgres").strip().lower()
-    database_url = os.getenv("DATABASE_URL", "").strip()
-    if database_url and repository_mode in {"postgres", "direct_postgres", "auto"}:
-        return PostgresOutboxRepository(database_url)
-    if supabase_client is not None:
-        return SupabaseOutboxRepository(supabase_client)
-    return InMemoryOutboxRepository()
 
 
 class DeliveryOutboxService:
@@ -354,6 +357,22 @@ class DeliveryOutboxService:
             raise ValueError("confirmation_card delivery requires confirmation_session_id")
 
         now = self._now_provider()
+        suppressed_types = _wechat_system_delivery_suppressed_content_types()
+        if envelope.content_type in suppressed_types:
+            delivery_id = str(uuid.uuid4())
+            logger.info(
+                "delivery suppressed for blocked content type: tenant=%s content_type=%s",
+                envelope.tenant_id,
+                envelope.content_type,
+            )
+            return DeliveryQueueResult(
+                delivery_id=delivery_id,
+                status="suppressed",
+                next_retry_at=None,
+                content_snapshot_hash=_content_hash(envelope.content),
+                dedupe_key=envelope.dedupe_key,
+            )
+
         delivery_id = str(uuid.uuid4())
         snapshot_hash = _content_hash(envelope.content)
         status = "pending"

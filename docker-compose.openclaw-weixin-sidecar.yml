@@ -1,0 +1,48 @@
+services:
+  openclaw-weixin-sidecar:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    restart: unless-stopped
+    volumes:
+      - ./:/workspace
+      - openclaw_official_state:/state
+      - openclaw_weixin_sidecar_npm:/root/.npm
+    environment:
+      OPENCLAW_VERSION: ${OPENCLAW_VERSION:-2026.5.27}
+      WEIXIN_CLI_VERSION: ${WEIXIN_CLI_VERSION:-2.1.4}
+      WEIXIN_PLUGIN_VERSION: ${WEIXIN_PLUGIN_VERSION:-2.4.4}
+      OPENCLAW_STATE_DIR: /state
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+      RUN_INSTALL: ${RUN_INSTALL:-false}
+      # Keep the official runtime in preflight mode by default. Starting the
+      # gateway would long-poll Weixin directly and can bypass the 3.0 app
+      # routing/confirmation path unless RUN_GATEWAY=true is set deliberately.
+      RUN_GATEWAY: ${RUN_GATEWAY:-false}
+      RUN_INSIDE_OPENCLAW_WEIXIN_SIDECAR: "true"
+    command:
+      - bash
+      - ./scripts/start-openclaw-weixin-runtime.sh
+
+  openclaw-weixin-route-adapter:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    restart: unless-stopped
+    env_file:
+      - .env.server
+    volumes:
+      - ./:/workspace
+      - openclaw_official_state:/state
+    environment:
+      OPENCLAW_STATE_DIR: /state
+      WEBAPP_INTERNAL_URL: ${WEBAPP_INTERNAL_URL:-http://webapp:3000}
+      OPENCLAW_WEIXIN_ROUTE_ADAPTER_INTERVAL_SECONDS: ${OPENCLAW_WEIXIN_ROUTE_ADAPTER_INTERVAL_SECONDS:-5}
+    command:
+      - node
+      - ./scripts/start-openclaw-weixin-route-adapter.mjs
+
+volumes:
+  openclaw_official_state:
+    external: true
+    name: openclaw_official_state
+  openclaw_weixin_sidecar_npm:
+    name: openclaw_weixin_sidecar_npm

@@ -1,7 +1,7 @@
 """
 数据源注册与健康检测服务
 
-统一管理多个行情数据源（Yahoo Finance / Stooq / Tushare / FTShare / AkShare），
+统一管理多个行情数据源（Yahoo Finance / Tushare / FTShare / AkShare），
 实现智能路由、Redis 缓存集成和健康检查。
 """
 
@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 from adapters.ftshare import FtShareMarketDataAdapter
 from adapters.futu_quote import FutuQuoteAdapter
 from adapters.yahoo import YahooFinanceAdapter
-from adapters.stooq import StooqAdapter
 from adapters.tushare import TushareAdapter
 from adapters.akshare import AkShareAdapter
 from adapters.longbridge import LongbridgeAdapter
@@ -33,14 +32,13 @@ class DataSourceRegistry:
     """
 
     # 各市场的默认数据源优先级（越靠前越优先）
-    _CN_PRIORITY = ["tushare", "ftshare", "yahoo", "stooq", "akshare"]
+    _CN_PRIORITY = ["tushare", "ftshare", "yahoo", "akshare"]
     _HK_PRIORITY = ["longbridge", "yahoo", "tushare", "akshare"]
-    _US_PRIORITY = ["yahoo", "stooq", "longbridge", "tushare", "akshare"]
+    _US_PRIORITY = ["yahoo", "longbridge", "tushare", "akshare"]
 
     def __init__(self):
         self._adapters = {
             "yahoo": YahooFinanceAdapter(),
-            "stooq": StooqAdapter(),
             "futu": FutuQuoteAdapter(),
             "tushare": TushareAdapter(),
             "ftshare": FtShareMarketDataAdapter(),
@@ -68,16 +66,38 @@ class DataSourceRegistry:
 
         market = self._infer_market(symbol)
         if market == "CN":
-            return self._CN_PRIORITY
+            return self._filter_optional_sources(self._CN_PRIORITY)
         if market == "HK":
-            return self._with_optional_futu_default(self._HK_PRIORITY)
-        return self._with_optional_futu_default(self._US_PRIORITY)
+            return self._with_optional_futu_default(self._filter_optional_sources(self._HK_PRIORITY))
+        return self._with_optional_futu_default(self._filter_optional_sources(self._us_priority()))
 
     @staticmethod
     def _with_optional_futu_default(priority: List[str]) -> List[str]:
         if os.getenv("FUTU_QUOTE_DEFAULT_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
             return priority
         return ["futu", *[source for source in priority if source != "futu"]]
+
+    @classmethod
+    def _filter_optional_sources(cls, priority: List[str]) -> List[str]:
+        if cls._akshare_enabled():
+            return priority
+        return [source for source in priority if source != "akshare"]
+
+    @staticmethod
+    def _akshare_enabled() -> bool:
+        return os.getenv("AKSHARE_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _us_priority(cls) -> List[str]:
+        has_longbridge_mcp = bool(os.getenv("LONGBRIDGE_MCP_ACCESS_TOKEN", "").strip())
+        has_longbridge_sdk = bool(
+            os.getenv("LONGBRIDGE_APP_KEY", "").strip()
+            and os.getenv("LONGBRIDGE_APP_SECRET", "").strip()
+            and os.getenv("LONGBRIDGE_ACCESS_TOKEN", "").strip()
+        )
+        if not (has_longbridge_mcp or has_longbridge_sdk):
+            return cls._US_PRIORITY
+        return ["longbridge", *[source for source in cls._US_PRIORITY if source != "longbridge"]]
 
     async def get_quote(
         self,
@@ -97,7 +117,7 @@ class DataSourceRegistry:
 
         Args:
             symbol: 业务层股票代码，如 "SH600519"、"AAPL"
-            prefer: 强制指定数据源（"futu" / "yahoo" / "stooq" / "tushare" / "ftshare" / "akshare" / "longbridge"），可选
+            prefer: 强制指定数据源（"futu" / "yahoo" / "tushare" / "ftshare" / "akshare" / "longbridge"），可选
             require_fresh: 是否要求返回可用于交易草稿的实时行情
             max_age_seconds: 调用方指定的最大行情年龄，默认读取环境变量 / 内置策略
 
@@ -353,7 +373,7 @@ class DataSourceRegistry:
         当前仅打印日志，后续可扩展为写入数据库或时序存储。
 
         Args:
-            source:  数据源标识（如 "yahoo" / "stooq" / "longbridge"）
+            source:  数据源标识（如 "yahoo" / "longbridge"）
             success: 本次请求是否成功
             error:   失败时的错误信息
         """
@@ -375,15 +395,17 @@ class DataSourceRegistry:
 
         checks = [
             _check_one("yahoo", "AAPL"),
-            _check_one("stooq", "AAPL"),
             _check_one("futu", "AAPL"),
             _check_one("tushare", "SH600519"),
             _check_one("ftshare", "SH600519"),
-            _check_one("akshare", "SH600519"),
             _check_one("longbridge", "HK00700"),
         ]
+        if self._akshare_enabled():
+            checks.append(_check_one("akshare", "SH600519"))
         results = await asyncio.gather(*checks)
-        return {name: ok for name, ok in results}
+        health = {name: ok for name, ok in results}
+        health.setdefault("akshare", False)
+        return health
 
 
 def _positive_int_env(name: str, default: int) -> int:

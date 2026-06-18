@@ -9,8 +9,12 @@ import { requireUser } from '@/lib/supabase';
 export const runtime = 'nodejs';
 
 function jsonError(error: unknown, status = 400) {
+  const message = error instanceof Error ? error.message : '微信 Claw 绑定操作失败';
+  if (message.includes('已绑定到其他账号')) {
+    status = 409;
+  }
   return NextResponse.json(
-    { error: error instanceof Error ? error.message : '微信 Claw 绑定操作失败' },
+    { error: message },
     { status }
   );
 }

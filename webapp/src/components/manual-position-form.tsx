@@ -3,6 +3,16 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+interface ManualPositionApiResult {
+  message?: string;
+  error?: string;
+  discipline?: {
+    result?: string;
+    hits?: Array<{ name: string; message: string; actionOnViolation: string }>;
+    message?: string;
+  };
+}
+
 export default function ManualPositionForm() {
   const router = useRouter();
   const [symbol, setSymbol] = useState('');
@@ -46,7 +56,7 @@ export default function ManualPositionForm() {
         note,
       }),
     });
-    const result = await response.json().catch(() => ({}));
+    const result = (await response.json().catch(() => ({}))) as ManualPositionApiResult;
     setLoading(false);
 
     if (!response.ok) {
@@ -54,7 +64,11 @@ export default function ManualPositionForm() {
       return;
     }
 
-    setMessage(result.message || '持仓已记录');
+    const disciplineHits = result.discipline?.hits ?? [];
+    const disciplineMessage = disciplineHits.length
+      ? ` 纪律提醒：${disciplineHits.map((hit) => `${hit.name}：${hit.message}`).join('；')}`
+      : '';
+    setMessage(`${result.message || '持仓已记录'}${disciplineMessage}`);
     setSymbol('');
     setName('');
     setQuantity('');
@@ -167,7 +181,7 @@ export default function ManualPositionForm() {
           value={note}
           onChange={(event) => setNote(event.target.value)}
           rows={3}
-          placeholder="例如：从券商 App 人工核对录入"
+          placeholder="例如：从交易 App 或结单人工核对录入"
           className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
         />
       </label>

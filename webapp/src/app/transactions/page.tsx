@@ -31,7 +31,7 @@ function formatCurrency(value: number | null | undefined, market?: string): stri
 function sourceLabel(source: string): string {
   switch (source) {
     case 'manual': return '手动录入';
-    case 'broker_wechat': return '券商微信';
+    case 'broker_wechat': return '交易消息';
     case 'ocr': return '截图识别';
     case 'batch_import': return '批量导入';
     default: return source;

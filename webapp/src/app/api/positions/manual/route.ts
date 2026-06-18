@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
       status: 'saved',
       position: result.position,
       snapshotId: result.snapshotId,
+      discipline: result.discipline,
       message: '持仓已记录，并已刷新当前账户的持仓快照。',
     });
   } catch (error) {

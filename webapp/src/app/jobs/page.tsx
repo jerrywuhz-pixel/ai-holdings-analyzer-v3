@@ -80,7 +80,7 @@ function jobTypeLabel(type: string): string {
   const map: Record<string, string> = {
     'position-aggregate': '持仓聚合',
     'daily-analysis': '每日分析',
-    'broker-parse': '券商解析',
+    'broker-parse': '来源解析',
     'trade-input': '交易录入',
     'weekly-report': '周报生成',
     'profit_taking': '止盈计划',

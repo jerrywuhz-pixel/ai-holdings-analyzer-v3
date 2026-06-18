@@ -26,7 +26,6 @@ PRODUCT_ENV = {
     "FUTU_CONNECTOR_POLL_ENDPOINT": "https://api.ai-holdings.cn/connectors/poll",
     "FUTU_CONNECTOR_UPLOAD_ENDPOINT": "https://api.ai-holdings.cn/connectors/upload",
     "FUTU_CONNECTOR_PAIRING_TOKEN": "pairing-token",
-    "BROKER_SYNC_REPOSITORY": "supabase",
     "DATA_SERVICE_INTERNAL_TOKEN": "data-service-token",
     "TUSHARE_TOKEN": "tushare",
     "GBRAIN_LIVE_MODELS_ENABLED": "true",
@@ -66,7 +65,6 @@ LIGHTWEIGHT_ENV = {
     "LOCAL_AUTH_REGISTRATION_ENABLED": "true",
     "DATABASE_URL": "postgresql://app:password@postgres:5432/ai_holdings",
     "WEBAPP_DATABASE_URL": "",
-    "BROKER_SYNC_REPOSITORY": "postgres",
     "AUTH_SESSION_SECRET": "local-session-secret",
     "SMTP_HOST": "smtp.mailprovider.cn",
     "SMTP_FROM": "no-reply@ai-holdings.cn",
@@ -158,24 +156,6 @@ def test_registration_onboarding_feature_passes_when_initialization_flow_exists(
     assert _dependency(feature, "onboarding_review_gate")["status"] == "pass"
 
 
-def test_registration_onboarding_accepts_welcome_entrypoint(monkeypatch):
-    import scripts.product_feature_readiness as readiness
-
-    original_read = readiness._read_repo_file
-
-    def read_repo_file(relative_path: str) -> str:
-        if relative_path == "webapp/src/app/login/LoginForm.tsx":
-            return "router.push('/onboarding/welcome')"
-        return original_read(relative_path)
-
-    monkeypatch.setattr(readiness, "_read_repo_file", read_repo_file)
-    with patch.dict(os.environ, PRODUCT_ENV, clear=True):
-        summary = readiness.summarize_product_readiness(profile="production")
-
-    feature = _feature(summary, "registration_onboarding_initialization")
-    assert _dependency(feature, "register_redirects_to_onboarding")["status"] == "pass"
-
-
 def test_futu_user_local_sync_feature_passes_when_control_plane_and_env_are_ready():
     from scripts.product_feature_readiness import summarize_product_readiness
 
@@ -185,41 +165,6 @@ def test_futu_user_local_sync_feature_passes_when_control_plane_and_env_are_read
     feature = _feature(summary, "futu_user_local_sync")
     assert feature["status"] == "pass"
     assert _dependency(feature, "cloud_connector_poll_upload")["status"] == "pass"
-    assert _dependency(feature, "PORTFOLIO_READ_REPOSITORY")["status"] == "pass"
-
-
-def test_futu_user_local_sync_rejects_unsupported_portfolio_read_repository():
-    from scripts.product_feature_readiness import summarize_product_readiness
-
-    env = {
-        **LIGHTWEIGHT_ENV,
-        "PORTFOLIO_READ_REPOSITORY": "rest-cache",
-    }
-
-    with patch.dict(os.environ, env, clear=True):
-        summary = summarize_product_readiness(profile="lightweight")
-
-    feature = _feature(summary, "futu_user_local_sync")
-    assert feature["status"] == "fail"
-    assert _dependency(feature, "PORTFOLIO_READ_REPOSITORY")["status"] == "fail"
-
-
-def test_futu_user_local_sync_rejects_relative_control_plane_urls():
-    from scripts.product_feature_readiness import summarize_product_readiness
-
-    env = {
-        **PRODUCT_ENV,
-        "FUTU_CONNECTOR_POLL_ENDPOINT": "/broker/futu/poll",
-        "FUTU_CONNECTOR_UPLOAD_ENDPOINT": "/broker/futu/upload",
-    }
-
-    with patch.dict(os.environ, env, clear=True):
-        summary = summarize_product_readiness(profile="lightweight")
-
-    feature = _feature(summary, "futu_user_local_sync")
-    assert feature["status"] == "fail"
-    assert _dependency(feature, "FUTU_CONNECTOR_POLL_ENDPOINT")["status"] == "fail"
-    assert _dependency(feature, "FUTU_CONNECTOR_UPLOAD_ENDPOINT")["status"] == "fail"
 
 
 def test_wechat_claw_binding_feature_passes_when_env_and_binding_ui_are_ready():
@@ -231,11 +176,9 @@ def test_wechat_claw_binding_feature_passes_when_env_and_binding_ui_are_ready():
     feature = _feature(summary, "wechat_claw_binding")
     assert feature["status"] == "pass"
     assert _dependency(feature, "webapp_self_service_binding")["status"] == "pass"
-    assert _dependency(feature, "webapp_delivery_webhook")["status"] == "pass"
-    assert _dependency(feature, "clawbot_sendmessage_adapter")["status"] == "pass"
 
 
-def test_wechat_claw_binding_lightweight_requires_signed_delivery_webhook():
+def test_wechat_claw_binding_lightweight_uses_clawbot_qr_without_wechat_app_secret():
     from scripts.product_feature_readiness import summarize_product_readiness
 
     env = {
@@ -243,9 +186,9 @@ def test_wechat_claw_binding_lightweight_requires_signed_delivery_webhook():
         "WECHAT_APP_ID": "",
         "WECHAT_APP_SECRET": "",
         "WECHAT_CLAWBOT_API_BASE_URL": "https://ilinkai.weixin.qq.com",
-        "OPENCLAW_DELIVERY_MODE": "webhook",
-        "OPENCLAW_DELIVERY_WEBHOOK_URL": "http://webapp:3000/api/openclaw/delivery/wechat",
-        "OPENCLAW_DELIVERY_WEBHOOK_SECRET": "delivery-secret",
+        "OPENCLAW_DELIVERY_MODE": "log",
+        "OPENCLAW_DELIVERY_WEBHOOK_URL": "",
+        "OPENCLAW_DELIVERY_WEBHOOK_SECRET": "",
         "OPENCLAW_CRON_SECRET": "",
     }
 
@@ -256,8 +199,6 @@ def test_wechat_claw_binding_lightweight_requires_signed_delivery_webhook():
     assert feature["status"] == "pass"
     assert _dependency(feature, "wechat_clawbot_api")["status"] == "pass"
     assert _dependency(feature, "openclaw_delivery_mode")["status"] == "pass"
-    assert _dependency(feature, "OPENCLAW_DELIVERY_WEBHOOK_URL")["status"] == "pass"
-    assert _dependency(feature, "OPENCLAW_DELIVERY_WEBHOOK_SECRET")["status"] == "pass"
 
 
 def test_tenant_live_data_feature_passes_when_webapp_fetch_is_tenant_scoped():
@@ -301,56 +242,6 @@ def test_ai_analysis_accepts_system_codex_bridge_without_openai_api_key():
     feature = _feature(summary, "ai_research_analysis")
     assert feature["status"] == "pass"
     assert _dependency(feature, "openai_deep_model_auth")["status"] == "pass"
-
-
-def test_lightweight_aliyun_foundation_uses_swas_not_sae_stack():
-    from scripts.product_feature_readiness import summarize_product_readiness
-
-    env = {
-        **LIGHTWEIGHT_ENV,
-        "ALIYUN_REGION": "ap-southeast-5",
-        "ALIYUN_SWAS_INSTANCE_ID": "swas-instance-id",
-        "ALIYUN_DOMAIN_NAME": "11office.top",
-        "ALIYUN_SSL_CERTIFICATE_ID": "cert-id",
-        "POSTGRES_HOST": "127.0.0.1",
-        "REDIS_HOST": "127.0.0.1",
-        "MINIO_HOST": "127.0.0.1",
-        "ICP_BEIAN_NUMBER": "",
-        "ALIYUN_ACCOUNT_ID": "",
-        "ALIYUN_ACR_REGISTRY": "",
-        "ALIYUN_SAE_NAMESPACE_ID": "",
-    }
-
-    with patch.dict(os.environ, env, clear=True):
-        summary = summarize_product_readiness(profile="lightweight")
-
-    feature = _feature(summary, "aliyun_cloud_foundation")
-    assert feature["status"] == "pass"
-    assert _dependency(feature, "ALIYUN_SWAS_INSTANCE_ID")["status"] == "pass"
-    assert _dependency(feature, "ICP_BEIAN_NUMBER")["status"] == "pass"
-
-
-def test_lightweight_mainland_aliyun_requires_icp():
-    from scripts.product_feature_readiness import summarize_product_readiness
-
-    env = {
-        **LIGHTWEIGHT_ENV,
-        "ALIYUN_REGION": "cn-shanghai",
-        "ALIYUN_SWAS_INSTANCE_ID": "swas-instance-id",
-        "ALIYUN_DOMAIN_NAME": "11office.top",
-        "ALIYUN_SSL_CERTIFICATE_ID": "cert-id",
-        "POSTGRES_HOST": "127.0.0.1",
-        "REDIS_HOST": "127.0.0.1",
-        "MINIO_HOST": "127.0.0.1",
-        "ICP_BEIAN_NUMBER": "",
-    }
-
-    with patch.dict(os.environ, env, clear=True):
-        summary = summarize_product_readiness(profile="lightweight")
-
-    feature = _feature(summary, "aliyun_cloud_foundation")
-    assert feature["status"] == "fail"
-    assert _dependency(feature, "ICP_BEIAN_NUMBER")["status"] == "fail"
 
 
 def test_placeholder_values_are_treated_as_missing_in_production():

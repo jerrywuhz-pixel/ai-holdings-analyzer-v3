@@ -9,8 +9,19 @@ function sourceLabel(sourceType: string) {
   if (sourceType === 'message_trade_input') return '买卖消息';
   if (sourceType === 'ocr') return '截图识别';
   if (sourceType === 'voice_asr') return '语音识别';
-  if (sourceType === 'broker_api') return '券商只读连接';
+  if (sourceType === 'broker_api') return '系统行情源';
   return sourceType;
+}
+
+function sourceNameLabel(sourceName: string, sourceType: string) {
+  if (sourceType === 'broker_api' || sourceName.includes('富途') || sourceName.includes('券商')) {
+    return '系统 Futu 行情源';
+  }
+  return sourceName;
+}
+
+function providerLabel(provider: string) {
+  return provider.toLowerCase().includes('futu') ? 'system_market_data' : provider;
 }
 
 export default async function SettingsPage() {
@@ -36,7 +47,7 @@ export default async function SettingsPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
                 <p className="text-xs text-slate-500">登录方式</p>
-                <p className="mt-1 text-white">{session.provider === 'local' ? '本地登录' : 'Supabase'}</p>
+                <p className="mt-1 text-white">Supabase</p>
               </div>
               <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
                 <p className="text-xs text-slate-500">账号状态</p>
@@ -89,7 +100,7 @@ export default async function SettingsPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Panel title="资产视图" description="首期支持多个资产视图，后续券商账户、手工录入、消息和 OCR 来源都通过视图聚合。">
+        <Panel title="资产视图" description="首期支持多个资产视图，后续系统行情、手工录入、消息和 OCR 来源都通过视图聚合。">
           <div className="space-y-3">
             {account.portfolioViews.map((view) => (
               <div key={view.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
@@ -123,7 +134,7 @@ export default async function SettingsPage() {
         </Panel>
       </div>
 
-      <Panel title="资产数据来源" description="所有来源都写在当前 tenant 下，后续微信、富途 OpenD、OCR 和语音写入时会记录 lineage。">
+      <Panel title="资产数据来源" description="所有来源都写在当前 tenant 下，后续微信、系统行情、OCR 和语音写入时会记录 lineage。">
         <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full divide-y divide-white/8 text-sm">
             <thead className="text-left text-slate-400">
@@ -138,13 +149,13 @@ export default async function SettingsPage() {
             <tbody className="divide-y divide-white/8">
               {account.assetSources.map((source) => (
                 <tr key={source.id}>
-                  <td className="px-3 py-3 font-medium text-white">{source.sourceName}</td>
+                  <td className="px-3 py-3 font-medium text-white">{sourceNameLabel(source.sourceName, source.sourceType)}</td>
                   <td className="px-3 py-3 text-slate-300">{sourceLabel(source.sourceType)}</td>
-                  <td className="px-3 py-3 text-slate-300">{source.provider}</td>
+                  <td className="px-3 py-3 text-slate-300">{providerLabel(source.provider)}</td>
                   <td className="px-3 py-3 text-slate-300">{source.sourceQuality}</td>
                   <td className="px-3 py-3">
                     <StatusPill tone={source.isActive ? 'positive' : 'muted'}>
-                      {source.isActive ? '启用' : '待连接'}
+                      {source.isActive ? '启用' : '待启用'}
                     </StatusPill>
                   </td>
                 </tr>
@@ -157,10 +168,10 @@ export default async function SettingsPage() {
             <div key={source.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium text-white">{source.sourceName}</p>
-                  <p className="mt-1 text-sm text-slate-400">{sourceLabel(source.sourceType)} · {source.provider}</p>
+                  <p className="font-medium text-white">{sourceNameLabel(source.sourceName, source.sourceType)}</p>
+                  <p className="mt-1 text-sm text-slate-400">{sourceLabel(source.sourceType)} · {providerLabel(source.provider)}</p>
                 </div>
-                <StatusPill tone={source.isActive ? 'positive' : 'muted'}>{source.isActive ? '启用' : '待连接'}</StatusPill>
+                <StatusPill tone={source.isActive ? 'positive' : 'muted'}>{source.isActive ? '启用' : '待启用'}</StatusPill>
               </div>
             </div>
           ))}

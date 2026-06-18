@@ -34,6 +34,12 @@ SUPPORTED_POST_CONFIRMATION_JOB_TYPES = {
 }
 
 
+def _json_safe(value: Any) -> Any:
+    import json
+
+    return json.loads(json.dumps(value, default=str))
+
+
 @dataclass
 class PostConfirmationWorkerStats:
     scanned: int = 0
@@ -333,223 +339,348 @@ class SupabasePostConfirmationWorkerRepository:
 
 class PostgresPostConfirmationWorkerRepository:
     def __init__(self, database_url: str) -> None:
+        if not database_url:
+            raise ValueError("database_url is required")
         self._database_url = database_url
 
-    @staticmethod
-    def _adapt(value: Any) -> Any:
-        if isinstance(value, (dict, list)):
-            from psycopg.types.json import Jsonb
-
-            return Jsonb(value)
-        return value
-
     async def list_pending_jobs(self, job_types: set[str], limit: int = 20) -> list[dict[str, Any]]:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
         def _query() -> list[dict[str, Any]]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT *
-                        FROM public.job_runs
-                        WHERE status = 'PENDING'
-                          AND job_type = ANY(%s)
-                        ORDER BY created_at ASC
-                        LIMIT %s
-                        """,
-                        [list(job_types), limit],
-                    )
-                    return [dict(row) for row in cur.fetchall()]
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM public.job_runs
+                    WHERE status = 'PENDING'
+                      AND job_type = ANY(%s)
+                    ORDER BY created_at ASC
+                    LIMIT %s
+                    """,
+                    (sorted(job_types), limit),
+                ).fetchall()
+                return [dict(row) for row in rows]
 
         return await asyncio.to_thread(_query)
 
     async def start_job(self, job_id: str, now: datetime) -> None:
-        await self._update("job_runs", job_id, {"status": "RUNNING", "started_at": now})
+        await self._update_job(job_id, {"status": "RUNNING", "started_at": now.isoformat()})
 
     async def complete_job(self, job_id: str, result: dict[str, Any], now: datetime) -> None:
-        await self._update(
-            "job_runs",
+        await self._update_job(
             job_id,
-            {"status": "SUCCESS", "result_summary": result, "completed_at": now},
+            {
+                "status": "SUCCESS",
+                "result_summary": _json_safe(result),
+                "completed_at": now.isoformat(),
+            },
         )
 
     async def fail_job(self, job_id: str, error: str, now: datetime) -> None:
-        from psycopg import connect
-
         def _update() -> None:
-            with connect(self._database_url) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        UPDATE public.job_runs
-                        SET status = 'FAILED',
-                            error_message = %s,
-                            retry_count = COALESCE(retry_count, 0) + 1,
-                            completed_at = %s
-                        WHERE id = %s
-                        """,
-                        [error, now, job_id],
-                    )
+            import psycopg
+
+            with psycopg.connect(self._database_url) as conn:
+                conn.execute(
+                    """
+                    UPDATE public.job_runs
+                    SET status = 'FAILED',
+                        error_message = %s,
+                        retry_count = COALESCE(retry_count, 0) + 1,
+                        completed_at = %s
+                    WHERE id = %s::uuid
+                    """,
+                    (error, now.isoformat(), job_id),
+                )
+                conn.commit()
 
         await asyncio.to_thread(_update)
 
     async def update_pending_action(self, pending_action_id: str, updates: dict[str, Any]) -> None:
-        await self._update("pending_actions", pending_action_id, updates)
+        await self._update_row("pending_actions", pending_action_id, updates)
 
     async def append_confirmation_event(self, payload: dict[str, Any]) -> None:
-        await self._insert("confirmation_events", payload)
+        def _insert() -> None:
+            import psycopg
+            from psycopg.types.json import Jsonb
+
+            safe = _json_safe(payload)
+            with psycopg.connect(self._database_url) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO public.confirmation_events (
+                      id, tenant_id, pending_action_id, confirmation_session_id,
+                      event_type, actor_type, actor_ref, event_payload, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        safe.get("id") or str(uuid.uuid4()),
+                        safe["tenant_id"],
+                        safe.get("pending_action_id"),
+                        safe.get("confirmation_session_id"),
+                        safe["event_type"],
+                        safe.get("actor_type"),
+                        safe.get("actor_ref"),
+                        Jsonb(safe.get("event_payload") or {}),
+                        safe.get("created_at"),
+                    ),
+                )
+                conn.commit()
+
+        await asyncio.to_thread(_insert)
 
     async def insert_trade_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
         fingerprint = payload.get("broker_message_fingerprint")
 
         def _insert() -> dict[str, Any]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    if fingerprint:
-                        cur.execute(
-                            """
-                            SELECT *
-                            FROM public.trade_events
-                            WHERE tenant_id = %s AND broker_message_fingerprint = %s
-                            LIMIT 1
-                            """,
-                            [payload["tenant_id"], fingerprint],
-                        )
-                        existing = cur.fetchone()
-                        if existing:
-                            return dict(existing)
-                    return self._insert_sync(cur, "trade_events", payload)
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                if fingerprint:
+                    existing = conn.execute(
+                        """
+                        SELECT *
+                        FROM public.trade_events
+                        WHERE tenant_id = %s
+                          AND broker_message_fingerprint = %s
+                        LIMIT 1
+                        """,
+                        (payload["tenant_id"], fingerprint),
+                    ).fetchone()
+                    if existing:
+                        return dict(existing)
+                safe = _json_safe(payload)
+                row = conn.execute(
+                    """
+                    INSERT INTO public.trade_events (
+                      id, tenant_id, symbol, provider_symbol, market, exchange,
+                      stock_name, side, price, quantity, trade_amount, trade_date,
+                      note, strategy_tag, source, broker_message_fingerprint, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING *
+                    """,
+                    (
+                        safe.get("id") or str(uuid.uuid4()),
+                        safe["tenant_id"],
+                        safe["symbol"],
+                        safe.get("provider_symbol"),
+                        safe.get("market"),
+                        safe.get("exchange"),
+                        safe.get("stock_name"),
+                        safe["side"],
+                        safe.get("price"),
+                        safe.get("quantity"),
+                        safe.get("trade_amount"),
+                        safe.get("trade_date"),
+                        safe.get("note"),
+                        safe.get("strategy_tag"),
+                        safe.get("source"),
+                        safe.get("broker_message_fingerprint"),
+                        safe.get("created_at"),
+                    ),
+                ).fetchone()
+                conn.commit()
+                return dict(row) if row else safe
 
         return await asyncio.to_thread(_insert)
 
     async def list_trade_events(self, tenant_id: str, symbol: str) -> list[dict[str, Any]]:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
         def _query() -> list[dict[str, Any]]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT *
-                        FROM public.trade_events
-                        WHERE tenant_id = %s AND symbol = %s
-                        ORDER BY trade_date ASC, created_at ASC
-                        """,
-                        [tenant_id, symbol],
-                    )
-                    return [dict(row) for row in cur.fetchall()]
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM public.trade_events
+                    WHERE tenant_id = %s
+                      AND symbol = %s
+                    ORDER BY trade_date ASC, created_at ASC
+                    """,
+                    (tenant_id, symbol),
+                ).fetchall()
+                return [dict(row) for row in rows]
 
         return await asyncio.to_thread(_query)
 
     async def upsert_position_snapshot(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._upsert_by_columns(
-            "position_snapshots",
-            payload,
-            {
-                "tenant_id": payload["tenant_id"],
-                "symbol": payload["symbol"],
-                "snapshot_date": payload["snapshot_date"],
-            },
-        )
-
-    async def upsert_artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._upsert_by_columns(
-            "artifact_registry",
-            payload,
-            {
-                "tenant_id": payload["tenant_id"],
-                "artifact_key": payload["artifact_key"],
-            },
-        )
-
-    async def _insert(self, table: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from psycopg import connect
-        from psycopg.rows import dict_row
-
-        def _insert() -> dict[str, Any]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    return self._insert_sync(cur, table, payload)
-
-        return await asyncio.to_thread(_insert)
-
-    def _insert_sync(self, cur: Any, table: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from psycopg import sql
-
-        columns = list(payload.keys())
-        query = sql.SQL("INSERT INTO public.{table} ({columns}) VALUES ({values}) RETURNING *").format(
-            table=sql.Identifier(table),
-            columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
-            values=sql.SQL(", ").join(sql.Placeholder() for _ in columns),
-        )
-        cur.execute(query, [self._adapt(payload[column]) for column in columns])
-        row = cur.fetchone()
-        return dict(row) if row else dict(payload)
-
-    async def _update(self, table: str, record_id: str, updates: dict[str, Any]) -> None:
-        from psycopg import connect, sql
-
-        def _update() -> None:
-            with connect(self._database_url) as conn:
-                with conn.cursor() as cur:
-                    query = sql.SQL("UPDATE public.{table} SET {updates} WHERE id = %s").format(
-                        table=sql.Identifier(table),
-                        updates=sql.SQL(", ").join(
-                            sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
-                            for column in updates
-                        ),
-                    )
-                    cur.execute(query, [*[self._adapt(value) for value in updates.values()], record_id])
-
-        await asyncio.to_thread(_update)
-
-    async def _upsert_by_columns(
-        self,
-        table: str,
-        payload: dict[str, Any],
-        match: dict[str, Any],
-    ) -> dict[str, Any]:
-        from psycopg import connect, sql
-        from psycopg.rows import dict_row
-
         def _upsert() -> dict[str, Any]:
-            with connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cur:
-                    where_clause = sql.SQL(" AND ").join(
-                        sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
-                        for column in match
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg.types.json import Jsonb
+
+            safe = _json_safe(payload)
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                existing = conn.execute(
+                    """
+                    SELECT id
+                    FROM public.position_snapshots
+                    WHERE tenant_id = %s
+                      AND symbol = %s
+                      AND snapshot_date = %s
+                    LIMIT 1
+                    """,
+                    (safe["tenant_id"], safe["symbol"], safe["snapshot_date"]),
+                ).fetchone()
+                record_id = str(existing["id"]) if existing else (safe.get("id") or str(uuid.uuid4()))
+                row = conn.execute(
+                    """
+                    INSERT INTO public.position_snapshots (
+                      id, tenant_id, symbol, provider_symbol, market, exchange,
+                      stock_name, total_quantity, average_cost, total_cost,
+                      snapshot_date, computed_from_event_ids, created_at,
+                      source_type, source_tier, source_actionability, source_as_of, source_lineage
                     )
-                    cur.execute(
-                        sql.SQL("SELECT id FROM public.{table} WHERE {where_clause} LIMIT 1").format(
-                            table=sql.Identifier(table),
-                            where_clause=where_clause,
-                        ),
-                        list(match.values()),
-                    )
-                    existing = cur.fetchone()
-                    if existing:
-                        record_id = str(existing["id"])
-                        updates = dict(payload)
-                        updates.pop("id", None)
-                        query = sql.SQL("UPDATE public.{table} SET {updates} WHERE id = %s RETURNING *").format(
-                            table=sql.Identifier(table),
-                            updates=sql.SQL(", ").join(
-                                sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder())
-                                for column in updates
-                            ),
-                        )
-                        cur.execute(query, [*[self._adapt(value) for value in updates.values()], record_id])
-                        row = cur.fetchone()
-                        return dict(row) if row else {**payload, "id": record_id}
-                    return self._insert_sync(cur, table, payload)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid[], %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                      provider_symbol = EXCLUDED.provider_symbol,
+                      market = EXCLUDED.market,
+                      exchange = EXCLUDED.exchange,
+                      stock_name = EXCLUDED.stock_name,
+                      total_quantity = EXCLUDED.total_quantity,
+                      average_cost = EXCLUDED.average_cost,
+                      total_cost = EXCLUDED.total_cost,
+                      computed_from_event_ids = EXCLUDED.computed_from_event_ids,
+                      source_type = EXCLUDED.source_type,
+                      source_tier = EXCLUDED.source_tier,
+                      source_actionability = EXCLUDED.source_actionability,
+                      source_as_of = EXCLUDED.source_as_of,
+                      source_lineage = EXCLUDED.source_lineage
+                    RETURNING *
+                    """,
+                    (
+                        record_id,
+                        safe["tenant_id"],
+                        safe["symbol"],
+                        safe.get("provider_symbol"),
+                        safe.get("market"),
+                        safe.get("exchange"),
+                        safe.get("stock_name"),
+                        safe.get("total_quantity"),
+                        safe.get("average_cost"),
+                        safe.get("total_cost"),
+                        safe.get("snapshot_date"),
+                        safe.get("computed_from_event_ids") or [],
+                        safe.get("created_at"),
+                        safe.get("source_type"),
+                        safe.get("source_tier"),
+                        safe.get("source_actionability"),
+                        safe.get("source_as_of"),
+                        Jsonb(safe.get("source_lineage") or {}),
+                    ),
+                ).fetchone()
+                conn.commit()
+                return dict(row) if row else safe
 
         return await asyncio.to_thread(_upsert)
+
+    async def upsert_artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
+        def _upsert() -> dict[str, Any]:
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg.types.json import Jsonb
+
+            safe = _json_safe(payload)
+            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+                existing = conn.execute(
+                    """
+                    SELECT id
+                    FROM public.artifact_registry
+                    WHERE tenant_id = %s
+                      AND artifact_key = %s
+                    LIMIT 1
+                    """,
+                    (safe["tenant_id"], safe["artifact_key"]),
+                ).fetchone()
+                record_id = str(existing["id"]) if existing else (safe.get("id") or str(uuid.uuid4()))
+                row = conn.execute(
+                    """
+                    INSERT INTO public.artifact_registry (
+                      id, tenant_id, source_run_id, run_contract_id, artifact_key,
+                      artifact_type, artifact_status, visibility, storage_backend,
+                      storage_bucket, storage_path, mime_type, content_hash,
+                      source_lineage, artifact_metadata, retention_until, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                      artifact_type = EXCLUDED.artifact_type,
+                      artifact_status = EXCLUDED.artifact_status,
+                      visibility = EXCLUDED.visibility,
+                      storage_backend = EXCLUDED.storage_backend,
+                      storage_bucket = EXCLUDED.storage_bucket,
+                      storage_path = EXCLUDED.storage_path,
+                      mime_type = EXCLUDED.mime_type,
+                      content_hash = EXCLUDED.content_hash,
+                      source_lineage = EXCLUDED.source_lineage,
+                      artifact_metadata = EXCLUDED.artifact_metadata,
+                      retention_until = EXCLUDED.retention_until,
+                      updated_at = EXCLUDED.updated_at
+                    RETURNING *
+                    """,
+                    (
+                        record_id,
+                        safe["tenant_id"],
+                        safe.get("source_run_id"),
+                        safe.get("run_contract_id"),
+                        safe["artifact_key"],
+                        safe["artifact_type"],
+                        safe.get("artifact_status", "ready"),
+                        safe.get("visibility", "tenant"),
+                        safe.get("storage_backend"),
+                        safe.get("storage_bucket"),
+                        safe.get("storage_path"),
+                        safe.get("mime_type"),
+                        safe.get("content_hash"),
+                        Jsonb(safe.get("source_lineage") or {}),
+                        Jsonb(safe.get("artifact_metadata") or {}),
+                        safe.get("retention_until"),
+                        safe.get("created_at"),
+                        safe.get("updated_at"),
+                    ),
+                ).fetchone()
+                conn.commit()
+                return dict(row) if row else safe
+
+        return await asyncio.to_thread(_upsert)
+
+    async def _update_job(self, job_id: str, updates: dict[str, Any]) -> None:
+        await self._update_row("job_runs", job_id, updates)
+
+    async def _update_row(self, table: str, row_id: str, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+        allowed_tables = {"job_runs", "pending_actions"}
+        if table not in allowed_tables:
+            raise ValueError(f"unsupported table update: {table}")
+
+        def _update() -> None:
+            import psycopg
+            from psycopg.types.json import Jsonb
+
+            assignments: list[str] = []
+            values: list[Any] = []
+            for key, value in updates.items():
+                assignments.append(f"{key} = %s")
+                if key in {"config", "result_summary", "action_payload", "normalized_summary"}:
+                    values.append(Jsonb(_json_safe(value)))
+                else:
+                    values.append(value)
+            values.append(row_id)
+            with psycopg.connect(self._database_url) as conn:
+                cursor = conn.execute(
+                    f"UPDATE public.{table} SET {', '.join(assignments)} WHERE id = %s::uuid",
+                    tuple(values),
+                )
+                if cursor.rowcount == 0:
+                    raise ValueError(f"{table} row not found: {row_id}")
+                conn.commit()
+
+        await asyncio.to_thread(_update)
 
 
 class PostConfirmationJobWorker:
@@ -655,6 +786,7 @@ class PostConfirmationJobWorker:
 
         snapshot_ids: list[str] = []
         symbols: list[str] = []
+        symbols_requiring_review: list[str] = []
         for position in positions:
             payload = _position_snapshot_payload_from_row(
                 tenant_id=str(job["tenant_id"]),
@@ -664,11 +796,15 @@ class PostConfirmationJobWorker:
             snapshot = await self._repository.upsert_position_snapshot(payload)
             snapshot_ids.append(str(snapshot.get("id") or ""))
             symbols.append(str(payload["symbol"]))
+            if (payload.get("source_lineage") or {}).get("requires_symbol_review"):
+                symbols_requiring_review.append(str(payload["symbol"]))
 
         return {
             "handler": "confirmed_position_snapshot_import",
             "positions_count": len(positions),
             "symbols": symbols,
+            "symbols_requiring_review": symbols_requiring_review,
+            "requires_symbol_review_count": len(symbols_requiring_review),
             "snapshot_ids": [item for item in snapshot_ids if item],
             "snapshot_id": snapshot_ids[0] if snapshot_ids else None,
         }
@@ -1370,7 +1506,7 @@ def _receipt_content(
     if not success:
         text = (
             "这次确认已收到，但后台处理暂时失败。当前没有改动持仓，也没有下单。"
-            "系统已保留这条确认，可稍后重试；必要时请去 WebApp 确认中心查看最新状态。"
+            "系统已保留这条确认，可稍后通过微信重试；必要时可在确认中心查看最新状态。"
         )
         return {
             "title": "处理暂时失败",
@@ -1396,6 +1532,9 @@ def _receipt_content(
         text = f"已根据确认的截图识别结果写入持仓系统，共 {count} 个标的"
         if symbol_text:
             text += f"：{symbol_text}"
+        review_count = int(result.get("requires_symbol_review_count") or 0)
+        if review_count:
+            text += f"。其中 {review_count} 个标的只有名称没有代码，已标记为需补代码，暂不作为交易草稿依据"
         text += "。这只是持仓记录，不会自动下单。"
         title = "持仓截图已写入"
     elif job_type == "confirmed_sell_put_draft_finalize":
@@ -1407,7 +1546,7 @@ def _receipt_content(
     elif job_type == "confirmation_rebuild_request":
         text = (
             "已收到修改要求。本次原确认没有改动持仓，也没有下单。"
-            "请重新发送修正后的内容；必要时请去 WebApp 确认中心查看最新状态。"
+            "请通过微信重新发送修正后的内容；必要时可在确认中心查看最新状态。"
         )
         title = "修改要求已记录"
     elif job_type == "confirmed_broker_conflict_reconcile":
@@ -1433,14 +1572,14 @@ def _receipt_content(
 def create_post_confirmation_worker_from_env() -> PostConfirmationJobWorker:
     import os
 
-    database_url = os.getenv("DATABASE_URL", "").strip()
-    repository_mode = os.getenv("OPENCLAW_POST_CONFIRMATION_REPOSITORY", "postgres").strip().lower()
-    if database_url and repository_mode in {"postgres", "direct_postgres", "auto"}:
-        from openclaw.gateway.outbox import create_outbox_repository_from_env
+    database_url = os.getenv("DATABASE_URL") or os.getenv("GBRAIN_DATABASE_URL")
+    repository_backend = os.getenv("OPENCLAW_POST_CONFIRMATION_REPOSITORY", "").strip().lower()
+    if database_url and repository_backend == "postgres":
+        from openclaw.gateway.outbox import PostgresOutboxRepository
 
         return PostConfirmationJobWorker(
             PostgresPostConfirmationWorkerRepository(database_url),
-            receipt_outbox=DeliveryOutboxService(create_outbox_repository_from_env()),
+            receipt_outbox=DeliveryOutboxService(PostgresOutboxRepository(database_url)),
         )
 
     supabase_url = os.getenv("SUPABASE_URL")

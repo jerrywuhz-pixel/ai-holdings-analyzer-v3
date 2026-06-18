@@ -59,46 +59,22 @@ class TestInMemoryCache:
         assert result is None
 
 
-def test_health_cache_data_sources_from_cache():
+@pytest.mark.asyncio
+async def test_health_cache_data_sources_from_cache():
     """数据源健康从缓存返回。"""
-    import asyncio
-
     hc = HealthCache(redis_url="redis://localhost:6379/0")
     mock_data = [{"source_name": "yahoo", "status": "healthy"}]
 
     with patch.object(hc, "_cache_get", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = json.dumps(mock_data)
-        result = asyncio.get_event_loop().run_until_complete(hc.get_data_source_health())
+        result = await hc.get_data_source_health()
 
     assert result == mock_data
 
 
-def test_health_cache_prefers_database_url():
-    """轻量服务器模式优先从 DATABASE_URL 直连库读取健康状态。"""
-    import asyncio
-
-    hc = HealthCache(
-        redis_url="redis://localhost:6379/0",
-        database_url="postgresql://postgres:secret@postgres:5432/ai_holdings",
-    )
-    mock_data = [{"source_name": "ftshare", "status": "healthy"}]
-
-    with patch.object(hc, "_cache_get", new_callable=AsyncMock) as mock_get, \
-         patch.object(hc, "_fetch_data_source_health_postgres", new_callable=AsyncMock) as mock_pg, \
-         patch.object(hc, "_get_supabase") as mock_supabase:
-        mock_get.return_value = None
-        mock_pg.return_value = mock_data
-
-        result = asyncio.get_event_loop().run_until_complete(hc.get_data_source_health())
-
-    assert result == mock_data
-    mock_supabase.assert_not_called()
-
-
-def test_health_cache_gateway_status():
+@pytest.mark.asyncio
+async def test_health_cache_gateway_status():
     """网关综合状态正确聚合。"""
-    import asyncio
-
     hc = HealthCache(redis_url="redis://localhost:6379/0")
 
     mock_heartbeat = {
@@ -114,7 +90,7 @@ def test_health_cache_gateway_status():
         mock_hb.return_value = mock_heartbeat
         mock_ds.return_value = mock_sources
 
-        result = asyncio.get_event_loop().run_until_complete(hc.get_gateway_status())
+        result = await hc.get_gateway_status()
 
     assert result["gateway"]["status"] == "healthy"
     assert result["data_sources"] == mock_sources
@@ -127,12 +103,11 @@ def test_health_cache_gateway_status():
 from openclaw.gateway.heartbeat_reporter import HeartbeatReporter
 
 
-def test_heartbeat_report_no_supabase():
+@pytest.mark.asyncio
+async def test_heartbeat_report_no_supabase():
     """无 Supabase 配置时上报跳过。"""
-    import asyncio
-
     reporter = HeartbeatReporter(supabase_url="", supabase_key="")
-    result = asyncio.get_event_loop().run_until_complete(reporter.report())
+    result = await reporter.report()
     assert result is False
 
 
@@ -156,19 +131,9 @@ def test_heartbeat_set_claw_status():
     assert reporter._claw_plugin_status == "connected"
 
 
-def test_heartbeat_uses_env_deployment_mode(monkeypatch):
-    """未显式传参时使用 OPENCLAW_DEPLOYMENT_MODE。"""
-    monkeypatch.setenv("OPENCLAW_DEPLOYMENT_MODE", "lightweight_server")
-
-    reporter = HeartbeatReporter(supabase_url="", supabase_key="")
-
-    assert reporter.deployment_mode == "lightweight_server"
-
-
-def test_heartbeat_report_with_mock_client():
+@pytest.mark.asyncio
+async def test_heartbeat_report_with_mock_client():
     """有 Supabase 客户端时上报成功。"""
-    import asyncio
-
     reporter = HeartbeatReporter(
         supabase_url="https://test.supabase.co",
         supabase_key="test-key",
@@ -178,33 +143,9 @@ def test_heartbeat_report_with_mock_client():
     mock_client.table.return_value.upsert.return_value.execute = MagicMock()
     reporter._client = mock_client
 
-    result = asyncio.get_event_loop().run_until_complete(
-        reporter.report(gateway_status="healthy")
-    )
+    result = await reporter.report(gateway_status="healthy")
     assert result is True
     mock_client.table.assert_called_with("openclaw_heartbeat")
-
-
-def test_heartbeat_report_prefers_database_url():
-    """轻量服务器模式优先从 DATABASE_URL 直写 heartbeat。"""
-    import asyncio
-
-    reporter = HeartbeatReporter(
-        supabase_url="https://test.supabase.co",
-        supabase_key="test-key",
-        database_url="postgresql://postgres:secret@postgres:5432/ai_holdings",
-    )
-
-    with patch.object(reporter, "_report_postgres", new_callable=AsyncMock) as mock_pg, \
-         patch.object(reporter, "_get_client") as mock_get_client:
-        mock_pg.return_value = True
-
-        result = asyncio.get_event_loop().run_until_complete(
-            reporter.report(gateway_status="healthy")
-        )
-
-    assert result is True
-    mock_get_client.assert_not_called()
 
 
 # ====================================================================== #

@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { authEmailHash } from '@/lib/auth-audit';
 
 export type VerificationEmailResult =
   | { mode: 'smtp'; delivered: true }
@@ -16,10 +17,12 @@ export async function sendVerificationEmail({
   code: string;
 }): Promise<VerificationEmailResult> {
   const appName = process.env.AUTH_EMAIL_APP_NAME || 'AI 持仓分析系统';
-  const ttlMinutes = Number(process.env.AUTH_VERIFICATION_TTL_MINUTES || 10);
+  const ttlMinutes = Number(process.env.AUTH_VERIFICATION_TTL_MINUTES || 30);
 
   if (!smtpConfigured()) {
-    console.info(`[auth] verification code for ${to}: ${code} (expires in ${ttlMinutes} minutes)`);
+    console.info(
+      `[auth] verification code fallback email_hash=${authEmailHash(to)} code=${code} expires_in_minutes=${ttlMinutes}`
+    );
     return { mode: 'log', delivered: false };
   }
 
@@ -51,8 +54,10 @@ export async function sendVerificationEmail({
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'SMTP send failed';
-    console.error(`[auth] failed to send verification email to ${to}: ${message}`);
-    console.info(`[auth] verification code for ${to}: ${code} (expires in ${ttlMinutes} minutes)`);
+    console.error(`[auth] failed to send verification email email_hash=${authEmailHash(to)}: ${message}`);
+    console.info(
+      `[auth] verification code fallback email_hash=${authEmailHash(to)} code=${code} expires_in_minutes=${ttlMinutes}`
+    );
     return { mode: 'log', delivered: false, error: message };
   }
 

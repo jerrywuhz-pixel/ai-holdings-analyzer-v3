@@ -8,9 +8,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # 系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    ca-certificates \
     libpq-dev \
     curl \
+    git \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# MiniMax CLI is used by OpenClaw operations and the bundled mmx-cli skill.
+RUN npm install -g mmx-cli
 
 WORKDIR /app
 
@@ -32,7 +39,7 @@ ENV PORT=8080
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+    CMD curl --fail --silent --show-error --connect-timeout 1 --max-time 3 http://localhost:${PORT}/health || exit 1
 
 # Cloud Run 使用 PORT 环境变量
-CMD ["sh", "-c", "uvicorn gateway_app:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2"]
+CMD ["sh", "-c", "if [ -n \"$MINIMAX_API_KEY\" ] && command -v mmx >/dev/null 2>&1; then mmx auth login --api-key \"$MINIMAX_API_KEY\" >/dev/null 2>&1 || true; fi; uvicorn gateway_app:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2"]

@@ -135,7 +135,7 @@ export default async function ConfirmationResolvePage({
           <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
             <p className="text-sm font-medium text-white">安全边界</p>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              确认后系统只会记录事实、保存规则或生成草稿；涉及实际交易的内容仍需你在券商端独立确认。
+              确认后系统只会记录事实、保存规则或生成草稿；涉及实际交易的内容仍需你在交易端独立确认。
             </p>
           </div>
         </div>

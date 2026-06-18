@@ -293,7 +293,7 @@ class SupabasePortfolioSnapshotRepository:
                 .execute()
             )
             if not snapshot_response.data:
-                return None
+                return self._load_manual_positions_bundle(tenant_id)
 
             snapshot = _select_best_snapshot(snapshot_response.data)
             snapshot_id = snapshot["id"]
@@ -334,79 +334,131 @@ class SupabasePortfolioSnapshotRepository:
 
         return await asyncio.to_thread(_load_bundle)
 
+    def _load_manual_positions_bundle(self, tenant_id: str) -> Optional[BrokerSnapshotBundle]:
+        rows = (
+            self._client.table("webapp_manual_positions")
+            .select(
+                "id, tenant_id, instrument_type, symbol, name, market, exchange, position_side, "
+                "quantity, average_cost, market_price, market_value, currency, source_quality, "
+                "source_tier, source_actionability, source_as_of, source_lineage, note, updated_at"
+            )
+            .eq("tenant_id", tenant_id)
+            .eq("position_status", "open")
+            .order("updated_at", desc=True)
+            .execute()
+        ).data or []
+        if not rows:
+            return None
+
+        newest_updated_at = max(_to_datetime(row.get("updated_at")) for row in rows)
+        positions: list[dict[str, Any]] = []
+        for row in rows:
+            updated_at = row.get("source_as_of") or row.get("updated_at")
+            positions.append(
+                {
+                    "provider_symbol": row.get("symbol"),
+                    "instrument_type": row.get("instrument_type") or "stock",
+                    "market": row.get("market") or "",
+                    "exchange": row.get("exchange"),
+                    "position_side": row.get("position_side") or "long",
+                    "quantity": row.get("quantity"),
+                    "average_cost": row.get("average_cost"),
+                    "cost_basis": _manual_cost_basis(row),
+                    "market_price": row.get("market_price"),
+                    "market_value": row.get("market_value"),
+                    "currency": row.get("currency") or "USD",
+                    "source_quality": row.get("source_quality") or "user_confirmed",
+                    "position_payload": {
+                        "name": row.get("name"),
+                        "note": row.get("note"),
+                        "source": "webapp_manual_positions",
+                        "source_tier": row.get("source_tier"),
+                        "source_actionability": row.get("source_actionability"),
+                        "source_lineage": row.get("source_lineage") or {},
+                    },
+                    "as_of": updated_at,
+                }
+            )
+
+        return BrokerSnapshotBundle(
+            snapshot=_manual_snapshot(tenant_id, newest_updated_at),
+            positions=positions,
+            cash_balances=[],
+            margin_balances=[],
+        )
+
 
 class PostgresPortfolioSnapshotRepository:
-    def __init__(self, database_url: str) -> None:
-        if not database_url.strip():
-            raise PortfolioReadModelConfigurationError(
-                "DATABASE_URL is required for postgres portfolio read model queries"
-            )
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        connect_factory: Callable[..., Any] | None = None,
+    ) -> None:
         self._database_url = database_url
+        self._connect_factory = connect_factory
 
     async def get_latest_snapshot_bundle(self, tenant_id: str) -> Optional[BrokerSnapshotBundle]:
-        def _load_bundle() -> Optional[BrokerSnapshotBundle]:
-            import psycopg
-            from psycopg.rows import dict_row
+        return await asyncio.to_thread(self._load_bundle, tenant_id)
 
-            with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT
-                          id, tenant_id, broker_connection_id, status, as_of, received_at,
-                          source_quality, missing_fields, partial_components, created_at
-                        FROM public.broker_sync_snapshots
-                        WHERE tenant_id = %s
-                          AND status IN ('succeeded', 'partial')
-                        ORDER BY as_of DESC, received_at DESC, created_at DESC
-                        LIMIT 20
-                        """,
-                        (tenant_id,),
-                    )
-                    snapshots = cursor.fetchall()
-                    if not snapshots:
-                        return None
+    def _load_bundle(self, tenant_id: str) -> Optional[BrokerSnapshotBundle]:
+        connect_factory, row_factory = self._resolve_connection()
+        with connect_factory(self._database_url) as connection:
+            snapshots = self._fetch_all(
+                connection,
+                row_factory,
+                """
+                SELECT id, tenant_id, broker_connection_id, status, as_of, received_at,
+                       source_quality, missing_fields, partial_components
+                FROM public.broker_sync_snapshots
+                WHERE tenant_id = %s
+                  AND status IN ('succeeded', 'partial')
+                ORDER BY as_of DESC, received_at DESC, created_at DESC
+                LIMIT 20
+                """,
+                (tenant_id,),
+            )
+            if not snapshots:
+                return self._load_manual_positions_bundle(connection, row_factory, tenant_id)
 
-                    snapshot = _select_best_snapshot([dict(row) for row in snapshots])
-                    snapshot_id = snapshot["id"]
-                    cursor.execute(
-                        """
-                        SELECT
-                          provider_symbol, instrument_type, market, exchange, position_side, quantity,
-                          average_cost, cost_basis, market_price, market_value, currency, source_quality,
-                          position_payload, as_of
-                        FROM public.broker_position_snapshots
-                        WHERE tenant_id = %s
-                          AND broker_sync_snapshot_id = %s
-                        """,
-                        (tenant_id, snapshot_id),
-                    )
-                    positions = [dict(row) for row in cursor.fetchall()]
-
-                    cursor.execute(
-                        """
-                        SELECT currency, total_cash, available_cash, buying_power, source_quality, as_of
-                        FROM public.cash_balance_snapshots
-                        WHERE tenant_id = %s
-                          AND broker_sync_snapshot_id = %s
-                        """,
-                        (tenant_id, snapshot_id),
-                    )
-                    cash_balances = [dict(row) for row in cursor.fetchall()]
-
-                    cursor.execute(
-                        """
-                        SELECT
-                          currency, margin_available, option_buying_power, cash_secured_requirement,
-                          source_quality, as_of
-                        FROM public.margin_balance_snapshots
-                        WHERE tenant_id = %s
-                          AND broker_sync_snapshot_id = %s
-                        """,
-                        (tenant_id, snapshot_id),
-                    )
-                    margin_balances = [dict(row) for row in cursor.fetchall()]
-
+            snapshot = _select_best_snapshot(snapshots)
+            snapshot_id = snapshot["id"]
+            positions = self._fetch_all(
+                connection,
+                row_factory,
+                """
+                SELECT provider_symbol, instrument_type, market, exchange, position_side, quantity,
+                       average_cost, cost_basis, market_price, market_value, currency, source_quality,
+                       position_payload, as_of
+                FROM public.broker_position_snapshots
+                WHERE tenant_id = %s
+                  AND broker_sync_snapshot_id = %s
+                """,
+                (tenant_id, snapshot_id),
+            )
+            cash_balances = self._fetch_all(
+                connection,
+                row_factory,
+                """
+                SELECT currency, total_cash, available_cash, buying_power, source_quality, as_of
+                FROM public.cash_balance_snapshots
+                WHERE tenant_id = %s
+                  AND broker_sync_snapshot_id = %s
+                """,
+                (tenant_id, snapshot_id),
+            )
+            margin_balances = self._fetch_all(
+                connection,
+                row_factory,
+                """
+                SELECT currency, margin_available, option_buying_power, cash_secured_requirement,
+                       source_quality, as_of
+                FROM public.margin_balance_snapshots
+                WHERE tenant_id = %s
+                  AND broker_sync_snapshot_id = %s
+                """,
+                (tenant_id, snapshot_id),
+            )
             return BrokerSnapshotBundle(
                 snapshot=snapshot,
                 positions=positions,
@@ -414,7 +466,55 @@ class PostgresPortfolioSnapshotRepository:
                 margin_balances=margin_balances,
             )
 
-        return await asyncio.to_thread(_load_bundle)
+    def _load_manual_positions_bundle(
+        self,
+        connection: Any,
+        row_factory: Any,
+        tenant_id: str,
+    ) -> Optional[BrokerSnapshotBundle]:
+        rows = self._fetch_all(
+            connection,
+            row_factory,
+            """
+            SELECT id, tenant_id, instrument_type, symbol, name, market, exchange, position_side,
+                   quantity, average_cost, market_price, market_value, currency, source_quality,
+                   source_tier, source_actionability, source_as_of, source_lineage, note, updated_at
+            FROM public.webapp_manual_positions
+            WHERE tenant_id = %s
+              AND position_status = 'open'
+            ORDER BY updated_at DESC
+            """,
+            (tenant_id,),
+        )
+        if not rows:
+            return None
+
+        newest_updated_at = max(_to_datetime(row.get("updated_at")) for row in rows)
+        return BrokerSnapshotBundle(
+            snapshot=_manual_snapshot(tenant_id, newest_updated_at),
+            positions=[_manual_position_to_broker_position(row) for row in rows],
+            cash_balances=[],
+            margin_balances=[],
+        )
+
+    def _resolve_connection(self) -> tuple[Callable[..., Any], Any]:
+        if self._connect_factory is not None:
+            return self._connect_factory, None
+
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise PortfolioReadModelConfigurationError("psycopg dependency is required for DATABASE_URL portfolio queries") from exc
+
+        return psycopg.connect, dict_row
+
+    @staticmethod
+    def _fetch_all(connection: Any, row_factory: Any, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        cursor_kwargs = {"row_factory": row_factory} if row_factory is not None else {}
+        with connection.cursor(**cursor_kwargs) as cursor:
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
 
 
 def _select_best_snapshot(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -440,17 +540,7 @@ def _status_priority(value: Any) -> int:
 
 
 def create_portfolio_read_model_service_from_env() -> PortfolioReadModelService:
-    mode = (
-        os.getenv("PORTFOLIO_READ_REPOSITORY", "").strip().lower()
-        or os.getenv("BROKER_SYNC_REPOSITORY", "").strip().lower()
-    )
-    if mode in {"postgres", "local_postgres", "database_url"}:
-        return PortfolioReadModelService(
-            repository=PostgresPortfolioSnapshotRepository(os.getenv("DATABASE_URL", "").strip())
-        )
-    if mode and mode not in {"supabase", "supabase_rest"}:
-        raise PortfolioReadModelConfigurationError(f"unsupported PORTFOLIO_READ_REPOSITORY: {mode}")
-    return PortfolioReadModelService(repository=create_supabase_portfolio_snapshot_repository_from_env())
+    return PortfolioReadModelService(repository=create_portfolio_snapshot_repository_from_env())
 
 
 def create_supabase_portfolio_snapshot_repository_from_env() -> SupabasePortfolioSnapshotRepository:
@@ -469,6 +559,21 @@ def create_supabase_portfolio_snapshot_repository_from_env() -> SupabasePortfoli
     return SupabasePortfolioSnapshotRepository(create_client(url, key))
 
 
+def create_portfolio_snapshot_repository_from_env() -> PortfolioSnapshotRepository:
+    url = os.getenv("SUPABASE_URL", "").strip()
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if url and key:
+        return create_supabase_portfolio_snapshot_repository_from_env()
+
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url:
+        return PostgresPortfolioSnapshotRepository(database_url)
+
+    raise PortfolioReadModelConfigurationError(
+        "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY or DATABASE_URL is required for portfolio read model queries"
+    )
+
+
 def _build_freshness(snapshot: dict[str, Any], *, now: datetime) -> PortfolioFreshnessDTO:
     as_of = _to_datetime(snapshot.get("as_of"))
     received_at = _to_datetime(snapshot.get("received_at"))
@@ -485,6 +590,47 @@ def _build_freshness(snapshot: dict[str, Any], *, now: datetime) -> PortfolioFre
         missing_fields=[str(item) for item in snapshot.get("missing_fields") or []],
         partial_components=[str(item) for item in snapshot.get("partial_components") or []],
     )
+
+
+def _manual_snapshot(tenant_id: str, updated_at: datetime) -> dict[str, Any]:
+    return {
+        "id": f"manual-webapp:{tenant_id}",
+        "tenant_id": tenant_id,
+        "broker_connection_id": None,
+        "status": "succeeded",
+        "as_of": updated_at,
+        "received_at": updated_at,
+        "source_quality": "user_confirmed",
+        "missing_fields": [],
+        "partial_components": ["manual_positions_fallback"],
+    }
+
+
+def _manual_position_to_broker_position(row: dict[str, Any]) -> dict[str, Any]:
+    updated_at = row.get("source_as_of") or row.get("updated_at")
+    return {
+        "provider_symbol": row.get("symbol"),
+        "instrument_type": row.get("instrument_type") or "stock",
+        "market": row.get("market") or "",
+        "exchange": row.get("exchange"),
+        "position_side": row.get("position_side") or "long",
+        "quantity": row.get("quantity"),
+        "average_cost": row.get("average_cost"),
+        "cost_basis": _manual_cost_basis(row),
+        "market_price": row.get("market_price"),
+        "market_value": row.get("market_value"),
+        "currency": row.get("currency") or "USD",
+        "source_quality": row.get("source_quality") or "user_confirmed",
+        "position_payload": {
+            "name": row.get("name"),
+            "note": row.get("note"),
+            "source": "webapp_manual_positions",
+            "source_tier": row.get("source_tier"),
+            "source_actionability": row.get("source_actionability"),
+            "source_lineage": row.get("source_lineage") or {},
+        },
+        "as_of": updated_at,
+    }
 
 
 def _split_positions(
@@ -750,6 +896,14 @@ def _optional_float(value: Any) -> Optional[float]:
     if value is None:
         return None
     return _to_float(value)
+
+
+def _manual_cost_basis(row: dict[str, Any]) -> Optional[float]:
+    average_cost = _optional_float(row.get("average_cost"))
+    quantity = _optional_float(row.get("quantity"))
+    if average_cost is None or quantity is None:
+        return None
+    return average_cost * quantity
 
 
 def _to_float(value: Any) -> float:

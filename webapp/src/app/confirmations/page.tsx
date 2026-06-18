@@ -16,7 +16,8 @@ const typeLabel = {
   asr_fix: '语音识别修正',
   rule_change: '规则变更',
   sell_put_trade_draft: 'Sell Put 草稿',
-  broker_conflict: '券商账户差异',
+  broker_conflict: '历史来源差异',
+  source_conflict: '来源差异',
   portfolio_view_change: '资产视图变更',
 } as const;
 
@@ -45,8 +46,8 @@ export default async function ConfirmationsPage({
     <div className="space-y-6">
       <PageHeader
         eyebrow="确认中心"
-        title="所有需要你确认的记录和修正都在这里"
-        description="交易录入、截图 / 语音修正、规则变更、Sell Put 草稿和券商账户差异都会在这里等待你确认。确认只会记录结果或生成草稿，不会自动下单。"
+        title="微信和页面里的待确认事项在这里统一查看"
+        description="交易录入、截图 / 语音修正、规则变更、Sell Put 草稿和来源差异都会先进入确认中心。你可以通过微信口令完成二次确认，也可以在这里核对同一事项的状态和证据。确认只会记录结果或生成草稿，不会自动下单。"
         actions={<InlineLink href="/data">查看数据来源与证据</InlineLink>}
       />
 
@@ -54,7 +55,7 @@ export default async function ConfirmationsPage({
         state={snapshot.state}
         errorMessage={snapshot.errorMessage}
         emptyTitle="当前没有待处理确认"
-        emptyDetail="交易录入、截图 / 语音修正、规则变更或券商账户差异产生后会在这里聚合。"
+        emptyDetail="交易录入、截图 / 语音修正、规则变更或来源差异产生后会在这里聚合。"
       />
 
       {snapshot.data ? (

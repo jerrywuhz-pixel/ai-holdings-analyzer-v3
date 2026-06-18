@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import {
-  hasSupabaseAuthConfig,
-  isLocalAuthEnabled,
-} from '@/lib/supabase';
-import { resendLocalRegistrationCode } from '@/lib/local-auth-store';
-import { sendVerificationEmail } from '@/lib/email';
+import { hasSupabaseAuthConfig } from '@/lib/supabase';
+import { authAudit } from '@/lib/auth-audit';
 
 export const runtime = 'nodejs';
 
@@ -17,25 +13,19 @@ function verificationResponse({
   provider,
   email,
   delivery,
-  expiresAt,
   message,
-  debugCode,
 }: {
-  provider: 'supabase' | 'local';
+  provider: 'supabase';
   email: string;
   delivery: 'email_sent' | 'server_log';
-  expiresAt?: string;
   message: string;
-  debugCode?: string;
 }) {
   return NextResponse.json({
     status: 'verification_required',
     provider,
     email,
     delivery,
-    expiresAt,
     message,
-    debugCode,
   });
 }
 
@@ -44,63 +34,54 @@ export async function POST(request: NextRequest) {
   const email = String(body?.email || '').trim();
 
   if (!email) {
+    authAudit('resend_verification_rejected', { request, level: 'warn', reason: 'missing_email' });
     return NextResponse.json({ error: '请输入邮箱' }, { status: 400 });
   }
 
-  const authMode = process.env.AUTH_MODE || 'auto';
-  const canUseSupabase = authMode !== 'local' && hasSupabaseAuthConfig();
+  if (!hasSupabaseAuthConfig()) {
+    return NextResponse.json({ error: '未配置 Supabase 登录环境，请先补齐登录环境变量' }, { status: 500 });
+  }
 
-  if (canUseSupabase) {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '',
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '',
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    );
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email,
-      options: {
-        emailRedirectTo: `${getBaseUrl(request)}/login?verified=1`,
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '',
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '',
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
       },
+    }
+  );
+
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: {
+      emailRedirectTo: `${getBaseUrl(request)}/login?verified=1`,
+    },
+  });
+
+  if (error) {
+    authAudit('resend_verification_failed', {
+      email,
+      request,
+      level: 'warn',
+      provider: 'supabase',
+      reason: error.message || 'resend_error',
     });
-
-    if (!error) {
-      return verificationResponse({
-        provider: 'supabase',
-        email,
-        delivery: 'email_sent',
-        message: '确认邮件已重新发送，请打开邮箱完成验证后再登录。',
-      });
-    }
-
-    if (!isLocalAuthEnabled()) {
-      return NextResponse.json({ error: error.message || '重新发送失败' }, { status: 400 });
-    }
+    return NextResponse.json({ error: error.message || '重新发送失败' }, { status: 400 });
   }
 
-  try {
-    const pending = await resendLocalRegistrationCode(email);
-    const delivery = await sendVerificationEmail({ to: pending.email, code: pending.code });
-    return verificationResponse({
-      provider: 'local',
-      email: pending.email,
-      delivery: delivery.mode === 'smtp' ? 'email_sent' : 'server_log',
-      expiresAt: pending.expiresAt,
-      message:
-        delivery.mode === 'smtp'
-          ? '验证码已重新发送到邮箱，请输入验证码完成注册。'
-          : '邮件服务暂未配置，验证码已写入服务器日志。测试阶段可从 WebApp 容器日志查看。',
-      debugCode: process.env.AUTH_EXPOSE_LOCAL_CODE === 'true' ? pending.code : undefined,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '重新发送失败' },
-      { status: 400 }
-    );
-  }
+  authAudit('resend_verification_succeeded', {
+    email,
+    request,
+    provider: 'supabase',
+    delivery: 'email_sent',
+  });
+  return verificationResponse({
+    provider: 'supabase',
+    email,
+    delivery: 'email_sent',
+    message: '确认邮件已重新发送，请打开邮箱完成验证后再登录。',
+  });
 }

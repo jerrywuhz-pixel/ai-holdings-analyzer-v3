@@ -111,6 +111,30 @@ describe("ModelAdapter", () => {
         assert.equal(deepPolicy.primary.provider, "openai");
         assert.equal(deepPolicy.primary.model, "gpt-5.5");
         assert.equal(deepPolicy.primary.mode, "stub");
+        assert.equal(deepPolicy.fallbacks[0].provider, "minimax");
+        assert.equal(deepPolicy.fallbacks[0].model, "text-01");
+      },
+    );
+  });
+
+  test("routes investment job types to GPT primary before MiniMax fallback", async () => {
+    await withEnv(
+      {
+        MINIMAX_MODEL: "MiniMax-M3",
+        HERMES_DEEP_PROVIDER: "openai-codex",
+        HERMES_DEEP_MODEL: "gpt-5.5",
+        OPENAI_CODEX_AUTH_PROFILE: undefined,
+        OPENAI_CODEX_BRIDGE_BASE_URL: undefined,
+        GBRAIN_LIVE_MODELS_ENABLED: undefined,
+      },
+      () => {
+        const policy = createDefaultHermesModelPolicy(5 * 60 * 1000, "standard", "equity_analysis");
+
+        assert.equal(policy.primary.provider, "openai-codex");
+        assert.equal(policy.primary.model, "gpt-5.5");
+        assert.equal(policy.fallbacks[0].provider, "minimax");
+        assert.equal(policy.fallbacks[0].model, "MiniMax-M3");
+        assert.equal(policy.fallbacks[1].provider, "fallback-template");
       },
     );
   });

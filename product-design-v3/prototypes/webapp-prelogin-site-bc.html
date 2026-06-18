@@ -1,0 +1,1348 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI 持仓系统 3.0 登录前站点</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #fafafa;
+        --paper: #ffffff;
+        --soft: #f6f1ee;
+        --soft-red: #fff1f0;
+        --ink: #171417;
+        --muted: #6f686b;
+        --line: #e5ddd9;
+        --line-strong: #d8ccc7;
+        --red: #d71920;
+        --red-dark: #9f1118;
+        --graphite: #262225;
+        --green: #0f8f5f;
+        --blue: #3b6fd8;
+        --shadow: 0 22px 70px rgba(61, 38, 32, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+        overflow-x: hidden;
+      }
+
+      body {
+        margin: 0;
+        overflow-x: hidden;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        line-height: 1.55;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid rgba(216, 204, 199, 0.82);
+        background: rgba(250, 250, 250, 0.88);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav {
+        width: min(1180px, calc(100% - 40px));
+        min-height: 72px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 900;
+      }
+
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, var(--red), #f24b4f 55%, var(--red-dark));
+        box-shadow: 0 8px 22px rgba(215, 25, 32, 0.22);
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        color: #4f494c;
+        font-size: 14px;
+        font-weight: 720;
+      }
+
+      .nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 10px 16px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        background: var(--red);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 850;
+        white-space: nowrap;
+      }
+
+      .button.secondary {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--line-strong);
+      }
+
+      .section {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 96px 0;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 740px;
+        overflow: hidden;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(250, 250, 250, 1) 0%, rgba(250, 250, 250, 0.94) 37%, rgba(250, 250, 250, 0.42) 70%, rgba(250, 250, 250, 0.18) 100%),
+          radial-gradient(circle at 83% 14%, rgba(215, 25, 32, 0.2), transparent 32%),
+          linear-gradient(135deg, #ffffff, #f7f0ec 58%, #fff);
+      }
+
+      .hero-inner {
+        position: relative;
+        z-index: 2;
+        width: min(1180px, calc(100% - 40px));
+        min-height: 740px;
+        margin: 0 auto;
+        display: grid;
+        align-items: center;
+      }
+
+      .hero-copy {
+        max-width: 560px;
+        padding: 84px 0;
+      }
+
+      .hero h1 {
+        margin: 0 0 22px;
+        max-width: 590px;
+        font-size: 58px;
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+
+      .hero h1 span {
+        display: block;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 550px;
+        color: #514b4e;
+        font-size: 19px;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 30px;
+      }
+
+      .hero-proof {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        max-width: 560px;
+        margin-top: 34px;
+      }
+
+      .proof-item {
+        padding: 14px 0;
+        border-top: 2px solid var(--red);
+      }
+
+      .proof-item strong {
+        display: block;
+        font-size: 22px;
+      }
+
+      .proof-item span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .hero-product {
+        position: absolute;
+        top: 126px;
+        right: max(40px, calc((100vw - 1180px) / 2));
+        width: min(560px, 42vw);
+        border: 1px solid rgba(39, 34, 37, 0.14);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+        transform: rotate(-1.2deg);
+      }
+
+      .product-topbar {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .window-dots {
+        display: flex;
+        gap: 6px;
+      }
+
+      .window-dots span {
+        width: 9px;
+        height: 9px;
+        border-radius: 99px;
+        background: var(--red);
+      }
+
+      .window-dots span:nth-child(2) {
+        background: #e6b144;
+      }
+
+      .window-dots span:nth-child(3) {
+        background: var(--green);
+      }
+
+      .product-body {
+        display: grid;
+        grid-template-columns: 0.9fr 1.1fr;
+        min-height: 430px;
+      }
+
+      .asset-panel {
+        padding: 18px;
+        border-right: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .panel-title {
+        margin: 0 0 12px;
+        color: #4b4548;
+        font-size: 13px;
+        font-weight: 880;
+      }
+
+      .asset-row,
+      .task-row,
+      .source-row,
+      .faq-row {
+        display: grid;
+        gap: 3px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .asset-row b,
+      .task-row b,
+      .source-row b,
+      .faq-row b {
+        font-size: 14px;
+      }
+
+      .asset-row span,
+      .task-row span,
+      .source-row span,
+      .faq-row span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .insight-panel {
+        padding: 18px;
+        background: #fffaf8;
+      }
+
+      .score-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .score {
+        min-height: 74px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .score span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .score strong {
+        display: block;
+        margin-top: 5px;
+        color: var(--red);
+        font-size: 20px;
+      }
+
+      .mini-chart {
+        height: 128px;
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(215, 25, 32, 0.13), transparent),
+          repeating-linear-gradient(
+            to right,
+            transparent,
+            transparent 40px,
+            rgba(38, 34, 37, 0.06) 41px
+          );
+      }
+
+      .mini-chart::after {
+        content: "";
+        position: absolute;
+        inset: 18px 16px 18px;
+        clip-path: polygon(
+          0 70%,
+          10% 50%,
+          19% 58%,
+          30% 38%,
+          42% 46%,
+          53% 30%,
+          66% 42%,
+          78% 24%,
+          89% 30%,
+          100% 20%,
+          100% 100%,
+          0 100%
+        );
+        background: rgba(215, 25, 32, 0.34);
+        border-top: 3px solid var(--red);
+      }
+
+      .task-list {
+        margin-top: 14px;
+      }
+
+      .band {
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: var(--soft);
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 0.78fr) minmax(260px, 0.42fr);
+        gap: 40px;
+        align-items: end;
+        margin-bottom: 42px;
+      }
+
+      .section-head h2 {
+        margin: 0;
+        max-width: 760px;
+        font-size: 42px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      .section-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .source-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        border-top: 1px solid var(--line-strong);
+        border-left: 1px solid var(--line-strong);
+      }
+
+      .source-cell {
+        min-height: 176px;
+        padding: 18px;
+        border-right: 1px solid var(--line-strong);
+        border-bottom: 1px solid var(--line-strong);
+        background: #fff;
+      }
+
+      .source-cell h3 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .source-cell p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .source-cell:first-child {
+        background: var(--red);
+        color: #fff;
+      }
+
+      .source-cell:first-child p {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .onboarding {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
+        gap: 50px;
+        align-items: center;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .timeline-row {
+        display: grid;
+        grid-template-columns: 74px 1fr;
+        gap: 18px;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .timeline-num {
+        display: inline-flex;
+        width: 42px;
+        height: 42px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: var(--soft-red);
+        color: var(--red);
+        font-weight: 950;
+      }
+
+      .timeline-row h3 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+
+      .timeline-row p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .phone-preview {
+        width: min(360px, 100%);
+        margin-left: auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .phone-screen {
+        padding: 18px;
+      }
+
+      .phone-step {
+        padding: 14px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .phone-step b {
+        display: block;
+        margin-bottom: 3px;
+      }
+
+      .phone-step span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .module-layout {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 36px;
+        align-items: start;
+      }
+
+      .module-nav {
+        position: sticky;
+        top: 96px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .module-nav a {
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+        color: #50484b;
+        font-weight: 820;
+      }
+
+      .module-nav a:first-child {
+        color: var(--red);
+      }
+
+      .module-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .module-card {
+        min-height: 238px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .module-card h3 {
+        margin: 0 0 10px;
+        font-size: 23px;
+      }
+
+      .module-card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .module-card strong {
+        display: block;
+        margin-top: 24px;
+        color: var(--red);
+        font-size: 28px;
+      }
+
+      .research {
+        background: #19161a;
+        color: #fff;
+      }
+
+      .research .section-head p {
+        color: #beb7bb;
+      }
+
+      .research-flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+      }
+
+      .flow-step {
+        min-height: 214px;
+        padding: 18px;
+        border-right: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .flow-step:last-child {
+        border-right: 0;
+      }
+
+      .flow-step b {
+        display: block;
+        margin-bottom: 12px;
+        color: #ff6b72;
+        font-size: 15px;
+      }
+
+      .flow-step h3 {
+        margin: 0 0 10px;
+        font-size: 22px;
+      }
+
+      .flow-step p {
+        margin: 0;
+        color: #c9c2c6;
+        font-size: 14px;
+      }
+
+      .evidence-panel {
+        margin-top: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .evidence-row {
+        display: grid;
+        grid-template-columns: 132px 1fr 128px;
+        gap: 14px;
+        align-items: center;
+        padding: 16px 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .evidence-row:last-child {
+        border-bottom: 0;
+      }
+
+      .evidence-row b {
+        color: #ff6b72;
+      }
+
+      .evidence-row span {
+        color: #d9d2d6;
+      }
+
+      .evidence-row small {
+        color: #aaa2a7;
+        font-size: 12px;
+      }
+
+      .wechat-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 390px;
+        gap: 48px;
+        align-items: center;
+      }
+
+      .message-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .message {
+        max-width: 620px;
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .message.user {
+        margin-left: auto;
+        border-color: rgba(215, 25, 32, 0.28);
+        background: var(--soft-red);
+      }
+
+      .message b {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .message span {
+        color: var(--muted);
+      }
+
+      .wechat-phone {
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .wechat-phone-header {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--graphite);
+        color: #fff;
+        font-weight: 850;
+      }
+
+      .wechat-phone-body {
+        display: grid;
+        gap: 10px;
+        padding: 16px;
+      }
+
+      .wechat-bubble {
+        padding: 12px;
+        border-radius: 8px;
+        background: #f1f4f1;
+        color: #262225;
+        font-size: 13px;
+      }
+
+      .wechat-bubble.red {
+        background: var(--soft-red);
+        border: 1px solid rgba(215, 25, 32, 0.2);
+      }
+
+      .pricing-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .price-card {
+        min-height: 420px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .price-card.featured {
+        border-color: rgba(215, 25, 32, 0.5);
+        box-shadow: 0 18px 58px rgba(215, 25, 32, 0.12);
+      }
+
+      .price-card h3 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+
+      .price-card p {
+        min-height: 48px;
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .price {
+        margin: 24px 0 18px;
+        font-size: 42px;
+        font-weight: 950;
+      }
+
+      .price small {
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .feature-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .feature-list li {
+        display: grid;
+        grid-template-columns: 10px 1fr;
+        gap: 10px;
+        color: #4e484b;
+        font-size: 14px;
+      }
+
+      .feature-list li::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        margin-top: 8px;
+        border-radius: 99px;
+        background: var(--red);
+      }
+
+      .faq-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 36px;
+        border-top: 1px solid var(--line);
+      }
+
+      .faq-row {
+        min-height: 116px;
+        padding: 22px 0;
+      }
+
+      .final-cta {
+        padding: 84px 0;
+        border-top: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(215, 25, 32, 0.1), transparent 42%),
+          var(--graphite);
+        color: #fff;
+      }
+
+      .final-inner {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 28px;
+        align-items: center;
+      }
+
+      .final-inner h2 {
+        margin: 0 0 12px;
+        max-width: 720px;
+        font-size: 42px;
+        line-height: 1.12;
+      }
+
+      .final-inner p {
+        margin: 0;
+        max-width: 720px;
+        color: #d8d1d5;
+      }
+
+      .site-footer {
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        background: var(--graphite);
+        color: #cfc8cc;
+      }
+
+      .footer-inner {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 28px 0;
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        font-size: 13px;
+      }
+
+      @media (max-width: 980px) {
+        .nav-links {
+          display: none;
+        }
+
+        .hero {
+          min-height: auto;
+        }
+
+        .hero-inner {
+          min-height: auto;
+          padding: 70px 0 28px;
+        }
+
+        .hero h1 {
+          font-size: 46px;
+        }
+
+        .hero-product {
+          position: relative;
+          top: auto;
+          right: auto;
+          bottom: auto;
+          left: auto;
+          width: min(560px, calc(100% - 40px));
+          margin: 0 auto 56px;
+          transform: none;
+        }
+
+        .section-head,
+        .onboarding,
+        .module-layout,
+        .wechat-layout,
+        .final-inner {
+          grid-template-columns: 1fr;
+        }
+
+        .source-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .module-nav {
+          position: static;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .research-flow,
+        .pricing-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .flow-step {
+          border-right: 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+        }
+
+        .flow-step:last-child {
+          border-bottom: 0;
+        }
+
+        .phone-preview {
+          margin: 0;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .nav,
+        .section,
+        .hero-inner,
+        .final-inner,
+        .footer-inner {
+          width: min(1180px, calc(100% - 28px));
+        }
+
+        .site-header {
+          position: static;
+        }
+
+        .nav {
+          min-height: 64px;
+          gap: 10px;
+        }
+
+        .brand span:last-child {
+          max-width: 118px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .nav-actions .secondary {
+          display: none;
+        }
+
+        .button {
+          min-height: 40px;
+          padding: 9px 12px;
+          font-size: 13px;
+        }
+
+        .hero-inner {
+          padding: 48px 0 26px;
+        }
+
+        .hero-copy {
+          max-width: 100%;
+        }
+
+        .hero h1 {
+          font-size: 38px;
+          line-height: 1.08;
+        }
+
+        .hero p {
+          font-size: 16px;
+        }
+
+        .hero-proof,
+        .product-body,
+        .score-strip,
+        .source-grid,
+        .module-grid,
+        .faq-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-product {
+          width: min(560px, calc(100% - 28px));
+          margin-bottom: 34px;
+        }
+
+        .product-body {
+          min-height: auto;
+        }
+
+        .asset-panel {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .section {
+          padding: 66px 0;
+        }
+
+        .section-head {
+          gap: 14px;
+          margin-bottom: 28px;
+        }
+
+        .section-head h2,
+        .final-inner h2 {
+          font-size: 32px;
+        }
+
+        .source-cell {
+          min-height: 140px;
+        }
+
+        .timeline-row {
+          grid-template-columns: 48px 1fr;
+          gap: 12px;
+        }
+
+        .module-nav {
+          grid-template-columns: 1fr;
+        }
+
+        .evidence-row {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+
+        .wechat-phone {
+          width: 100%;
+        }
+
+        .price-card {
+          min-height: auto;
+        }
+
+        .footer-inner {
+          flex-direction: column;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .hero h1 {
+          font-size: 34px;
+        }
+
+        .hero-inner {
+          padding-bottom: 24px;
+        }
+
+        .score strong {
+          font-size: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="主导航">
+        <a class="brand" href="#">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>AI 持仓系统</span>
+        </a>
+        <div class="nav-links" aria-label="站点导航">
+          <a href="#sources">资产来源</a>
+          <a href="#modules">核心功能</a>
+          <a href="#research">AI 投研</a>
+          <a href="#pricing">会员方案</a>
+        </div>
+        <div class="nav-actions">
+          <a class="button secondary" href="#">登录</a>
+          <a class="button" href="#">免费开始</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <h1><span>把真实持仓</span><span>变成清晰行动</span></h1>
+            <p>
+              AI 持仓系统连接你的真实资产、交易纪律和微信提醒，把股票、ETF 和 Sell Put 期权分开分析，帮助你每天知道该观察什么、确认什么、复盘什么。
+            </p>
+            <div class="hero-actions">
+              <a class="button" href="#">创建第一份持仓视图</a>
+              <a class="button secondary" href="#modules">查看核心功能</a>
+            </div>
+            <div class="hero-proof" aria-label="产品能力摘要">
+              <div class="proof-item"><strong>多来源</strong><span>券商、手工、消息、OCR</span></div>
+              <div class="proof-item"><strong>双产品</strong><span>股票与期权独立分析</span></div>
+              <div class="proof-item"><strong>微信确认</strong><span>高风险动作先确认</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-product" aria-label="产品界面预览">
+          <div class="product-topbar">
+            <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span>portfolio.ai</span>
+            <span>今日 09:35</span>
+          </div>
+          <div class="product-body">
+            <div class="asset-panel">
+              <p class="panel-title">统一资产视图</p>
+              <div class="asset-row"><b>腾讯控股</b><span>0700.HK · Futu OpenD · 股票</span></div>
+              <div class="asset-row"><b>NVIDIA</b><span>NVDA · 买入消息 · 股票</span></div>
+              <div class="asset-row"><b>SPY Sell Put</b><span>期权链 · 资金占用 12%</span></div>
+              <div class="asset-row"><b>BABA 已清仓</b><span>清仓列表 · 等待二次买入条件</span></div>
+            </div>
+            <div class="insight-panel">
+              <p class="panel-title">今日行动清单</p>
+              <div class="score-strip">
+                <div class="score"><span>组合风险</span><strong>中等</strong></div>
+                <div class="score"><span>待确认</span><strong>3 条</strong></div>
+                <div class="score"><span>Sell Put</span><strong>2 个候选</strong></div>
+              </div>
+              <div class="mini-chart" aria-hidden="true"></div>
+              <div class="task-list">
+                <div class="task-row"><b>复核 NVDA 财报前期权风险</b><span>IV 抬升，Sell Put 候选降级</span></div>
+                <div class="task-row"><b>确认 0700.HK 纪律提醒</b><span>接近止损观察线，暂不自动执行</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" id="sources">
+        <div class="section">
+          <div class="section-head">
+            <h2>不用等所有系统都连好，先把资产来源记录清楚</h2>
+            <p>每一笔资产都会保留来源和更新时间。后续分析、推送和复盘都基于账号维度隔离的数据，而不是混在一段聊天记录里。</p>
+          </div>
+          <div class="source-grid">
+            <div class="source-cell">
+              <h3>Futu OpenD</h3>
+              <p>美港股和期权优先读取券商只读数据，本地运行，云端只接收脱敏结果。</p>
+            </div>
+            <div class="source-cell">
+              <h3>手工录入</h3>
+              <p>适合刚开始试用，或者只想先记录少量股票、ETF 和现金。</p>
+            </div>
+            <div class="source-cell">
+              <h3>买卖消息</h3>
+              <p>通过微信输入买入、卖出、加仓、清仓，系统解析后写入资产来源。</p>
+            </div>
+            <div class="source-cell">
+              <h3>截图 OCR</h3>
+              <p>从券商 App 截图快速识别持仓，用于初始化和人工校对。</p>
+            </div>
+            <div class="source-cell">
+              <h3>关注清单</h3>
+              <p>把可能买入的标的先放入观察区，记录触发条件和后续提醒。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="onboarding">
+          <div>
+            <div class="section-head" style="display:block; margin-bottom:30px">
+              <h2>新用户先完成一件事：建立第一份真实资产视图</h2>
+              <p style="margin-top:14px">系统会按步骤引导你，不要求一开始就连接所有券商。你可以先录入一笔资产，再逐步绑定微信、设置交易纪律、开启券商同步。</p>
+            </div>
+            <div class="timeline">
+              <div class="timeline-row">
+                <span class="timeline-num">1</span>
+                <div><h3>选择资产进入方式</h3><p>手工录入、截图 OCR、买卖消息或 Futu OpenD，任选一种即可开始。</p></div>
+              </div>
+              <div class="timeline-row">
+                <span class="timeline-num">2</span>
+                <div><h3>设置自己的交易纪律</h3><p>例如不买某类股票、盘前盘后不下单、单标的资金占用上限。</p></div>
+              </div>
+              <div class="timeline-row">
+                <span class="timeline-num">3</span>
+                <div><h3>绑定微信接收提醒</h3><p>日报、异动、待确认动作和长任务结果，都可以回到微信处理。</p></div>
+              </div>
+            </div>
+          </div>
+          <div class="phone-preview" aria-label="移动端引导预览">
+            <div class="product-topbar"><span>新用户引导</span><span>3 分钟</span></div>
+            <div class="phone-screen">
+              <div class="phone-step"><b>我想先手工录入</b><span>输入股票代码、成本、数量和来源。</span></div>
+              <div class="phone-step"><b>我想上传截图</b><span>识别后会标记为 OCR 来源，等待确认。</span></div>
+              <div class="phone-step"><b>我想连接 Futu</b><span>本地 OpenD 只读同步，适合美港股和期权。</span></div>
+              <div class="phone-step"><b>我想绑定微信</b><span>后续通过文本、语音和图片补充资产信息。</span></div>
+              <a class="button" style="width:100%; margin-top:16px" href="#">继续</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" id="modules">
+        <div class="section">
+          <div class="section-head">
+            <h2>股票和期权分开设计，持仓前、中、后都有位置</h2>
+            <p>用户看到的是清晰的资产工作台，系统背后会把股票、ETF、期权、关注清单和清仓列表分开管理。</p>
+          </div>
+          <div class="module-layout">
+            <aside class="module-nav" aria-label="核心功能索引">
+              <a href="#modules">当前持仓</a>
+              <a href="#modules">关注清单</a>
+              <a href="#modules">清仓复盘</a>
+              <a href="#modules">交易纪律</a>
+              <a href="#modules">股票分析</a>
+              <a href="#modules">Sell Put</a>
+            </aside>
+            <div class="module-grid">
+              <article class="module-card">
+                <h3>当前持仓</h3>
+                <p>展示股票、ETF 和期权的真实持仓、成本、盈亏、来源和更新时间。</p>
+                <strong>资产视图</strong>
+              </article>
+              <article class="module-card">
+                <h3>关注清单</h3>
+                <p>管理可能买入的标的，保存触发条件、行业、优先级和观察理由。</p>
+                <strong>持仓前</strong>
+              </article>
+              <article class="module-card">
+                <h3>清仓复盘</h3>
+                <p>记录退出理由、收益路径和二次买入条件，让卖出也进入经验库。</p>
+                <strong>持仓后</strong>
+              </article>
+              <article class="module-card">
+                <h3>交易纪律</h3>
+                <p>每个账号保存自己的风险偏好和操作禁区，记录操作时自动提醒。</p>
+                <strong>纪律提醒</strong>
+              </article>
+              <article class="module-card">
+                <h3>股票分析</h3>
+                <p>结合行情、估值、事件和持仓成本，输出可读的风险与机会判断。</p>
+                <strong>股票模块</strong>
+              </article>
+              <article class="module-card">
+                <h3>Sell Put</h3>
+                <p>先判断股票是否适合，再在期权链中按收益、风险、流动性排序。</p>
+                <strong>期权模块</strong>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="research" id="research">
+        <div class="section">
+          <div class="section-head">
+            <h2>AI 研究不是一句回答，而是一条可追溯的任务流</h2>
+            <p>系统会记录数据来源、使用的分析工具、关键假设、风险阈值和最终确认状态。用户看到的是结论，必要时也能回看证据链。</p>
+          </div>
+          <div class="research-flow">
+            <div class="flow-step"><b>01</b><h3>数据进入</h3><p>读取券商、行情、历史数据、微信公众号资料和用户自己的持仓记录。</p></div>
+            <div class="flow-step"><b>02</b><h3>规则约束</h3><p>先检查风险偏好、交易纪律、资金占用和禁止动作。</p></div>
+            <div class="flow-step"><b>03</b><h3>工具分析</h3><p>股票评分、期权链筛选、Sell Put 打分、历史走势和回测查询。</p></div>
+            <div class="flow-step"><b>04</b><h3>生成报告</h3><p>日常任务快速回复，复杂任务进入深度研究报告。</p></div>
+            <div class="flow-step"><b>05</b><h3>微信确认</h3><p>高风险动作只生成草稿和确认项，不自动下单。</p></div>
+          </div>
+          <div class="evidence-panel" aria-label="证据链示例">
+            <div class="evidence-row"><b>NVDA</b><span>财报前隐含波动率抬升，Sell Put 候选暂时降级。</span><small>来源：期权链 + 财报日历</small></div>
+            <div class="evidence-row"><b>0700.HK</b><span>当前未触发止损纪律，但接近观察线，建议继续跟踪。</span><small>来源：持仓成本 + 行情</small></div>
+            <div class="evidence-row"><b>SPY</b><span>市场状态由谨慎转为中性，Sell Put 默认阈值恢复。</span><small>来源：波动率 + 趋势</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wechat-layout">
+          <div>
+            <div class="section-head" style="display:block; margin-bottom:30px">
+              <h2>微信是提醒、确认和补充资产信息的主路径</h2>
+              <p style="margin-top:14px">用户不需要一直打开 WebApp。日常报告、异动提醒、高风险确认、买卖消息和截图补充，都可以通过微信渠道完成。</p>
+            </div>
+            <div class="message-stack">
+              <div class="message"><b>每日持仓报告</b><span>组合风险、今日异动、待确认动作和关注清单变化。</span></div>
+              <div class="message user"><b>用户口令</b><span>确认低风险提醒、驳回高风险草稿，或用语音补充买卖记录。</span></div>
+              <div class="message"><b>失败补偿</b><span>如果推送失败，系统会记录失败原因并进入补偿队列，避免漏掉关键提醒。</span></div>
+            </div>
+          </div>
+          <aside class="wechat-phone" aria-label="微信消息预览">
+            <div class="wechat-phone-header">AI 持仓系统</div>
+            <div class="wechat-phone-body">
+              <div class="wechat-bubble">今日持仓摘要已生成：组合风险中等，2 个 Sell Put 候选，1 条纪律提醒。</div>
+              <div class="wechat-bubble red">请确认：是否把 NVDA 6 月 Sell Put 草稿加入观察？回复“确认”或“取消”。</div>
+              <div class="wechat-bubble">支持文本口令、语音口令、持仓截图和 WebURL 转发读取。</div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="band" id="pricing">
+        <div class="section">
+          <div class="section-head">
+            <h2>从免费记录开始，按研究深度升级</h2>
+            <p>价格页重点解释用户为什么付费：更多资产来源、更高频提醒、更完整的期权分析和更深入的 AI 研究任务。</p>
+          </div>
+          <div class="pricing-grid">
+            <article class="price-card">
+              <h3>免费版</h3>
+              <p>适合先把持仓从截图、Excel 或手工记录迁移进来。</p>
+              <div class="price">¥0 <small>/ 月</small></div>
+              <ul class="feature-list">
+                <li>1 个组合视图</li>
+                <li>手工录入和截图 OCR</li>
+                <li>基础持仓摘要</li>
+                <li>关注清单和清仓列表</li>
+              </ul>
+            </article>
+            <article class="price-card featured">
+              <h3>专业版</h3>
+              <p>适合有多账户资产、需要微信提醒和 Sell Put 候选分析的用户。</p>
+              <div class="price">¥49 <small>/ 月</small></div>
+              <ul class="feature-list">
+                <li>多个组合视图</li>
+                <li>Futu OpenD 只读同步</li>
+                <li>微信日报和确认清单</li>
+                <li>Sell Put 候选排序</li>
+                <li>交易纪律提醒</li>
+              </ul>
+            </article>
+            <article class="price-card">
+              <h3>深研版</h3>
+              <p>适合需要复杂个股研究、期权策略报告和历史行情复盘的用户。</p>
+              <div class="price">¥199 <small>/ 月</small></div>
+              <ul class="feature-list">
+                <li>深度研究任务</li>
+                <li>期权 EV 与 Greeks 报告</li>
+                <li>历史行情查询和回测</li>
+                <li>证据链归档</li>
+                <li>更高推送和任务额度</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>常见问题</h2>
+          <p>把用户最关心的安全、自动下单、数据及时性和移动端体验提前说清楚。</p>
+        </div>
+        <div class="faq-grid">
+          <div class="faq-row"><b>系统会自动下单吗？</b><span>不会。P0 阶段只生成分析、提醒、草稿和确认项，交易执行必须由用户自己完成。</span></div>
+          <div class="faq-row"><b>券商账号安全吗？</b><span>Futu OpenD 采用用户本地运行方式，云端不保存生产券商 token，只保存必要的脱敏快照和来源记录。</span></div>
+          <div class="faq-row"><b>没有券商连接能用吗？</b><span>可以。你可以先用手工录入、买卖消息或截图 OCR 建立资产视图。</span></div>
+          <div class="faq-row"><b>移动端体验怎么处理？</b><span>WebApp 会适配移动端，微信负责高频提醒和确认，复杂配置仍建议在 WebApp 中完成。</span></div>
+        </div>
+      </section>
+
+      <section class="final-cta">
+        <div class="final-inner">
+          <div>
+            <h2>先建立第一份持仓视图，再让 AI 帮你持续观察</h2>
+            <p>从一笔真实资产开始，逐步接入券商、微信、交易纪律和 AI 研究任务。</p>
+          </div>
+          <a class="button" href="#">免费开始</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>AI 持仓系统 3.0</span>
+        <span>持仓分析仅供参考，不构成投资建议。交易决策需由用户自行确认。</span>
+      </div>
+    </footer>
+  </body>
+</html>

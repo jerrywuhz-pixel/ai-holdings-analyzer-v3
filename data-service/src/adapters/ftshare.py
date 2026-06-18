@@ -87,7 +87,6 @@ def _default_skill_dir() -> Path:
     current = Path(__file__).resolve()
     candidates = [
         current.parents[2] / "skills" / "ftshare-market-data",
-        current.parents[3] / "openclaw" / "skills" / "ftshare-market-data",
         Path("/app/skills/ftshare-market-data"),
     ]
     for candidate in candidates:
@@ -97,7 +96,7 @@ def _default_skill_dir() -> Path:
 
 
 class FtShareMarketDataAdapter(DataSourceAdapter):
-    """Adapter for the ClawHub `ftshare-market-data` skill."""
+    """Adapter for the Hermes `ftshare-market-data` skill asset."""
 
     def __init__(
         self,

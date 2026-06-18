@@ -28,13 +28,6 @@ try:
 except ImportError:
     _HAS_SUPABASE = False
 
-try:
-    import psycopg
-    _HAS_PSYCOPG = True
-except ImportError:
-    psycopg = None
-    _HAS_PSYCOPG = False
-
 
 def _execute_sync(builder: Any) -> Any:
     return builder.execute()
@@ -57,15 +50,16 @@ class HeartbeatReporter:
     def __init__(
         self,
         instance_id: Optional[str] = None,
-        deployment_mode: Optional[str] = None,
+        deployment_mode: str = "local",
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None,
-        database_url: Optional[str] = None,
     ) -> None:
         self.instance_id = instance_id or os.getenv(
             "OPENCLAW_INSTANCE_ID", socket.gethostname()
         )
-        self.deployment_mode = deployment_mode or os.getenv("OPENCLAW_DEPLOYMENT_MODE", "local")
+        self.deployment_mode = deployment_mode or os.getenv(
+            "OPENCLAW_DEPLOYMENT_MODE", "local"
+        )
         self._supabase_url = (
             os.getenv("SUPABASE_URL", "") if supabase_url is None else supabase_url
         )
@@ -73,16 +67,6 @@ class HeartbeatReporter:
             os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
             if supabase_key is None
             else supabase_key
-        )
-        self._database_url = (
-            database_url
-            if database_url is not None
-            else (
-                os.getenv("HEALTH_DATABASE_URL")
-                or os.getenv("DATABASE_URL")
-                or os.getenv("GBRAIN_DATABASE_URL")
-                or ""
-            )
         )
         self._client: Optional[Any] = None
         self._active_skills: list[str] = []
@@ -113,7 +97,7 @@ class HeartbeatReporter:
 
     async def report(self, gateway_status: str = "healthy") -> bool:
         """
-        上报一次心跳到本机 Postgres 或 Supabase。
+        上报一次心跳到 Supabase。
 
         Args:
             gateway_status: 网关状态 "healthy" / "degraded" / "stopped"
@@ -121,25 +105,22 @@ class HeartbeatReporter:
         Returns:
             True 上报成功，False 失败。
         """
+        client = self._get_client()
+        if client is None:
+            logger.warning("Supabase not available, skipping heartbeat report")
+            return False
+
         now = datetime.now(timezone.utc).isoformat()
 
         payload = {
             "instance_id": self.instance_id,
             "deployment_mode": self.deployment_mode,
-            "gateway_status": self._normalize_gateway_status(gateway_status),
+            "gateway_status": gateway_status,
             "last_cron_run_at": now,
             "active_skills": self._active_skills,
             "claw_plugin_status": self._claw_plugin_status,
             "reported_at": now,
         }
-
-        if await self._report_postgres(payload):
-            return True
-
-        client = self._get_client()
-        if client is None:
-            logger.warning("No heartbeat store available, skipping heartbeat report")
-            return False
 
         try:
             await asyncio.to_thread(
@@ -156,57 +137,6 @@ class HeartbeatReporter:
             logger.error("Failed to report heartbeat: %s", exc)
             return False
 
-    async def _report_postgres(self, payload: dict[str, Any]) -> bool:
-        if not self._database_url or not _HAS_PSYCOPG:
-            return False
-
-        try:
-            await asyncio.to_thread(self._report_postgres_sync, payload)
-            logger.info(
-                "Heartbeat reported to Postgres: instance=%s, status=%s, skills=%s",
-                self.instance_id, payload["gateway_status"], self._active_skills,
-            )
-            return True
-        except Exception as exc:
-            logger.error("Failed to report heartbeat to Postgres: %s", exc)
-            return False
-
-    def _report_postgres_sync(self, payload: dict[str, Any]) -> None:
-        assert psycopg is not None
-        with psycopg.connect(self._database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO public.openclaw_heartbeat (
-                      instance_id,
-                      deployment_mode,
-                      gateway_status,
-                      last_cron_run_at,
-                      active_skills,
-                      claw_plugin_status,
-                      reported_at
-                    )
-                    VALUES (
-                      %(instance_id)s,
-                      %(deployment_mode)s,
-                      %(gateway_status)s,
-                      %(last_cron_run_at)s,
-                      %(active_skills)s,
-                      %(claw_plugin_status)s,
-                      %(reported_at)s
-                    )
-                    ON CONFLICT (instance_id) DO UPDATE SET
-                      deployment_mode = EXCLUDED.deployment_mode,
-                      gateway_status = EXCLUDED.gateway_status,
-                      last_cron_run_at = EXCLUDED.last_cron_run_at,
-                      active_skills = EXCLUDED.active_skills,
-                      claw_plugin_status = EXCLUDED.claw_plugin_status,
-                      reported_at = EXCLUDED.reported_at
-                    """,
-                    payload,
-                )
-            conn.commit()
-
     async def mark_stale_instances(self) -> int:
         """
         标记超过 15 分钟未上报心跳的实例为 down。
@@ -214,10 +144,6 @@ class HeartbeatReporter:
         Returns:
             被标记为 down 的实例数。
         """
-        postgres_count = await self._mark_stale_instances_postgres()
-        if postgres_count is not None:
-            return postgres_count
-
         client = self._get_client()
         if client is None:
             return 0
@@ -259,42 +185,6 @@ class HeartbeatReporter:
         except Exception as exc:
             logger.error("Failed to mark stale instances: %s", exc)
             return 0
-
-    async def _mark_stale_instances_postgres(self) -> Optional[int]:
-        if not self._database_url or not _HAS_PSYCOPG:
-            return None
-
-        try:
-            return await asyncio.to_thread(self._mark_stale_instances_postgres_sync)
-        except Exception as exc:
-            logger.error("Failed to mark stale heartbeat instances in Postgres: %s", exc)
-            return None
-
-    def _mark_stale_instances_postgres_sync(self) -> int:
-        assert psycopg is not None
-        with psycopg.connect(self._database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE public.openclaw_heartbeat
-                    SET gateway_status = 'down'
-                    WHERE gateway_status = 'healthy'
-                      AND reported_at < now() - make_interval(secs => %(threshold)s)
-                    RETURNING instance_id
-                    """,
-                    {"threshold": self.STALE_THRESHOLD_SECONDS},
-                )
-                rows = cur.fetchall()
-            conn.commit()
-        return len(rows)
-
-    @staticmethod
-    def _normalize_gateway_status(status: str) -> str:
-        if status == "stopped":
-            return "down"
-        if status in {"healthy", "degraded", "down", "unknown"}:
-            return status
-        return "unknown"
 
     def start(self, interval_seconds: int = 300) -> None:
         """

@@ -1,5 +1,10 @@
 import postgres from 'postgres';
 import type { AppUser } from '@/lib/supabase';
+import {
+  ensureDefaultTradingRules,
+  evaluateTradingDiscipline,
+  type DisciplineEvaluationResult,
+} from '@/lib/trading-rules';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -97,6 +102,12 @@ export interface ManualPositionRecord {
 export interface AccountManualPositionSnapshot {
   positions: ManualPositionRecord[];
   updatedAt: string | null;
+}
+
+export interface ManualPositionWriteResult {
+  position: ManualPositionRecord;
+  snapshotId: string;
+  discipline: DisciplineEvaluationResult;
 }
 
 function normalizeEmail(email: string) {
@@ -332,6 +343,53 @@ async function ensureWorkspaceSchema() {
       ON public.webapp_manual_positions(tenant_id, portfolio_view_id, symbol, instrument_type)
       WHERE position_status = 'open'
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS public.trading_rules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES public.tenant_accounts(tenant_id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      rule_key TEXT NOT NULL,
+      rule_type TEXT NOT NULL,
+      scopes TEXT[] NOT NULL DEFAULT '{}'::text[],
+      markets TEXT[] NOT NULL DEFAULT '{}'::text[],
+      instruments TEXT[] NOT NULL DEFAULT '{}'::text[],
+      condition JSONB NOT NULL DEFAULT '{}'::jsonb,
+      message TEXT NOT NULL,
+      action_on_violation TEXT NOT NULL DEFAULT 'warn',
+      priority INTEGER NOT NULL DEFAULT 100,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      source TEXT NOT NULL DEFAULT 'user',
+      last_triggered_at TIMESTAMPTZ,
+      trigger_count BIGINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT trading_rules_rule_key_not_blank CHECK (btrim(rule_key) <> ''),
+      CONSTRAINT trading_rules_name_not_blank CHECK (btrim(name) <> ''),
+      CONSTRAINT trading_rules_rule_type_check CHECK (rule_type IN ('allowlist', 'blocklist', 'time_window', 'position_limit', 'risk_budget', 'confirmation_required', 'custom')),
+      CONSTRAINT trading_rules_action_check CHECK (action_on_violation IN ('warn', 'block', 'require_confirmation')),
+      CONSTRAINT trading_rules_priority_positive CHECK (priority > 0)
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_trading_rules_tenant_key ON public.trading_rules(tenant_id, rule_key)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_trading_rules_tenant_active ON public.trading_rules(tenant_id, is_active, priority)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS public.discipline_checks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES public.tenant_accounts(tenant_id) ON DELETE CASCADE,
+      symbol TEXT,
+      instrument_type public.instrument_type,
+      action_type TEXT NOT NULL,
+      result TEXT NOT NULL,
+      triggered_rule_ids UUID[] NOT NULL DEFAULT '{}'::uuid[],
+      highest_action TEXT NOT NULL DEFAULT 'none',
+      check_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT discipline_checks_action_type_not_blank CHECK (btrim(action_type) <> ''),
+      CONSTRAINT discipline_checks_result_check CHECK (result IN ('passed', 'warned', 'blocked', 'requires_confirmation')),
+      CONSTRAINT discipline_checks_highest_action_check CHECK (highest_action IN ('none', 'warn', 'block', 'require_confirmation'))
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_discipline_checks_tenant_created ON public.discipline_checks(tenant_id, created_at DESC)`;
 }
 
 async function ensureAuthUser(user: AppUser) {
@@ -446,7 +504,7 @@ async function ensureWorkspaceDefaults(user: AppUser) {
   await ensureAssetSource(tenantId, 'message-trade-input', '买卖消息输入', 'message_trade_input', 'wechat_or_webapp', 30, 'user_confirmed', true);
   await ensureAssetSource(tenantId, 'ocr-input', '截图识别', 'ocr', 'webapp_or_wechat', 60, 'estimated', true);
   await ensureAssetSource(tenantId, 'voice-input', '语音识别', 'voice_asr', 'wechat_or_webapp', 65, 'estimated', true);
-  await ensureAssetSource(tenantId, 'futu-broker-api', '富途券商只读连接', 'broker_api', 'futu', 10, 'broker_verified', false);
+  await ensureAssetSource(tenantId, 'system-futu-market-data', '系统 Futu 行情源', 'broker_api', 'futu', 10, 'public_fallback', false);
 
   const defaultViewId = await ensurePortfolioView(
     tenantId,
@@ -517,6 +575,7 @@ async function ensureWorkspaceDefaults(user: AppUser) {
       status_detail = EXCLUDED.status_detail,
       updated_at = now()
   `;
+  await ensureDefaultTradingRules(tenantId);
 
   return manualSourceId;
 }
@@ -702,7 +761,7 @@ export async function getAccountWorkspace(user: AppUser): Promise<AccountWorkspa
 export async function upsertManualPosition(
   user: AppUser,
   input: ManualPositionInput
-): Promise<{ position: ManualPositionRecord; snapshotId: string }> {
+): Promise<ManualPositionWriteResult> {
   const account = await ensureUserAccount(user);
   const sql = sqlClient();
   const symbol = input.symbol.trim().toUpperCase();
@@ -723,6 +782,24 @@ export async function upsertManualPosition(
   const sourceActionability = normalizeSourceActionability(input.sourceActionability);
   if (sourceActionability === 'blocked') {
     throw new Error('当前来源状态不允许写入持仓');
+  }
+  const discipline = await evaluateTradingDiscipline(account.tenantId, {
+    actionType: 'manual_position',
+    symbol,
+    name: input.name,
+    market,
+    instrumentType,
+    sourceTier,
+    sourceActionability,
+    payload: {
+      quantity: input.quantity,
+      averageCost,
+      marketPrice,
+      source: 'webapp_manual_positions',
+    },
+  });
+  if (discipline.result === 'blocked') {
+    throw new Error(`纪律规则已阻止本次记录：${discipline.message}`);
   }
   const sourceAsOf = input.sourceAsOf || new Date().toISOString();
   const sourceLineage = {
@@ -789,7 +866,7 @@ export async function upsertManualPosition(
       `;
 
   const snapshotId = await rebuildManualBrokerSnapshot(account.tenantId);
-  return { position: toManualPositionRecord(positionRows[0]), snapshotId };
+  return { position: toManualPositionRecord(positionRows[0]), snapshotId, discipline };
 }
 
 export async function listManualPositions(

@@ -424,71 +424,23 @@ class FutuSdkSidecarReader:
             raise FutuSidecarError(f"failed to open Futu quote context: {exc}") from exc
 
     def _read_positions(self, ctx: Any) -> list[dict[str, Any]]:
-        ret, data = ctx.position_list_query(**self._account_query_kwargs(position_market=self._settings.trade_market))
+        ret, data = ctx.position_list_query()
         _ensure_ret_ok(self._sdk, ret, data, "position_list_query")
         return [_map_position_record(item, self._settings.currency) for item in _records(data)]
 
     def _read_cash_balances(self, ctx: Any) -> list[dict[str, Any]]:
         currency = _sdk_constant(getattr(self._sdk, "Currency", object()), self._settings.currency, required=False)
-        kwargs = self._account_query_kwargs()
+        kwargs = {
+            "trd_env": _sdk_constant(self._sdk.TrdEnv, self._settings.trade_env),
+            "acc_id": self._settings.account_id,
+            "acc_index": self._settings.account_index,
+            "refresh_cache": False,
+        }
         if currency is not None:
             kwargs["currency"] = currency
         ret, data = ctx.accinfo_query(**kwargs)
         _ensure_ret_ok(self._sdk, ret, data, "accinfo_query")
         return [_map_cash_record(item, self._settings.currency) for item in _records(data)]
-
-    def _account_query_kwargs(
-        self,
-        *,
-        acc_id: int | None = None,
-        acc_index: int | None = None,
-        position_market: str | None = None,
-    ) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
-            "trd_env": _sdk_constant(self._sdk.TrdEnv, self._settings.trade_env),
-            "acc_id": self._settings.account_id if acc_id is None else acc_id,
-            "acc_index": self._settings.account_index if acc_index is None else acc_index,
-            "refresh_cache": False,
-        }
-        if position_market:
-            kwargs["position_market"] = _sdk_constant(self._sdk.TrdMarket, position_market)
-        return kwargs
-
-    def _diagnostic_position_count(
-        self,
-        ctx: Any,
-        *,
-        acc_id: int,
-        acc_index: int,
-        trade_market: str,
-    ) -> tuple[Optional[int], Optional[str]]:
-        try:
-            ret, positions = ctx.position_list_query(
-                **self._account_query_kwargs(
-                    acc_id=acc_id,
-                    acc_index=acc_index,
-                    position_market=trade_market,
-                )
-            )
-            _ensure_ret_ok(self._sdk, ret, positions, "position_list_query")
-            return len(_records(positions)), None
-        except FutuSidecarError as exc:
-            first_error = _sanitize_error_message(str(exc))
-            if not acc_id:
-                return None, first_error
-
-        try:
-            ret, positions = ctx.position_list_query(
-                **self._account_query_kwargs(
-                    acc_id=0,
-                    acc_index=acc_index,
-                    position_market=trade_market,
-                )
-            )
-            _ensure_ret_ok(self._sdk, ret, positions, "position_list_query")
-            return len(_records(positions)), None
-        except FutuSidecarError as exc:
-            return None, _sanitize_error_message(str(exc) or first_error)
 
     def _query_option_chain(self, quote_ctx: Any, request: OptionChainRequest) -> list[dict[str, Any]]:
         start, end = _expiry_window(request)
@@ -551,12 +503,18 @@ class FutuSdkSidecarReader:
             position_count: Optional[int] = None
             position_error: Optional[str] = None
             if accounts:
-                position_count, position_error = self._diagnostic_position_count(
-                    ctx,
-                    acc_id=selected_acc_id,
-                    acc_index=selected_acc_index,
-                    trade_market=trade_market,
-                )
+                try:
+                    ret, positions = ctx.position_list_query(
+                        trd_env=_sdk_constant(self._sdk.TrdEnv, self._settings.trade_env),
+                        acc_id=selected_acc_id,
+                        acc_index=selected_acc_index,
+                        refresh_cache=False,
+                        position_market=_sdk_constant(self._sdk.TrdMarket, trade_market),
+                    )
+                    _ensure_ret_ok(self._sdk, ret, positions, "position_list_query")
+                    position_count = len(_records(positions))
+                except FutuSidecarError as exc:
+                    position_error = _sanitize_error_message(str(exc))
             return {
                 "security_firm": security_firm,
                 "trd_market": trade_market,
@@ -983,7 +941,7 @@ def _parse_option_symbol(symbol: str) -> dict[str, Any]:
 def _parse_option_strike(value: str) -> float:
     if "." in value:
         return float(value)
-    if len(value) >= 4:
+    if len(value) >= 6:
         return float(value) / 1000.0
     return float(value)
 
@@ -1028,8 +986,7 @@ def _days_to_expiry(expiry: str) -> Optional[int]:
 def _expiry_window(request: OptionChainRequest) -> tuple[str, str]:
     today = date.today()
     start_days = request.min_days_to_expiry if request.min_days_to_expiry is not None else 0
-    end_days = request.max_days_to_expiry if request.max_days_to_expiry is not None else 29
-    end_days = min(end_days, start_days + 29)
+    end_days = request.max_days_to_expiry if request.max_days_to_expiry is not None else 60
     return (today + timedelta(days=start_days)).isoformat(), (today + timedelta(days=end_days)).isoformat()
 
 

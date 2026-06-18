@@ -68,26 +68,64 @@ subs="$(awk -F= '$1 == "subscriptions" {print $2}' /tmp/openclaw-foundation-db-c
 [[ "${users:-0}" -le "${subs:-0}" ]] || fail "not all users have active subscriptions"
 
 log "checking OpenClaw runtime status"
-python3 - "$OPENCLAW_URL/health" "$REQUIRE_OPENAI_AUTH" <<'PY'
+python3 - "$OPENCLAW_URL/health" "$OPENCLAW_URL/api/hermes/domain-tools" "$REQUIRE_OPENAI_AUTH" "$(env_value OPENCLAW_SKILL_KEY)" <<'PY'
 import json
 import sys
 import urllib.request
 
-url, require_openai = sys.argv[1:3]
+url, tools_url, require_openai, skill_key = sys.argv[1:5]
 with urllib.request.urlopen(url, timeout=10) as response:
     payload = json.load(response)
 
 runtime = payload.get("runtime", {})
 auth = runtime.get("authorization", {})
 token_plan = runtime.get("token_plan", {})
+gateway = payload.get("gateway", {})
+active_skills = set(gateway.get("active_skills") or [])
+required_skills = {
+    "trade-input",
+    "broker-parse",
+    "position-aggregate",
+    "daily-analysis",
+    "quant-options-strategy",
+    "profit-taking",
+    "ftshare-market-data",
+    "ima-skill",
+    "gbrain-sync",
+}
+missing_skills = sorted(required_skills - active_skills)
+data_sources = payload.get("data_sources") or []
 
 assert payload.get("status") == "ok", payload
 assert auth.get("openclaw_skill_key_configured") is True, payload
 assert token_plan.get("default_plan"), payload
 assert token_plan.get("context_pack_max_tokens", 0) >= 16000, payload
+assert not missing_skills, {"missing_openclaw_skills": missing_skills, "active_skills": sorted(active_skills)}
+assert data_sources, payload
 if require_openai.lower() == "true":
     assert auth.get("system_model_auth_ready") is True, payload
     assert auth.get("live_model_authorization") == "ready", payload
+
+tools_request = urllib.request.Request(
+    tools_url,
+    headers={"X-OpenClaw-Skill-Key": skill_key} if skill_key else {},
+)
+with urllib.request.urlopen(tools_request, timeout=10) as response:
+    tools_payload = json.load(response)
+tools = {item.get("name") for item in tools_payload.get("tools", [])}
+required_domain_tools = {
+    "market.quote",
+    "market.batch_quote",
+    "options.sell_put_rank",
+    "broker.positions_read",
+    "reference.ima.search",
+    "reference.ima.read",
+}
+missing_domain_tools = sorted(required_domain_tools - tools)
+assert not missing_domain_tools, {
+    "missing_domain_tools": missing_domain_tools,
+    "tools": sorted(tools),
+}
 
 print(
     "runtime_authorization="
@@ -102,6 +140,16 @@ print(
             "live_model_authorization": auth.get("live_model_authorization"),
             "default_plan": token_plan.get("default_plan"),
             "context_pack_max_tokens": token_plan.get("context_pack_max_tokens"),
+            "active_skills": sorted(active_skills),
+            "data_sources": [
+                {
+                    "id": item.get("id"),
+                    "status": item.get("status"),
+                    "kind": item.get("kind"),
+                }
+                for item in data_sources
+            ],
+            "domain_tools": sorted(tools),
         },
         ensure_ascii=False,
     )

@@ -224,6 +224,68 @@ async def test_worker_imports_confirmed_position_screenshot_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_marks_name_only_position_snapshot_as_symbol_review_required() -> None:
+    now = datetime(2026, 5, 10, 2, 0, tzinfo=timezone.utc)
+    confirmation_repository = InMemoryConfirmationRepository()
+    task_repository = InMemoryPostConfirmationTaskRepository()
+    service = ConfirmationCenterService(
+        confirmation_repository,
+        webapp_base_url="https://app.example.com",
+        post_decision_dispatcher=ConfirmationPostDecisionDispatcher(
+            task_repository,
+            now_provider=lambda: now,
+        ),
+        now_provider=lambda: now,
+    )
+    context = RoutingContext(
+        tenant_id="tenant-name-only-position-worker",
+        channel_binding_id="binding-name-only-position-worker",
+        openclaw_account_id="bot-name-only-position-worker",
+        target_conversation="conversation-name-only-position-worker",
+    )
+    pending = classify_image_text_candidate(
+        "\n".join(
+            [
+                "持仓 证券名称 证券市值 浮动盈亏 盈亏比例 成本价 现价 实际数量 可用数量",
+                "盛新锂能 485100.00 -53475.75 -9.93% 53.858 48.510 10000 10000",
+            ]
+        ),
+        ocr_confidence=0.93,
+        media_id="media-name-only-position-worker",
+    )
+    assert pending is not None
+    created = await service.create_pending_confirmation(context, pending)
+    await service.submit_decision(context, parse_confirmation_command(f"确认 {created.session_token}"))
+
+    outbox_repository = InMemoryOutboxRepository()
+    outbox_service = DeliveryOutboxService(outbox_repository, now_provider=lambda: now)
+    worker_repository = InMemoryPostConfirmationWorkerRepository(
+        jobs=task_repository.tasks,
+        pending_actions=confirmation_repository.pending_actions,
+        confirmation_events=confirmation_repository.events,
+    )
+    worker = PostConfirmationJobWorker(
+        worker_repository,
+        receipt_outbox=outbox_service,
+        now_provider=lambda: now,
+    )
+
+    stats = await worker.process_once()
+    ready = await outbox_repository.list_retry_ready(now, limit=10)
+    snapshot = next(iter(worker_repository.position_snapshots.values()))
+
+    assert stats.succeeded == 1
+    assert snapshot["symbol"].startswith("CNNAME_")
+    assert snapshot["market"] == "CN"
+    assert snapshot["exchange"] == "UNKNOWN"
+    assert snapshot["source_lineage"]["requires_symbol_review"] is True
+    assert snapshot["source_lineage"]["trade_action_allowed"] is False
+    assert next(iter(task_repository.tasks.values()))["result_summary"]["requires_symbol_review_count"] == 1
+    assert "需补代码" in ready[0]["content"]["text"]
+    assert "暂不作为交易草稿依据" in ready[0]["content"]["text"]
+
+
+@pytest.mark.asyncio
 async def test_full_confirmation_flow_queues_and_delivers_trade_receipt() -> None:
     now = datetime(2026, 5, 10, 2, 0, tzinfo=timezone.utc)
     confirmation_repository = InMemoryConfirmationRepository()
@@ -466,7 +528,8 @@ async def test_worker_queues_failure_receipt_for_retryable_processing_error() ->
     assert ready[0]["content"]["status"] == "failed_retryable"
     assert "没有改动持仓" in ready[0]["content"]["text"]
     assert "没有下单" in ready[0]["content"]["text"]
-    assert "WebApp 确认中心" in ready[0]["content"]["text"]
+    assert "微信重试" in ready[0]["content"]["text"]
+    assert "确认中心查看最新状态" in ready[0]["content"]["text"]
 
 
 @pytest.mark.asyncio

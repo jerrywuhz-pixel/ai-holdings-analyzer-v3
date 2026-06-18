@@ -17,6 +17,7 @@ type WechatAuth = {
 
 type WechatBinding = {
   id: string;
+  channel_account_id?: string;
   openclaw_account_id: string;
   channel_user_ref?: string | null;
   bound_at?: string | null;
@@ -44,11 +45,17 @@ function WechatMark() {
   );
 }
 
-async function postBinding(action: 'start' | 'refresh' | 'verify', authSessionId?: string, verifyCode?: string) {
+function qrImageSrc(auth: WechatAuth | null) {
+  if (!auth?.qrcode_url) return null;
+  if (auth.qrcode_url.startsWith('data:image/')) return auth.qrcode_url;
+  return `/api/onboarding/wechat/qr-image?authSessionId=${encodeURIComponent(auth.id)}`;
+}
+
+async function postBinding(action: 'start' | 'refresh' | 'verify', authSessionId?: string) {
   const response = await fetch('/api/onboarding/wechat/binding', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, authSessionId, verifyCode }),
+    body: JSON.stringify({ action, authSessionId }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -68,37 +75,30 @@ export function WechatBindingPanel({
   const [binding, setBinding] = useState<WechatBinding | null>(initialBinding);
   const [modalOpen, setModalOpen] = useState(Boolean(initialAuth && !initialBinding));
   const [busy, setBusy] = useState(false);
-  const [pairCode, setPairCode] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const isAuthorized = auth?.status === 'authorized' || auth?.status === 'conversation_pending' || auth?.status === 'conversation_verified';
   const isBound = Boolean(binding);
-  const authId = auth?.id;
-  const needsPairCode = Boolean(auth?.error_message?.includes('验证码'));
   const modalTitle = isBound ? '微信已连接' : '扫码登录';
-  const modalHint = isBound
-    ? '微信 ClawBot 已完成绑定，可以继续下一步。'
-    : needsPairCode
-      ? '请输入手机微信显示的数字验证码'
-      : '请使用微信扫描下方二维码完成连接';
+  const modalHint = isBound ? '微信 ClawBot 已完成绑定，可以继续下一步。' : '请使用微信扫描下方二维码完成连接';
   const statusText = useMemo(() => {
     if (binding) return '已绑定';
     if (!auth) return '未开始';
     return statusLabel[auth.status] || auth.status;
   }, [auth, binding]);
+  const qrSrc = qrImageSrc(auth);
 
   async function run(action: 'start' | 'refresh' | 'verify') {
     setBusy(true);
     setError('');
     setMessage('');
     try {
-      const payload = await postBinding(action, auth?.id, action === 'refresh' ? pairCode : undefined);
+      const payload = await postBinding(action, auth?.id);
       if (payload.auth !== undefined) setAuth(payload.auth || null);
       if (payload.binding) {
         setBinding(payload.binding);
         setMessage('微信 ClawBot 已完成绑定');
-        setPairCode('');
       } else if (action === 'verify') {
         setMessage('还没有收到绑定码消息，请稍后再试');
       }
@@ -111,37 +111,22 @@ export function WechatBindingPanel({
   }
 
   useEffect(() => {
-    if (!modalOpen || !authId || binding || needsPairCode || isAuthorized) return;
-    let cancelled = false;
-    let timer: number | undefined;
-
-    async function poll() {
-      try {
-        const payload = await postBinding('refresh', authId);
-        if (!cancelled) {
+    if (!modalOpen || !auth || binding) return;
+    const timer = window.setInterval(() => {
+      postBinding('refresh', auth.id)
+        .then((payload) => {
           if (payload.auth !== undefined) setAuth(payload.auth || null);
           if (payload.binding) {
             setBinding(payload.binding);
             setMessage('微信 ClawBot 已完成绑定');
           }
-        }
-      } catch (err) {
-        if (!cancelled) {
+        })
+        .catch((err) => {
           setError(err instanceof Error ? err.message : '刷新微信扫码状态失败');
-        }
-      } finally {
-        if (!cancelled) {
-          timer = window.setTimeout(poll, 5000);
-        }
-      }
-    }
-
-    timer = window.setTimeout(poll, 500);
-    return () => {
-      cancelled = true;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [authId, binding, isAuthorized, modalOpen, needsPairCode]);
+        });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [auth, binding, modalOpen]);
 
   return (
     <>
@@ -156,7 +141,7 @@ export function WechatBindingPanel({
                 <p className="text-base font-semibold text-white">微信 ClawBot</p>
                 <p className="mt-1 text-sm text-slate-400">通过微信机器人接收并回复用户消息</p>
                 {binding ? (
-                  <p className="mt-2 break-all font-mono text-xs text-emerald-200">{binding.openclaw_account_id}</p>
+                  <p className="mt-2 break-all font-mono text-xs text-emerald-200">{binding.channel_account_id || binding.openclaw_account_id}</p>
                 ) : null}
               </div>
             </div>
@@ -204,9 +189,9 @@ export function WechatBindingPanel({
               <p className="mt-4 text-base font-medium text-slate-400">{modalHint}</p>
 
               <div className="mx-auto mt-8 flex h-[268px] w-[268px] items-center justify-center rounded-xl border border-slate-200 bg-white p-3">
-                {auth?.qrcode_url ? (
+                {qrSrc ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={auth.qrcode_url} alt="微信 ClawBot 授权二维码" className="h-full w-full object-contain" />
+                  <img src={qrSrc} alt="微信 ClawBot 授权二维码" className="h-full w-full object-contain" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center rounded-lg bg-slate-100 px-5 text-sm text-slate-500">
                     {busy ? '正在生成二维码' : '当前接口未返回二维码图片'}
@@ -214,27 +199,22 @@ export function WechatBindingPanel({
                 )}
               </div>
 
+              {!binding && auth?.qrcode_url && !auth.qrcode_url.startsWith('data:image/') ? (
+                <a
+                  href={auth.qrcode_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex text-sm font-medium text-slate-500 underline-offset-4 transition hover:text-slate-900 hover:underline"
+                >
+                  打开微信授权链接
+                </a>
+              ) : null}
+
               {!binding && auth?.bind_code ? (
                 <div className="mx-auto mt-5 max-w-sm rounded-xl bg-slate-50 p-4 text-left">
                   <p className="text-xs font-medium text-slate-500">备用验证</p>
                   <p className="mt-2 text-sm text-slate-600">扫码后如果没有自动完成绑定，请向 ClawBot 发送：</p>
                   <p className="mt-2 break-all font-mono text-xl font-semibold text-slate-950">{auth.bind_code}</p>
-                </div>
-              ) : null}
-
-              {!binding && needsPairCode ? (
-                <div className="mx-auto mt-4 max-w-sm text-left">
-                  <label htmlFor="wechat-pair-code" className="text-xs font-medium text-slate-500">
-                    请输入手机微信显示的数字验证码
-                  </label>
-                  <input
-                    id="wechat-pair-code"
-                    value={pairCode}
-                    onChange={(event) => setPairCode(event.target.value)}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-center font-mono text-lg font-semibold outline-none transition focus:border-slate-900"
-                  />
                 </div>
               ) : null}
             </div>

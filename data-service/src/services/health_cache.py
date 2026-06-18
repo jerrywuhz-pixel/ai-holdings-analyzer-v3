@@ -1,12 +1,12 @@
 """
-Health Cache — 数据源健康与网关心跳缓存
+Health Cache — 数据源健康与 Hermes 心跳缓存
 
-缓存 data_source_health 和 openclaw_heartbeat 查询结果，
+缓存 data_source_health 和 hermes_heartbeat 查询结果，
 减少 Supabase 读取次数，提升缓存命中率至 80%+。
 
 缓存策略：
 - data_source_health: TTL 60s (源状态变更不频繁)
-- openclaw_heartbeat: TTL 30s (需要较新的心跳状态)
+- hermes_heartbeat: TTL 30s (需要较新的心跳状态)
 - 内存 fallback: 无 Redis 时使用进程内缓存
 """
 from __future__ import annotations
@@ -31,15 +31,6 @@ try:
     _HAS_SUPABASE = True
 except ImportError:
     _HAS_SUPABASE = False
-
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-    _HAS_PSYCOPG = True
-except ImportError:
-    psycopg = None
-    dict_row = None
-    _HAS_PSYCOPG = False
 
 
 class _InMemoryCache:
@@ -73,29 +64,15 @@ class HealthCache:
     """
     健康状态缓存服务。
 
-    缓存 data_source_health 和 openclaw_heartbeat 查询结果。
+    缓存 data_source_health 和 hermes_heartbeat 查询结果。
     优先使用 Redis，无 Redis 时降级到进程内缓存。
     """
 
     DATA_SOURCE_TTL = 60      # seconds
     HEARTBEAT_TTL = 30        # seconds
 
-    def __init__(
-        self,
-        redis_url: Optional[str] = None,
-        database_url: Optional[str] = None,
-    ):
+    def __init__(self, redis_url: Optional[str] = None):
         self._redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self._database_url = (
-            database_url
-            if database_url is not None
-            else (
-                os.getenv("HEALTH_DATABASE_URL")
-                or os.getenv("DATABASE_URL")
-                or os.getenv("GBRAIN_DATABASE_URL")
-                or ""
-            )
-        )
         self._redis: Optional[Any] = None
         self._memory = _InMemoryCache()
         self._supabase: Optional[Any] = None
@@ -128,17 +105,6 @@ class HealthCache:
         if cached is not None:
             return json.loads(cached)
 
-        # Lightweight-server path: prefer the local Postgres database that backs
-        # the stack. Supabase REST remains the compatibility fallback.
-        postgres_data = await self._fetch_data_source_health_postgres()
-        if postgres_data is not None:
-            await self._cache_set(
-                cache_key,
-                json.dumps(postgres_data, default=str),
-                self.DATA_SOURCE_TTL,
-            )
-            return postgres_data
-
         # Fetch from Supabase
         client = self._get_supabase()
         if client is None:
@@ -152,14 +118,14 @@ class HealthCache:
             )
             data = resp.data or []
             # Cache the result
-            await self._cache_set(cache_key, json.dumps(data, default=str), self.DATA_SOURCE_TTL)
+            await self._cache_set(cache_key, json.dumps(data), self.DATA_SOURCE_TTL)
             return data
         except Exception as exc:
             logger.error("Failed to fetch data source health: %s", exc)
             return []
 
     async def get_heartbeat(self) -> Optional[dict[str, Any]]:
-        """获取最新 OpenClaw 心跳记录（优先缓存）。"""
+        """获取最新 Hermes 心跳记录（优先缓存，兼容旧表）。"""
         cache_key = "health:heartbeat"
 
         cached = await self._cache_get(cache_key)
@@ -167,94 +133,37 @@ class HealthCache:
             data = json.loads(cached)
             return data if data else None
 
-        postgres_data = await self._fetch_heartbeat_postgres()
-        if postgres_data is not None:
-            await self._cache_set(cache_key, json.dumps(postgres_data or [], default=str), self.HEARTBEAT_TTL)
-            return postgres_data or None
-
         client = self._get_supabase()
         if client is None:
             return None
 
         try:
-            resp = await asyncio.to_thread(
-                _execute_sync,
-                client.table("openclaw_heartbeat")
-                .select("*")
-                .order("reported_at", desc=True)
-                .limit(1)
-            )
+            try:
+                resp = await asyncio.to_thread(
+                    _execute_sync,
+                    client.table("hermes_heartbeat")
+                    .select("*")
+                    .order("reported_at", desc=True)
+                    .limit(1)
+                )
+            except Exception:
+                resp = await asyncio.to_thread(
+                    _execute_sync,
+                    client.table("openclaw_heartbeat")
+                    .select("*")
+                    .order("reported_at", desc=True)
+                    .limit(1)
+                )
             data = resp.data[0] if resp.data else None
-            await self._cache_set(cache_key, json.dumps(data or [], default=str), self.HEARTBEAT_TTL)
+            await self._cache_set(cache_key, json.dumps(data or []), self.HEARTBEAT_TTL)
             return data
         except Exception as exc:
             logger.error("Failed to fetch heartbeat: %s", exc)
             return None
 
-    async def _fetch_data_source_health_postgres(self) -> Optional[list[dict[str, Any]]]:
-        if not self._database_url or not _HAS_PSYCOPG:
-            return None
-
-        try:
-            return await asyncio.to_thread(self._fetch_data_source_health_postgres_sync)
-        except Exception as exc:
-            logger.error("Failed to fetch data source health from Postgres: %s", exc)
-            return None
-
-    def _fetch_data_source_health_postgres_sync(self) -> list[dict[str, Any]]:
-        assert psycopg is not None
-        assert dict_row is not None
-        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT source_name, status, priority_cn, priority_hk, priority_us
-                    FROM public.data_source_health
-                    ORDER BY priority_cn ASC NULLS LAST, source_name ASC
-                    """
-                )
-                return [dict(row) for row in cur.fetchall()]
-
-    async def _fetch_heartbeat_postgres(self) -> Optional[dict[str, Any]]:
-        if not self._database_url or not _HAS_PSYCOPG:
-            return None
-
-        try:
-            return await asyncio.to_thread(self._fetch_heartbeat_postgres_sync)
-        except Exception as exc:
-            logger.error("Failed to fetch heartbeat from Postgres: %s", exc)
-            return None
-
-    def _fetch_heartbeat_postgres_sync(self) -> Optional[dict[str, Any]]:
-        assert psycopg is not None
-        assert dict_row is not None
-        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT
-                      id::text AS id,
-                      deployment_mode,
-                      instance_id,
-                      gateway_status,
-                      last_cron_run_at,
-                      active_skills,
-                      claw_plugin_status,
-                      memory_usage_mb,
-                      cpu_usage_percent,
-                      reported_at,
-                      created_at
-                    FROM public.openclaw_heartbeat
-                    ORDER BY reported_at DESC
-                    LIMIT 1
-                    """
-                )
-                row = cur.fetchone()
-                return dict(row) if row else None
-
     async def get_gateway_status(self) -> dict[str, Any]:
         """
-        获取网关综合状态（用于 /health 端点和前端面板）。
+        获取 Hermes runtime 综合状态（用于 /health 端点和前端面板）。
 
         Returns:
             {
@@ -272,7 +181,7 @@ class HealthCache:
 
         if heartbeat:
             last_reported = heartbeat.get("reported_at")
-            gateway_status = heartbeat.get("gateway_status", "unknown")
+            gateway_status = heartbeat.get("hermes_status") or heartbeat.get("gateway_status", "unknown")
 
             # Check if heartbeat is stale (> 15 minutes)
             if last_reported:
@@ -291,6 +200,7 @@ class HealthCache:
         return {
             "gateway": {
                 "status": gateway_status,
+                "runtime": "hermes",
                 "last_reported_at": last_reported,
                 "deployment_mode": heartbeat.get("deployment_mode") if heartbeat else None,
                 "active_skills": heartbeat.get("active_skills") if heartbeat else [],

@@ -223,6 +223,92 @@ GBRAIN_DATABASE_URL=$DATABASE_URL
 
 Do not treat the stdio adapter as a public network service. If a future deployment needs remote MCP, add an authenticated HTTP/SSE transport with tenant-scoped run-contract checks first.
 
+## Hermes Evidence Bundles
+
+Use these read-only tools when a claim needs replayable evidence instead of a chat-only summary.
+
+Create a general evidence pack from `.omx` state, recent logs, known Hermes workflow surfaces, and optional smoke commands:
+
+```bash
+python3 scripts/hermes_evidence_pack.py \
+  --claim "deploy stock.analysis persistence" \
+  --run-foundation
+```
+
+The script writes paired artifacts to `.omx/evidence/`:
+
+- `hermes-evidence-pack-*.json`
+- `hermes-evidence-pack-*.md`
+
+Trace a single WeChat message across binding, bridge receipts, Hermes ingress, persistence tables, delivery outbox, and user-visible proof:
+
+```bash
+python3 scripts/hermes_wechat_trace_bundle.py \
+  --message-text "分析一下 CRCL" \
+  --sent-at "2026-06-17T10:30:00+08:00" \
+  --tenant-id "<tenant_uuid>"
+```
+
+If `DATABASE_URL` or `SUPABASE_DB_URL` is available, the trace queries Postgres. Without DB access it still writes a structured bundle that shows exactly which proof is missing.
+
+## Aliyun SWAS Operations Runbook
+
+Use the SWAS runbook when cloud Hermes needs a repeatable read-only operations check. It standardizes the path that usually recurs during incidents:
+
+1. instance identity
+2. Cloud Assistant command execution
+3. Docker/systemd service truth
+4. WebApp/data-service/domain-tools route truth
+5. cron inventory
+6. WeChat bridge state and logs
+7. DB persistence counters and recent rows
+8. foundation runtime verifier
+
+Preview the exact remote script without touching Aliyun:
+
+```bash
+python3 scripts/hermes_swas_runbook.py \
+  --instance-id 859f1477f58a473e9fefb44182bdca13 \
+  --region ap-southeast-5 \
+  --dry-run
+```
+
+Run it through Aliyun Cloud Assistant and write paired `.json/.md` artifacts to `.omx/evidence/`:
+
+```bash
+python3 scripts/hermes_swas_runbook.py \
+  --instance-id 859f1477f58a473e9fefb44182bdca13 \
+  --region ap-southeast-5
+```
+
+The runbook is read-only. It does not restart containers, apply migrations, or edit remote files.
+
+## Hermes Routing Explanation
+
+Use this when a request seems to be using the wrong model or quote source.
+
+```bash
+python3 scripts/hermes_explain_routing.py \
+  --query "分析一下 NVDA" \
+  --symbol NVDA \
+  --job-type equity_analysis \
+  --format text
+```
+
+The explanation is static and does not call live models or quote APIs. It reports:
+
+- GPT/OpenAI vs MiniMax route order
+- whether live credentials are present
+- quote-source priority for the symbol
+- AkShare/Futu/Longbridge optional routing flags
+- official gbrain search-mode env, if configured
+
+Task entry templates and default child-agent slots live in:
+
+```text
+docs/hermes/workflow-templates.md
+```
+
 ## IMA Reference Source
 
 IMA skills are installed under:
@@ -368,30 +454,6 @@ You can also let the host-start script launch the sidecar:
 START_FUTU_SIDECAR=true FUTU_SIDECAR_MODE=mock ./scripts/start-local-services.sh
 ```
 
-For the Mac mini native deployment that uses `.env.server` and the
-`.runtime/native/venv-py` runtime, use the native launch wrappers instead of
-the generic dev script:
-
-```bash
-./scripts/local-native-futu-sidecar.sh
-./scripts/local-native-data-service.sh
-./scripts/local-native-webapp.sh
-```
-
-`local-native-data-service.sh` intentionally overrides the Docker-oriented
-`FUTU_CONNECTOR_BASE_URL=http://host.docker.internal:8765` value and uses
-`FUTU_CONNECTOR_MODE=local_connector` with
-`http://127.0.0.1:8765`. This keeps Mac native verification connected to the
-local read-only sidecar, while cloud production continues to use
-`user_local_polling` through the poll/upload control plane.
-
-If `local-native-futu-sidecar.sh` reports a missing Futu SDK, install the
-connector dependency into the native runtime:
-
-```bash
-uv pip install --python .runtime/native/venv-py/bin/python -r local_connectors/requirements.txt
-```
-
 The sidecar exposes only:
 
 - `GET /health`
@@ -489,15 +551,6 @@ FUTU_CONNECTOR_BASE_URL=http://127.0.0.1:8765 \
 Real smoke stays opt-in. The default P0 matrix does not require OpenD. If `./scripts/verify-p0.sh` notices OpenD listening on `FUTU_OPEND_HOST:FUTU_OPEND_PORT` (default `127.0.0.1:11111`), it prints a clear reminder that you can re-run with `--with-futu-real`.
 
 When real and mock snapshots coexist in the same tenant, the portfolio read model ranks source quality first. `broker_verified` snapshots win over newer `estimated` or `public_fallback` snapshots; recency is only used inside the same quality tier.
-
-For lightweight Postgres deployments, keep the portfolio read model on the same snapshot store:
-
-```bash
-BROKER_SYNC_REPOSITORY=postgres
-PORTFOLIO_READ_REPOSITORY=postgres
-```
-
-If `PORTFOLIO_READ_REPOSITORY` is omitted, the read model follows `BROKER_SYNC_REPOSITORY`. When all balances are already in the base currency, the FX provider returns the base rate locally and skips the external `symbols` request.
 
 If you are exercising a pre-created connector instance row, pass it explicitly:
 

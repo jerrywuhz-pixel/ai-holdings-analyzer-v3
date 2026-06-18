@@ -103,7 +103,7 @@ export class HermesWorker {
     const modelPolicy =
       input.runContract.modelPolicy.primary.model !== ""
         ? input.runContract.modelPolicy
-        : createDefaultHermesModelPolicy(timeoutMs, input.job.complexity);
+        : createDefaultHermesModelPolicy(timeoutMs, input.job.complexity, input.job.jobType);
 
     const modelResponse = await this.modelAdapter.generate(modelPolicy, {
       objective: input.job.objective,
@@ -175,7 +175,7 @@ export function createHermesJob(overrides: Partial<HermesJob> = {}): HermesJob {
       allowedTools: ["research_artifacts.write", "market.quote.read"],
       forbiddenTools: ["broker.trade.place_order", "portfolio_positions.direct_update"],
     },
-    modelPolicy: overrides.modelPolicy ?? createDefaultHermesModelPolicy(resolveTimeoutMs(complexity), complexity),
+    modelPolicy: overrides.modelPolicy ?? createDefaultHermesModelPolicy(resolveTimeoutMs(complexity), complexity, overrides.jobType),
     createdAt: overrides.createdAt ?? nowIso(),
     sourceRunId: overrides.sourceRunId,
     channelBindingId: overrides.channelBindingId,
