@@ -1,7 +1,6 @@
 import Link from 'next/link';
 
 const marketingLoginHref = '/login?entry=marketing';
-const marketingRegisterHref = '/login?mode=register&entry=marketing';
 
 const sourceCards = [
   {
@@ -42,28 +41,6 @@ const researchSteps = [
   ['03', '工具分析', '股票评分、期权链筛选、Sell Put 打分、历史走势和回测查询。'],
   ['04', '生成报告', '日常任务快速回复，复杂任务进入深度研究报告。'],
   ['05', '微信确认', '高风险动作只生成草稿和确认项，不自动下单。'],
-];
-
-const plans = [
-  {
-    name: '免费版',
-    price: '¥0',
-    summary: '适合先把持仓从截图、Excel 或手工记录迁移进来。',
-    features: ['1 个组合视图', '手工录入和截图 OCR', '基础持仓摘要', '关注清单和清仓列表'],
-  },
-  {
-    name: '专业版',
-    price: '¥49',
-    summary: '适合有多账户资产、需要微信提醒和 Sell Put 候选分析的用户。',
-    featured: true,
-    features: ['多个组合视图', '系统行情源辅助估值', '微信日报和确认清单', 'Sell Put 候选排序', '交易纪律提醒'],
-  },
-  {
-    name: '深研版',
-    price: '¥199',
-    summary: '适合需要复杂个股研究、期权策略报告和历史行情复盘的用户。',
-    features: ['深度研究任务', '期权 EV 与 Greeks 报告', '历史行情查询和回测', '证据链归档', '更高推送和任务额度'],
-  },
 ];
 
 const faqs = [
@@ -109,13 +86,13 @@ function MarketingHeader() {
           <Link href="/#sources">资产来源</Link>
           <Link href="/#modules">核心功能</Link>
           <Link href="/#research">AI 投研</Link>
-          <Link href="/pricing">会员方案</Link>
+          <a href="https://www.11office.top/trading-framework.html">交易框架</a>
         </div>
         <div className="hidden shrink-0 items-center gap-2 sm:flex">
           <ButtonLink href={marketingLoginHref} secondary>
             登录
           </ButtonLink>
-          <ButtonLink href={marketingRegisterHref}>免费开始</ButtonLink>
+          <ButtonLink href={marketingLoginHref}>登录控制台</ButtonLink>
         </div>
         <Link
           href={marketingLoginHref}
@@ -164,9 +141,9 @@ function ProductPreview() {
           <p className="mb-3 text-sm font-black text-[#4b4548]">统一资产视图</p>
           {[
             ['腾讯控股', '0700.HK · 系统行情源 · 股票'],
-            ['NVIDIA', 'NVDA · 买入消息 · 股票'],
+            ['核心持仓', '按真实账户同步 · 股票 / ETF'],
             ['SPY Sell Put', '期权链 · 资金占用 12%'],
-            ['BABA 已清仓', '清仓列表 · 等待二次买入条件'],
+            ['清仓回溯', '清仓列表 · 等待二次买入条件'],
           ].map(([name, detail]) => (
             <div key={name} className="border-b border-[#e5ddd9] py-3 last:border-b-0">
               <p className="text-sm font-black text-[#171417]">{name}</p>
@@ -179,7 +156,7 @@ function ProductPreview() {
           <div className="mb-4 grid grid-cols-3 gap-2">
             {[
               ['组合风险', '中等'],
-              ['待确认', '3 条'],
+              ['待复核', '3 条'],
               ['Sell Put', '2 个候选'],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-[#e5ddd9] bg-white p-3">
@@ -193,7 +170,7 @@ function ProductPreview() {
           </div>
           <div className="mt-4 space-y-3">
             <div className="border-b border-[#e5ddd9] pb-3">
-              <p className="text-sm font-black">复核 NVDA 财报前期权风险</p>
+              <p className="text-sm font-black">复核高波动标的期权风险</p>
               <p className="mt-1 text-xs text-[#6f686b]">IV 抬升，Sell Put 候选降级</p>
             </div>
             <div className="border-b border-[#e5ddd9] pb-3">
@@ -220,7 +197,7 @@ export function HeroSection({ compact = false }: { compact?: boolean }) {
             AI 持仓系统连接你的真实资产、交易纪律和微信提醒，把股票、ETF 和 Sell Put 期权分开分析，帮助你每天知道该观察什么、确认什么、复盘什么。
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <ButtonLink href={marketingRegisterHref}>创建第一份持仓视图</ButtonLink>
+            <ButtonLink href={marketingLoginHref}>登录控制台</ButtonLink>
             <ButtonLink href="/#modules" secondary>
               查看核心功能
             </ButtonLink>
@@ -293,7 +270,7 @@ export function OnboardingIntroSection() {
           {[
             ['1', '选择资产进入方式', '手工录入、截图 OCR 或买卖消息，任选一种即可开始。'],
             ['2', '设置自己的交易纪律', '例如不买某类股票、盘前盘后不下单、单标的资金占用上限。'],
-            ['3', '绑定微信接收提醒', '日报、异动、待确认动作和长任务结果，都可以回到微信处理。'],
+            ['3', '微信接收提醒', '日报、异动、待复核动作和长任务结果，都可以回到微信处理。'],
           ].map(([num, title, detail]) => (
             <div key={num} className="grid grid-cols-[48px_1fr] gap-4 border-b border-[#e5ddd9] py-5 md:grid-cols-[74px_1fr]">
               <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#fff1f0] font-black text-[#d71920]">{num}</span>
@@ -313,7 +290,7 @@ export function OnboardingIntroSection() {
         <div className="p-5">
           {[
             ['我想先手工录入', '输入股票代码、成本、数量和来源。'],
-            ['我想上传截图', '识别后会标记为 OCR 来源，等待确认。'],
+            ['我想上传截图', '识别后会标记为 OCR 来源，等待复核。'],
             ['我想看系统行情', '管理员侧行情源用于估值、期权链和实时性校验。'],
             ['我想绑定微信', '后续通过文本、语音和图片补充资产信息。'],
           ].map(([title, detail]) => (
@@ -322,7 +299,7 @@ export function OnboardingIntroSection() {
               <p className="mt-1 text-sm text-[#6f686b]">{detail}</p>
             </div>
           ))}
-          <ButtonLink href={marketingRegisterHref}>继续</ButtonLink>
+          <ButtonLink href={marketingLoginHref}>登录控制台</ButtonLink>
         </div>
       </div>
     </section>
@@ -380,7 +357,7 @@ export function ResearchFlowSection() {
         </div>
         <div className="mt-5 overflow-hidden rounded-lg border border-white/15 bg-white/[0.05]">
           {[
-            ['NVDA', '财报前隐含波动率抬升，Sell Put 候选暂时降级。', '来源：期权链 + 财报日历'],
+            ['高波动标的', '财报前隐含波动率抬升，Sell Put 候选暂时降级。', '来源：期权链 + 财报日历'],
             ['0700.HK', '当前未触发止损纪律，但接近观察线，建议继续跟踪。', '来源：持仓成本 + 行情'],
             ['SPY', '市场状态由谨慎转为中性，Sell Put 默认阈值恢复。', '来源：波动率 + 趋势'],
           ].map(([symbol, summary, source]) => (
@@ -406,7 +383,7 @@ export function WeChatSection() {
         </p>
         <div className="mt-8 grid gap-3">
           {[
-            ['每日持仓报告', '组合风险、今日异动、待确认动作和关注清单变化。', false],
+            ['每日持仓报告', '组合风险、今日异动、待复核动作和关注清单变化。', false],
             ['用户口令', '确认低风险提醒、驳回高风险草稿，或用语音补充买卖记录。', true],
             ['失败补偿', '如果推送失败，系统会记录失败原因并进入补偿队列，避免漏掉关键提醒。', false],
           ].map(([title, detail, user]) => (
@@ -421,48 +398,10 @@ export function WeChatSection() {
         <div className="bg-[#262225] px-4 py-3 font-black text-white">AI 持仓系统</div>
         <div className="grid gap-3 p-4">
           <div className="rounded-lg bg-[#f1f4f1] p-3 text-sm">今日持仓摘要已生成：组合风险中等，2 个 Sell Put 候选，1 条纪律提醒。</div>
-          <div className="rounded-lg border border-[#d7192033] bg-[#fff1f0] p-3 text-sm">请确认：是否把 NVDA 6 月 Sell Put 草稿加入观察？回复“确认”或“取消”。</div>
+          <div className="rounded-lg border border-[#d7192033] bg-[#fff1f0] p-3 text-sm">请确认：是否把高波动标的 Sell Put 草稿加入观察？回复“确认”或“取消”。</div>
           <div className="rounded-lg bg-[#f1f4f1] p-3 text-sm">支持文本口令、语音口令、持仓截图和 WebURL 转发读取。</div>
         </div>
       </aside>
-    </section>
-  );
-}
-
-export function PricingSection({ standalone = false }: { standalone?: boolean }) {
-  return (
-    <section id="pricing" className="scroll-mt-20 border-y border-[#e5ddd9] bg-[#f6f1ee]">
-      <div className="mx-auto w-[min(1180px,calc(100%_-_28px))] py-20 md:py-24">
-        <SectionHead
-          title={standalone ? '选择适合当前阶段的研究深度' : '从免费记录开始，按研究深度升级'}
-          description="价格页重点解释用户为什么付费：更多资产来源、更高频提醒、更完整的期权分析和更深入的 AI 研究任务。当前版本先展示权益，不进行真实扣费。"
-        />
-        <div className="grid gap-4 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <article
-              key={plan.name}
-              className={[
-                'min-h-[420px] rounded-lg border bg-white p-6',
-                plan.featured ? 'border-[#d7192080] shadow-[0_18px_58px_rgba(215,25,32,0.12)]' : 'border-[#e5ddd9]',
-              ].join(' ')}
-            >
-              <h3 className="text-2xl font-black">{plan.name}</h3>
-              <p className="mt-2 min-h-12 text-[#6f686b]">{plan.summary}</p>
-              <div className="my-6 text-4xl font-black">
-                {plan.price} <small className="text-sm font-bold text-[#6f686b]">/ 月</small>
-              </div>
-              <ul className="grid gap-3">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="grid grid-cols-[10px_1fr] gap-3 text-sm text-[#4e484b]">
-                    <span className="mt-2 h-2 w-2 rounded-full bg-[#d71920]" />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
-      </div>
     </section>
   );
 }
@@ -491,7 +430,7 @@ export function FinalCta() {
           <h2 className="max-w-3xl text-3xl font-black leading-tight md:text-[42px]">先建立第一份持仓视图，再让 AI 帮你持续观察</h2>
           <p className="mt-3 max-w-3xl text-[#d8d1d5]">从一笔真实资产开始，逐步接入微信、交易纪律、系统行情和 AI 研究任务。</p>
         </div>
-        <ButtonLink href={marketingRegisterHref}>免费开始</ButtonLink>
+        <ButtonLink href={marketingLoginHref}>登录控制台</ButtonLink>
       </div>
     </section>
   );
@@ -528,7 +467,6 @@ export function PreloginHomePage() {
         <ModulesSection />
         <ResearchFlowSection />
         <WeChatSection />
-        <PricingSection />
         <FaqSection />
         <FinalCta />
       </main>
@@ -545,24 +483,6 @@ export function FeaturesMarketingPage() {
         <ModulesSection />
         <ResearchFlowSection />
         <WeChatSection />
-        <FinalCta />
-      </main>
-    </MarketingShell>
-  );
-}
-
-export function PricingMarketingPage() {
-  return (
-    <MarketingShell>
-      <main>
-        <section className="mx-auto w-[min(1180px,calc(100%_-_28px))] py-20 md:py-28">
-          <h1 className="max-w-3xl text-4xl font-black leading-tight md:text-[58px]">从免费记录开始，按研究深度升级</h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-[#6f686b]">
-            先用免费版建立资产视图；当你需要多账户同步、微信确认、Sell Put 候选和深研任务时，再升级更高权益。
-          </p>
-        </section>
-        <PricingSection standalone />
-        <FaqSection />
         <FinalCta />
       </main>
     </MarketingShell>

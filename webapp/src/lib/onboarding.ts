@@ -337,9 +337,9 @@ export async function saveTenantProfile(user: AppUser, input: TenantProfileInput
     UPDATE public.onboarding_sessions
     SET
       status = 'profile_configured',
-      current_step = 'wechat',
+      current_step = 'review',
       profile_configured_at = ${now},
-      required_checks = ${sql.json({ profile: true, wechat: false } as any)},
+      required_checks = ${sql.json({ profile: true, wechat: 'admin_assigned' } as any)},
       updated_at = now()
     WHERE tenant_id = ${user.id}
   `;
@@ -364,7 +364,7 @@ export async function completeOnboarding(tenantId: string) {
       current_step = 'done',
       data_initialized_at = ${now},
       completed_at = ${now},
-      required_checks = ${sql.json({ profile: true, wechat: true, system_market_data: 'admin_managed' } as any)},
+      required_checks = ${sql.json({ profile: true, wechat: 'admin_assigned', system_market_data: 'admin_managed' } as any)},
       updated_at = now()
     WHERE tenant_id = ${tenantId}
   `;
@@ -438,13 +438,12 @@ export async function getOnboardingState(): Promise<OnboardingState> {
 }
 
 export function isOnboardingComplete(state: OnboardingState) {
-  return state.session.status === 'completed' && state.checks.profile && state.checks.wechat;
+  return state.session.status === 'completed' && state.checks.profile;
 }
 
 export function nextOnboardingPath(state: OnboardingState) {
   if (isOnboardingComplete(state)) return '/dashboard';
   if (!state.checks.profile) return '/onboarding/welcome';
-  if (!state.checks.wechat) return '/onboarding/wechat';
   return '/onboarding/review';
 }
 

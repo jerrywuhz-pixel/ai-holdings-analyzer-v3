@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { FreshnessPill, StatusPill } from '@/components/p0-ui';
+import { FreshnessPill } from '@/components/p0-ui';
 import { ChromeSnapshot } from '@/lib/p0';
 import type { AppUser } from '@/lib/supabase';
 
@@ -11,7 +10,6 @@ const desktopNav = [
   { href: '/dashboard', label: '总览' },
   { href: '/holdings', label: '持仓' },
   { href: '/sell-put', label: 'Sell Put' },
-  { href: '/confirmations', label: '确认中心' },
   { href: '/data', label: '数据与账户' },
   { href: '/rules', label: '交易纪律' },
   { href: '/ops', label: '运行状态' },
@@ -22,7 +20,6 @@ const mobileTabs = [
   { href: '/dashboard', label: '总览' },
   { href: '/holdings', label: '持仓' },
   { href: '/sell-put', label: 'Sell Put' },
-  { href: '/confirmations', label: '确认' },
   { href: '/data', label: '数据' },
   { href: '/rules', label: '纪律' },
 ];
@@ -31,7 +28,7 @@ function isActive(pathname: string, href: string) {
   return href === '/' ? pathname === href : pathname.startsWith(href);
 }
 
-const standalonePaths = new Set(['/', '/features', '/pricing', '/intro', '/wechat-clawbot', '/onboarding/welcome']);
+const standalonePaths = new Set(['/', '/features', '/intro', '/wechat-clawbot', '/onboarding/welcome']);
 
 export default function AppShell({
   chrome,
@@ -44,8 +41,6 @@ export default function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-
   if (pathname.startsWith('/login') || standalonePaths.has(pathname)) {
     return <main>{children}</main>;
   }
@@ -60,169 +55,112 @@ export default function AppShell({
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#381116_0%,#0b0d10_38%,#060708_100%)] text-white">
-      <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col px-3 pb-24 pt-3 md:px-5 md:pb-6">
-        <header className="rounded-[28px] border border-white/10 bg-black/35 backdrop-blur">
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 md:px-6">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 md:hidden"
-                onClick={() => setOpen((value) => !value)}
-                aria-label="切换导航"
-              >
-                {open ? '×' : '≡'}
-              </button>
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-red-300/80">AI 资产与风险助手</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-white md:text-base">投资控制台</span>
-                  <StatusPill tone="danger">实盘账户视图</StatusPill>
-                </div>
+    <div className="min-h-screen bg-[#fafafa] text-[#171417]">
+      <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col px-2 pb-16 pt-2 md:px-4 md:pb-4 md:pt-4">
+        <header className="sticky top-2 z-20 rounded-lg border border-[#e5ddd9] bg-[#fafafa]/95 shadow-[0_12px_36px_rgba(61,38,32,0.08)] backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 md:px-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#d71920] text-sm font-semibold text-white shadow-sm">
+                AI
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {user ? (
-                <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 lg:flex">
-                  <span className="max-w-[180px] truncate">{userLabel}</span>
-                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-slate-300">
-                  {user.provider === 'supabase' ? 'Supabase' : '已登录'}
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-[#d71920]">AI 资产与风险助手</p>
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="truncate text-sm font-semibold text-[#171417] md:text-base">投资控制台</span>
+                  <span className="rounded-full border border-[#f0c8c5] bg-[#fff4f1] px-2 py-0.5 text-[11px] font-medium text-[#a8181e]">
+                    实盘账户视图
                   </span>
                 </div>
-              ) : null}
-              <Link
-                href="/confirmations"
-                className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-2.5 py-2 text-xs text-red-100 transition hover:bg-red-500/15 sm:px-3 sm:text-sm"
-              >
-                <span className="sm:hidden">待确认</span>
-                <span className="hidden sm:inline">确认中心</span>
-                <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-medium text-white">
-                  {chrome.pendingConfirmations}
-                </span>
-              </Link>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 transition hover:bg-white/[0.08] sm:text-sm"
-              >
-                退出
-              </button>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-4 px-4 py-4 md:px-6">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusPill tone="muted">
-                  账户视图 {activeView.name} / {activeView.baseCurrency}
-                </StatusPill>
-                {chrome.marketStates.map((item) => (
-                  <StatusPill key={item.market} tone="muted">
-                    {item.market} {item.status}
-                  </StatusPill>
-                ))}
-                <StatusPill tone={chrome.syncIssues ? 'warning' : 'positive'}>
-                  数据提醒 {chrome.syncIssues}
-                </StatusPill>
-                <StatusPill tone="muted">处理中 {chrome.runningJobs}</StatusPill>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {chrome.sources.map((source) => (
-                  <FreshnessPill key={source.key} source={source} />
-                ))}
               </div>
             </div>
-
-            <div className="hidden items-center gap-2 md:flex">
+            <nav className="order-3 -mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1 overflow-x-auto border-t border-[#eee7e3] px-1 pt-2 md:order-none md:mx-0 md:w-auto md:border-t-0 md:px-0 md:pt-0">
               {desktopNav.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={[
-                    'rounded-xl px-3 py-2 text-sm transition',
+                    'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition',
                     isActive(pathname, item.href)
-                      ? 'bg-red-500 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.06)]'
-                      : 'text-slate-300 hover:bg-white/6 hover:text-white',
+                      ? 'bg-[#d71920] text-white shadow-sm'
+                      : 'text-[#4f494c] hover:bg-[#f2ece8] hover:text-[#171417]',
                   ].join(' ')}
                 >
                   {item.label}
                 </Link>
               ))}
-            </div>
-
-            {open ? (
-              <div className="grid gap-2 md:hidden">
-                {desktopNav.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setOpen(false)}
-                    className={[
-                      'rounded-xl border px-3 py-2 text-sm',
-                      isActive(pathname, item.href)
-                        ? 'border-red-400/30 bg-red-500/10 text-white'
-                        : 'border-white/10 bg-white/[0.03] text-slate-200',
-                    ].join(' ')}
+            </nav>
+            <div className="flex items-center gap-2">
+              {user ? (
+                <details className="group relative">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-[#e5ddd9] bg-white px-2.5 py-1.5 text-xs text-[#4f494c] transition hover:border-[#d8ccc7] hover:bg-[#fffaf8] [&::-webkit-details-marker]:hidden">
+                    <span className="max-w-[84px] truncate sm:max-w-[180px]">{userLabel}</span>
+                    <span className="hidden rounded-full bg-[#f2ece8] px-2 py-0.5 text-[11px] text-[#6f686b] sm:inline-flex">
+                      本地账号
+                    </span>
+                    <span className="text-[#8a817d] transition group-open:rotate-180">⌄</span>
+                  </summary>
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-[calc(100%+8px)] z-30 w-48 overflow-hidden rounded-lg border border-[#e5ddd9] bg-white p-1 text-sm shadow-[0_18px_60px_rgba(61,38,32,0.14)]"
                   >
-                    {item.label}
-                  </Link>
-                ))}
-              </div>
-            ) : null}
+                    <Link
+                      href="/account/password"
+                      role="menuitem"
+                      className="block rounded-md px-3 py-2 text-[#171417] transition hover:bg-[#fff4f1] hover:text-[#d71920]"
+                    >
+                      修改密码
+                    </Link>
+                    <Link
+                      href="/settings"
+                      role="menuitem"
+                      className="block rounded-md px-3 py-2 text-[#6f686b] transition hover:bg-[#f8f3ef] hover:text-[#171417]"
+                    >
+                      账户设置
+                    </Link>
+                  </div>
+                </details>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-lg border border-[#e5ddd9] bg-white px-2.5 py-1.5 text-xs text-[#4f494c] transition hover:border-[#d8ccc7] hover:bg-[#fffaf8] sm:px-3 sm:text-sm"
+              >
+                退出
+              </button>
+            </div>
           </div>
         </header>
 
-        <div className="mt-4 flex min-h-0 flex-1 gap-4">
-          <aside className="hidden w-[280px] shrink-0 rounded-[28px] border border-white/10 bg-black/30 p-5 xl:block">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-400">资产视图</p>
-            <div className="mt-4 space-y-3">
-              {chrome.views.map((view) => (
-                <div key={view.id} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium text-white">{view.name}</p>
-                    {view.id === chrome.activeViewId ? <StatusPill tone="danger">当前</StatusPill> : null}
-                  </div>
-                  <p className="mt-2 text-sm text-slate-400">
-                    {view.baseCurrency} · {view.scope}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">{view.sourceCount} 个数据来源</p>
-                  {view.highImpactChangePending ? (
-                    <p className="mt-3 text-xs text-amber-300">数据来源变更待确认</p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <p className="text-sm font-medium text-white">快捷入口</p>
-              <div className="mt-3 grid gap-2 text-sm">
-                <Link href="/confirmations" className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200 transition hover:bg-white/[0.08]">
-                  交易录入 / 识别修正
-                </Link>
-                <Link href="/data" className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200 transition hover:bg-white/[0.08]">
-                  数据来源 / 系统行情
-                </Link>
-                <Link href="/ops" className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200 transition hover:bg-white/[0.08]">
-                  处理进度 / 消息状态
-                </Link>
-              </div>
-            </div>
-          </aside>
+        <main className="mt-2 min-w-0 flex-1 rounded-lg border border-[#e5ddd9] bg-white p-3 shadow-[0_18px_60px_rgba(61,38,32,0.08)] md:mt-3 md:p-5">
+          {children}
+        </main>
 
-          <main className="min-w-0 flex-1 rounded-[28px] border border-white/10 bg-black/25 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.32)] md:p-6">
-            {children}
-          </main>
-        </div>
+        <footer className="mt-3 hidden rounded-lg border border-[#e5ddd9] bg-white px-4 py-2 text-xs text-[#6f686b] shadow-sm md:block md:px-5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="text-[#171417]">账户视图 {activeView.name} / {activeView.baseCurrency}</span>
+            {chrome.marketStates.map((item) => (
+              <span key={item.market}>{item.market} {item.status}</span>
+            ))}
+            <span className={chrome.syncIssues ? 'text-amber-700' : 'text-emerald-700'}>
+              数据提醒 {chrome.syncIssues}
+            </span>
+            <span>处理中 {chrome.runningJobs}</span>
+            {chrome.sources.map((source) => (
+              <FreshnessPill key={source.key} source={source} />
+            ))}
+          </div>
+        </footer>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-[#0a0c0f]/95 px-2 py-2 backdrop-blur md:hidden">
-        <div className="mx-auto grid max-w-xl grid-cols-6 gap-1">
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-[#e5ddd9] bg-white/95 px-2 py-1.5 shadow-[0_-10px_30px_rgba(61,38,32,0.1)] backdrop-blur md:hidden">
+        <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
           {mobileTabs.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={[
-                'rounded-2xl px-2 py-2 text-center text-xs',
-                isActive(pathname, item.href) ? 'bg-red-500 text-white' : 'text-slate-400',
+                'rounded-lg px-2 py-2 text-center text-xs',
+                isActive(pathname, item.href) ? 'bg-[#d71920] text-white' : 'text-[#6f686b]',
               ].join(' ')}
             >
               {item.label}

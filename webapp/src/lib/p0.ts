@@ -7,14 +7,16 @@ import {
   type P0ApiSnapshot,
 } from '@/lib/p0-api';
 import {
+  accountDatabaseConfigured,
   ensureUserAccount,
+  getAccountWorkspace,
   listManualPositions,
   type AccountManualPositionSnapshot,
   type AccountWorkspaceContext,
 } from '@/lib/account-store';
 import { getCurrentSession } from '@/lib/supabase';
 
-export type DemoState = 'ready' | 'loading' | 'error' | 'empty' | 'degraded';
+export type PageState = 'ready' | 'loading' | 'error' | 'empty' | 'degraded';
 
 export interface ViewOption {
   id: string;
@@ -126,26 +128,6 @@ export interface ThresholdConfig {
   mutableVia: string;
 }
 
-export interface ConfirmationItem {
-  id: string;
-  type:
-    | 'trade_input'
-    | 'ocr_fix'
-    | 'asr_fix'
-    | 'rule_change'
-    | 'sell_put_trade_draft'
-    | 'broker_conflict'
-    | 'source_conflict'
-    | 'portfolio_view_change';
-  title: string;
-  summary: string;
-  risk: 'high' | 'medium' | 'low';
-  status: 'pending' | 'needs_input' | 'blocked';
-  freshness: string;
-  evidence: string[];
-  nextStep: string;
-}
-
 export interface BrokerConnection {
   id: string;
   provider: string;
@@ -239,10 +221,6 @@ export interface WorkspaceSnapshot {
     candidates: CandidateStrike[];
     thresholds: ThresholdConfig[];
   };
-  confirmations: {
-    summary: Metric[];
-    items: ConfirmationItem[];
-  };
   data: {
     summary: Metric[];
     connections: BrokerConnection[];
@@ -265,7 +243,7 @@ export interface WorkspaceSnapshot {
 }
 
 export interface WorkspaceResponse {
-  state: DemoState;
+  state: PageState;
   data?: WorkspaceSnapshot;
   errorMessage?: string;
   liveData?: P0ApiDataState;
@@ -275,200 +253,105 @@ const baseWorkspace: WorkspaceSnapshot = {
   chrome: {
     activeViewId: 'all-assets',
     views: [
-      { id: 'all-assets', name: '全部资产', baseCurrency: 'USD', scope: '美股 / 港股 / 期权', sourceCount: 4 },
-      { id: 'us-core', name: '美股核心仓', baseCurrency: 'USD', scope: '长期仓位', sourceCount: 2 },
-      { id: 'option-income', name: '期权现金流', baseCurrency: 'USD', scope: 'Sell Put', sourceCount: 1, highImpactChangePending: true },
+      { id: 'all-assets', name: '全部资产', baseCurrency: 'USD', scope: '当前账户空间', sourceCount: 0 },
     ],
-    sources: [
-      { key: 'futu', label: '系统 Futu 行情源', tier: 'L1', status: 'fresh', freshnessLabel: '32s', lastUpdated: '2026-05-10 09:32', actionability: 'ready' },
-      { key: 'option-chain', label: '期权链行情', tier: 'L1', status: 'fresh', freshnessLabel: '44s', lastUpdated: '2026-05-10 09:31', actionability: 'ready' },
-      { key: 'tencent', label: '腾讯财经校验', tier: 'L3', status: 'fresh', freshnessLabel: '3m', lastUpdated: '2026-05-10 09:29', actionability: 'analysis_only' },
-    ],
-    marketStates: [
-      { market: 'US', status: '盘前' },
-      { market: 'HK', status: '已收盘' },
-      { market: 'A股', status: '已收盘' },
-    ],
-    pendingConfirmations: 6,
-    syncIssues: 1,
-    runningJobs: 2,
+    sources: [],
+    marketStates: [],
+    pendingConfirmations: 0,
+    syncIssues: 0,
+    runningJobs: 0,
   },
   dashboard: {
     metrics: [
-      { label: '总资产', value: '$412,480', hint: '计价币种 USD' },
-      { label: '股票 / ETF 市值', value: '$279,800', hint: '8 个活跃标的' },
-      { label: '期权市值', value: '-$18,420', hint: '空头期权按市值展示', tone: 'warning' },
-      { label: '现金担保 / 保证金占用', value: '$92,000 / $18,000', hint: '拆分展示，不混总资产' },
-      { label: '可用现金', value: '$57,260', hint: '用户确认资金数据' },
-      { label: '待处理', value: '6', hint: '确认 / 冲突 / 修正', tone: 'danger' },
+      { label: '总资产', value: '$0', hint: '等待真实账户数据' },
+      { label: '可用现金', value: '$0', hint: '等待资金数据' },
+      { label: '保证金占用', value: '$0', hint: '等待期权资金数据' },
+      { label: '持仓数', value: '0', hint: '等待持仓数据' },
+      { label: '股票 / 期权', value: '0 / 0', hint: '等待持仓拆分' },
+      { label: '待处理', value: '0', hint: '暂无待处理事项' },
     ],
-    riskRadar: [
-      { id: 'risk-1', title: 'Sell Put 7 天内到期', detail: '2 份合约需要复核接股风险与现金占用。', level: 'high', badge: '到期风险' },
-      { id: 'risk-2', title: '单标的暴露偏高', detail: 'NVDA 在当前资产视图中占比 21%。', level: 'medium', badge: '集中度' },
-      { id: 'risk-3', title: '纪律冲突待处理', detail: '1 条规则例外还没有补充理由。', level: 'medium', badge: '纪律' },
-    ],
-    actions: [
-      { id: 'action-1', title: '确认截图与手工记录差异', detail: 'AAPL 买入记录与截图识别里的持仓数量不一致。', severity: 'critical', href: '/confirmations', badge: '重要' },
-      { id: 'action-2', title: '复核图片 / 语音识别结果', detail: '截图和语音口令中的价格字段置信度较低，等待人工确认。', severity: 'warning', href: '/confirmations' },
-      { id: 'action-3', title: '查看 Sell Put 候选限制原因', detail: '期权链更新接近阈值，当前只输出观察结论。', severity: 'normal', href: '/sell-put?state=degraded' },
-    ],
-    holdingsPreview: [
-      { symbol: 'NVDA', name: 'NVIDIA', market: 'US', quantity: '180', marketValue: '$162,900', pnl: '+18.4%', concentration: '21%', discipline: 'watch', freshness: '32s', source: '系统行情' },
-      { symbol: 'AAPL', name: 'Apple', market: 'US', quantity: '240', marketValue: '$47,200', pnl: '+6.2%', concentration: '11%', discipline: 'clear', freshness: '32s', source: '系统行情' },
-      { symbol: '0700.HK', name: 'Tencent', market: 'HK', quantity: '500', marketValue: '$31,400', pnl: '-3.1%', concentration: '8%', discipline: 'blocked', freshness: '4m', source: '腾讯财经' },
-    ],
-    optionsPreview: [
-      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要复核', freshness: '44s', source: '系统期权链', actionability: 'ready' },
-      { id: 'opt-2', underlying: 'AMD', contract: 'AMD 2026-06-07 130P', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', optionMarketValue: '-$250', cashRequired: '$13,000', marginRequired: '$0', risk: 'medium', assignment: '愿接股池内', freshness: '44s', source: '系统期权链', actionability: 'ready' },
-    ],
+    riskRadar: [],
+    actions: [],
+    holdingsPreview: [],
+    optionsPreview: [],
   },
   holdings: {
     metrics: [
-      { label: '资产视图', value: '全部资产', hint: '支持多视图切换' },
-      { label: '股票 / ETF', value: '8', hint: '独立表格展示' },
-      { label: 'Sell Put 合约', value: '4', hint: '期权持仓单独分区' },
-      { label: '需注意数据', value: '2', hint: '会说明更新延迟或来源限制', tone: 'warning' },
+      { label: '资产视图', value: '全部资产', hint: '当前账户空间' },
+      { label: '股票 / ETF', value: '0', hint: '等待持仓数据' },
+      { label: '期权持仓', value: '0', hint: '等待期权数据' },
+      { label: '数据状态', value: '等待数据', hint: '暂无真实持仓数据', tone: 'warning' },
     ],
-    equity: [
-      { symbol: 'NVDA', name: 'NVIDIA', market: 'US', quantity: '180', marketValue: '$162,900', pnl: '+18.4%', concentration: '21%', discipline: 'watch', freshness: '32s', source: '系统行情' },
-      { symbol: 'AAPL', name: 'Apple', market: 'US', quantity: '240', marketValue: '$47,200', pnl: '+6.2%', concentration: '11%', discipline: 'clear', freshness: '32s', source: '系统行情' },
-      { symbol: 'QQQ', name: 'Invesco QQQ', market: 'US', quantity: '90', marketValue: '$38,160', pnl: '+4.6%', concentration: '9%', discipline: 'clear', freshness: '32s', source: '系统行情' },
-      { symbol: '0700.HK', name: 'Tencent', market: 'HK', quantity: '500', marketValue: '$31,400', pnl: '-3.1%', concentration: '8%', discipline: 'blocked', freshness: '4m', source: '腾讯财经' },
-    ],
-    options: [
-      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要高注意确认', freshness: '44s', source: '系统期权链', actionability: 'ready' },
-      { id: 'opt-2', underlying: 'AMD', contract: 'AMD 2026-06-07 130P', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', optionMarketValue: '-$250', cashRequired: '$13,000', marginRequired: '$0', risk: 'medium', assignment: '愿接股池内', freshness: '44s', source: '系统期权链', actionability: 'ready' },
-      { id: 'opt-3', underlying: 'BABA', contract: 'BABA 2026-05-24 70P', dte: '14', delta: '0.23', iv: '54%', premium: '$1.48', optionMarketValue: '-$296', cashRequired: '$7,000', marginRequired: '$0', risk: 'high', assignment: '财报前限制', freshness: '5m', source: '备用行情', actionability: 'analysis_only' },
-    ],
-    riskRadar: [
-      { id: 'radar-1', title: '数据更新接近阈值', detail: 'BABA 期权链来自备用行情，只能观察，不生成交易草稿。', level: 'high', badge: '数据提醒' },
-      { id: 'radar-2', title: '现金占用 61%', detail: 'Sell Put 现金担保占当前视图纪律上限的 61%。', level: 'medium', badge: '现金占用' },
-      { id: 'radar-3', title: '1 条视图变更待确认', detail: '期权现金流视图的数据来源修改仍待确认。', level: 'low', badge: '资产视图' },
-    ],
-    sources: [
-      { id: 'src-1', label: '系统 Futu 行情源', type: '系统行情', priority: '行情参考', confidence: '0.98', freshness: '32s', lineage: '管理员侧行情源用于估值和期权链校验' },
-      { id: 'src-2', label: '手工交易记录', type: '手工录入', priority: '辅助', confidence: '0.91', freshness: '8m', lineage: '确认后计入持仓变化' },
-      { id: 'src-3', label: '截图识别结果', type: '截图识别', priority: '待确认', confidence: '0.72', freshness: '12m', lineage: '图片识别后等待人工确认' },
-    ],
+    equity: [],
+    options: [],
+    riskRadar: [],
+    sources: [],
   },
   sellPut: {
     metrics: [
-      { label: '可用现金', value: '$57,260', hint: '以用户确认资金为准' },
-      { label: '现金担保', value: '$92,000', hint: '用于覆盖卖出认沽' },
-      { label: '保证金占用', value: '$18,000', hint: '与现金担保分开展示' },
-      { label: '7 天内到期', value: '2', hint: '高注意合约', tone: 'danger' },
-      { label: '高注意', value: '1', hint: '价内、近到期或数据更新偏慢', tone: 'warning' },
-      { label: '候选池', value: '4', hint: '交易草稿仍需确认' },
+      { label: '可用现金', value: '$0', hint: '等待资金数据' },
+      { label: '现金担保', value: '$0', hint: '暂无 Sell Put 持仓' },
+      { label: '保证金占用', value: '$0', hint: '暂无保证金占用' },
+      { label: '7 天内到期', value: '0', hint: '暂无近到期期权' },
+      { label: '高注意', value: '0', hint: '暂无高注意合约' },
+      { label: '候选池', value: '0', hint: '暂无真实候选数据' },
     ],
     ladder: [
-      { bucket: '0-7 天', contracts: '2', exposure: '$16,000' },
-      { bucket: '8-21 天', contracts: '1', exposure: '$7,000' },
-      { bucket: '22-45 天', contracts: '1', exposure: '$13,000' },
+      { bucket: '0-7 天', contracts: '0', exposure: '$0' },
+      { bucket: '8-21 天', contracts: '0', exposure: '$0' },
+      { bucket: '22-45 天', contracts: '0', exposure: '$0' },
       { bucket: '45 天以上', contracts: '0', exposure: '$0' },
     ],
-    positions: [
-      { id: 'opt-1', underlying: 'TSLA', contract: 'TSLA 2026-05-17 160P', dte: '7', delta: '0.18', iv: '41%', premium: '$1.92', optionMarketValue: '-$384', cashRequired: '$16,000', marginRequired: '$0', risk: 'high', assignment: '需要复核', freshness: '44s', source: '系统期权链', actionability: 'ready' },
-      { id: 'opt-3', underlying: 'BABA', contract: 'BABA 2026-05-24 70P', dte: '14', delta: '0.23', iv: '54%', premium: '$1.48', optionMarketValue: '-$296', cashRequired: '$7,000', marginRequired: '$0', risk: 'high', assignment: '财报前限制', freshness: '5m', source: '备用行情', actionability: 'analysis_only' },
-    ],
-    candidates: [
-      { id: 'cand-1', underlying: 'AMD', strike: '$130', expiry: '2026-06-07', dte: '28', delta: '0.14', iv: '33%', premium: '$1.25', cashRequired: '$13,000', result: 'ready', note: '满足愿接股与现金上限，可生成草稿。' },
-      { id: 'cand-2', underlying: 'TSLA', strike: '$155', expiry: '2026-06-14', dte: '35', delta: '0.16', iv: '39%', premium: '$2.10', cashRequired: '$15,500', result: 'analysis_only', note: '行情更新接近阈值，仅输出观察结论。' },
-      { id: 'cand-3', underlying: 'BABA', strike: '$68', expiry: '2026-05-24', dte: '14', delta: '0.24', iv: '56%', premium: '$1.62', cashRequired: '$6,800', result: 'blocked', note: '不在愿接股池且处于财报前窗口。' },
-    ],
+    positions: [],
+    candidates: [],
     thresholds: [
-      { label: '最大现金占用比', value: '65%', source: '账户规则', mutableVia: '规则页 + 确认' },
-      { label: '候选最小到期天数', value: '21 天', source: '账户规则', mutableVia: '规则页' },
-      { label: '候选最大 delta', value: '0.20', source: '账户规则', mutableVia: '规则页' },
-      { label: '数据更新要求', value: '30-60 秒', source: '行情设置', mutableVia: '设置页' },
-    ],
-  },
-  confirmations: {
-    summary: [
-      { label: '待处理总数', value: '6', hint: '全部待确认对象' },
-      { label: '交易录入 / 修正', value: '3', hint: '手工记录、截图、语音' },
-      { label: '规则 / 视图变更', value: '2', hint: '影响风险或资金口径的设置' },
-      { label: '来源差异', value: '1', hint: '必须人工确认', tone: 'danger' },
-    ],
-    items: [
-      { id: 'cfm-1', type: 'trade_input', title: '手工录入买入交易', summary: 'NVDA 买入 20 股，等待你确认后记录到持仓。', risk: 'medium', status: 'pending', freshness: '5m', evidence: ['手工输入内容', '持仓影响预览', '纪律检查通过'], nextStep: '确认并记录' },
-      { id: 'cfm-2', type: 'ocr_fix', title: '截图识别修正：价格需要确认', summary: '截图识别到 AAPL 价格字段置信度 0.71，需要人工校正。', risk: 'medium', status: 'needs_input', freshness: '12m', evidence: ['截图识别结果', '原始截图记录', '置信度低于阈值'], nextStep: '修正字段后再提交' },
-      { id: 'cfm-3', type: 'asr_fix', title: '语音识别修正：数量需要确认', summary: '语音口令识别“十张 / 四张”冲突，待二次确认。', risk: 'medium', status: 'needs_input', freshness: '9m', evidence: ['语音转写文本', '识别出的意图', '数量存在歧义'], nextStep: '确认正确数量' },
-      { id: 'cfm-4', type: 'rule_change', title: '纪律规则变更', summary: '调整 Sell Put 最大现金占用上限从 60% 到 65%。', risk: 'high', status: 'pending', freshness: '2m', evidence: ['规则变更前后对比', '账户影响预览', '受影响候选清单'], nextStep: '确认并保留记录' },
-      { id: 'cfm-5', type: 'sell_put_trade_draft', title: 'Sell Put 草稿', summary: 'AMD 130P 候选满足规则，可确认生成执行清单。', risk: 'high', status: 'pending', freshness: '44s', evidence: ['风险复核结果', '现金占用模拟', '系统行情来源'], nextStep: '确认生成草稿' },
-      { id: 'cfm-6', type: 'source_conflict', title: '来源差异', summary: 'AAPL 持仓数量在截图识别与手工记录间不一致。', risk: 'high', status: 'blocked', freshness: '3m', evidence: ['截图识别数量', '手工记录数量', '来源优先级规则'], nextStep: '选择可信来源' },
+      { label: '最大现金占用比', value: '未配置', source: '账户规则', mutableVia: '交易纪律' },
+      { label: '候选最小到期天数', value: '未配置', source: '账户规则', mutableVia: '交易纪律' },
+      { label: '候选最大 delta', value: '未配置', source: '账户规则', mutableVia: '交易纪律' },
+      { label: '数据更新要求', value: '等待数据', source: '行情设置', mutableVia: '设置' },
     ],
   },
   data: {
     summary: [
-      { label: '系统行情源', value: '1', hint: '管理员侧只读行情与期权链' },
-      { label: '资产来源', value: '4', hint: '系统行情、手工、截图、页面估算' },
-      { label: '更新异常', value: '1', hint: '需检查原因', tone: 'warning' },
-      { label: '微信绑定', value: '1', hint: '可接收提醒和确认消息' },
+      { label: '系统行情源', value: '0', hint: '等待数据源状态' },
+      { label: '资产来源', value: '0', hint: '等待账户数据源' },
+      { label: '更新异常', value: '0', hint: '暂无异常' },
+      { label: '微信绑定', value: '0', hint: '等待账号绑定状态' },
     ],
-    connections: [
-      { id: 'bc-1', provider: '系统 Futu 行情源', accountLabel: '美股行情 / 期权链', authStatus: 'connected', permissionScope: '管理员只读行情 / 期权链', lastSync: '2026-05-10 09:32', freshness: '32s' },
-      { id: 'bc-2', provider: '系统 Futu 行情源', accountLabel: '港股行情', authStatus: 'degraded', permissionScope: '管理员只读行情', lastSync: '2026-05-10 09:26', freshness: '6m', degradation: '系统源暂未返回最新港股行情' },
-    ],
-    assetSources: [
-      { id: 'source-1', label: '系统 Futu 行情源', type: '系统行情数据', priority: '行情参考', confidence: '0.98', freshness: '32s', lineage: '管理员侧 OpenD 提供行情，不同步普通用户个人账户' },
-      { id: 'source-2', label: '手工交易记录', type: '手工录入', priority: '辅助', confidence: '0.91', freshness: '8m', lineage: '确认后计入持仓变化' },
-      { id: 'source-3', label: '截图识别结果', type: '截图识别', priority: '待确认', confidence: '0.72', freshness: '12m', lineage: '图片识别后等待人工确认' },
-    ],
-    syncEvents: [
-      { id: 'sync-1', title: '美股系统行情更新', status: 'success', startedAt: '09:32', detail: '行情和期权链数据已更新。' },
-      { id: 'sync-2', title: '港股系统行情更新', status: 'warning', startedAt: '09:26', detail: '部分行情缺失，相关建议暂时仅供参考。' },
-      { id: 'sync-3', title: '手工记录影响测算', status: 'running', startedAt: '09:30', detail: '待确认交易正在预估对持仓的影响。' },
-    ],
+    connections: [],
+    assetSources: [],
+    syncEvents: [],
   },
   rules: {
     summary: [
-      { label: '纪律规则', value: '8', hint: '按交易场景管理' },
-      { label: '需要例外说明', value: '2', hint: '未补理由不可提交', tone: 'warning' },
-      { label: 'Sell Put 阈值', value: '4', hint: '按规则统一维护' },
-      { label: '最近命中', value: '今天 3 次', hint: '含财报前限制' },
+      { label: '纪律规则', value: '0', hint: '等待当前账号规则' },
+      { label: '需要例外说明', value: '0', hint: '暂无例外说明' },
+      { label: 'Sell Put 阈值', value: '0', hint: '等待规则配置' },
+      { label: '最近命中', value: '0', hint: '暂无规则命中' },
     ],
-    rules: [
-      { id: 'rule-1', title: 'Sell Put 最大现金占用', scope: '期权现金流', severity: 'high', condition: '现金担保占用不超过 65%', latestHit: '今天 09:15', overrideRequired: true },
-      { id: 'rule-2', title: '财报前不生成交易草稿', scope: '期权交易', severity: 'high', condition: '临近财报窗口时仅提供观察结论', latestHit: '今天 09:20', overrideRequired: false },
-      { id: 'rule-3', title: '单标的集中度提醒', scope: '账户持仓', severity: 'medium', condition: '单一标的占比超过 20%', latestHit: '今天 09:25', overrideRequired: false },
-    ],
-    overrides: [
-      { id: 'ovr-1', object: '期权现金流视图', reason: '新增数据来源会影响资金口径，需要确认。', actor: '用户', createdAt: '2026-05-10 09:24' },
-      { id: 'ovr-2', object: 'AMD 130P Sell Put 草稿', reason: '维持当前阈值，不绕过交易纪律。', actor: '风险复核', createdAt: '2026-05-10 09:28' },
-    ],
+    rules: [],
+    overrides: [],
     thresholdGroups: [
-      { label: '最大现金占用比', value: '65%', source: '账户规则', mutableVia: '确认中心' },
-      { label: '最大 delta', value: '0.20', source: '默认规则', mutableVia: '交易纪律' },
-      { label: '最小到期天数', value: '21 天', source: '默认规则', mutableVia: '交易纪律' },
+      { label: '最大现金占用比', value: '未配置', source: '账户规则', mutableVia: '交易纪律' },
+      { label: '最大 delta', value: '未配置', source: '账户规则', mutableVia: '交易纪律' },
+      { label: '最小到期天数', value: '未配置', source: '账户规则', mutableVia: '交易纪律' },
     ],
   },
   ops: {
     summary: [
-      { label: '进行中事项', value: '2', hint: '研究、重新计算和账户更新' },
-      { label: '推送失败', value: '1', hint: '需要重试', tone: 'warning' },
-      { label: '账户更新异常', value: '1', hint: '连接状态需检查', tone: 'warning' },
-      { label: '等待继续处理', value: '2', hint: '确认后需要重新更新数字' },
+      { label: '进行中事项', value: '0', hint: '暂无进行中事项' },
+      { label: '推送失败', value: '0', hint: '暂无失败推送' },
+      { label: '账户更新异常', value: '0', hint: '暂无更新异常' },
+      { label: '等待继续处理', value: '0', hint: '暂无待处理队列' },
     ],
-    jobs: [
-      { id: 'job-1', lane: '深度研究报告', status: 'running', updatedAt: '09:31', owner: '研究分析' },
-      { id: 'job-2', lane: '交易记录影响重新计算', status: 'queued', updatedAt: '09:30', owner: '确认中心' },
-      { id: 'job-3', lane: '每日持仓快照', status: 'ready', updatedAt: '09:28', owner: '资产更新' },
-    ],
-    deliveries: [
-      { id: 'delivery-1', channel: '微信摘要', reason: '当前处于免打扰时段，已排队等待补发。', lastAttempt: '08:58', recovery: '09:35 自动重试' },
-    ],
-    brokerSyncs: [
-      { id: 'ops-sync-1', title: '系统美股行情', status: 'success', startedAt: '09:32', detail: '美股行情源连接正常。' },
-      { id: 'ops-sync-2', title: '系统港股行情', status: 'failed', startedAt: '09:26', detail: '港股行情读取超时，相关建议暂时仅供参考。' },
-    ],
-    replayQueue: [
-      { id: 'replay-1', objectType: '手工交易记录', reason: '等待你确认后刷新持仓数字', status: 'pending' },
-      { id: 'replay-2', objectType: '来源差异', reason: '需要选择可信来源后才能继续', status: 'blocked' },
-    ],
+    jobs: [],
+    deliveries: [],
+    brokerSyncs: [],
+    replayQueue: [],
   },
 };
 
-export function resolveDemoState(value?: string): DemoState {
+export function resolvePageState(value?: string): PageState {
   if (value === 'loading' || value === 'error' || value === 'empty' || value === 'degraded') {
     return value;
   }
@@ -576,7 +459,7 @@ function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: Accou
     { label: '期权持仓', value: '0', hint: 'Sell Put 数据会独立展示' },
     { label: '账户空间', value: '已初始化', hint: `account_id ${account.accountId.slice(0, 8)}` },
     { label: '资产来源', value: String(account.assetSources.length), hint: '手工、消息、OCR、语音和系统行情来源已建好' },
-    { label: '待处理', value: '0', hint: '暂无待确认动作' },
+    { label: '待处理', value: '0', hint: '暂无待复核动作' },
   ];
   workspace.dashboard.holdingsPreview = [];
   workspace.dashboard.optionsPreview = [];
@@ -593,7 +476,7 @@ function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: Accou
       title: '用截图初始化持仓',
       detail: '普通用户不连接个人 Futu OpenD，可以通过微信发送持仓截图识别后确认写入。',
       severity: 'normal',
-      href: '/onboarding/wechat',
+      href: '/ops',
     },
   ];
   workspace.dashboard.riskRadar = [
@@ -633,7 +516,6 @@ function applyAccountEmptyWorkspace(workspace: WorkspaceSnapshot, account: Accou
   ];
   workspace.sellPut.positions = [];
   workspace.sellPut.candidates = [];
-  workspace.confirmations.items = [];
   workspace.ops.jobs = [];
   workspace.ops.deliveries = [];
   workspace.ops.replayQueue = [];
@@ -665,21 +547,105 @@ function buildManualP0Snapshot(
   baseUrl: string
 ): P0ApiSnapshot {
   const baseCurrency = account.baseCurrency || 'USD';
-  const totalAssetValue = manual.positions.reduce((sum, item) => sum + (item.marketValue ?? 0), 0);
+  const positions = manual.positions.map((position, index) => {
+    const originalMarketPrice = resolvedManualPrice(position.marketPrice, position.averageCost);
+    const originalMarketValue = resolvedManualMarketValue(
+      position.marketValue,
+      position.quantity,
+      originalMarketPrice,
+      position.multiplier ?? undefined
+    );
+    const fxRate = manualFxRate(position.currency, baseCurrency);
+    const baseMarketValue =
+      originalMarketValue === undefined ? undefined : roundMoney(originalMarketValue * fxRate);
+    const baseMarketPrice =
+      originalMarketPrice === undefined ? undefined : roundMoney(originalMarketPrice * fxRate);
+    const baseAverageCost =
+      position.averageCost === null ? undefined : roundMoney(position.averageCost * fxRate);
+    const fxSource = position.currency === baseCurrency ? 'manual_cost_basis' : 'fallback_estimate';
+
+    return {
+      id: position.id || `manual-${position.symbol}-${index}`,
+      symbol: position.symbol,
+      name: position.name || position.symbol,
+      market: position.market,
+      currency: position.currency,
+      baseCurrency,
+      quantity: position.quantity,
+      marketValue: baseMarketValue,
+      originalMarketValue,
+      baseMarketValue,
+      averageCost: baseAverageCost,
+      originalAverageCost: position.averageCost ?? undefined,
+      baseAverageCost,
+      marketPrice: baseMarketPrice,
+      originalMarketPrice,
+      baseMarketPrice,
+      unrealizedPnlPct: position.unrealizedPnlPct ?? resolvedManualPnlPct(originalMarketPrice, position.averageCost),
+      updatedAt: position.updatedAt,
+      source: '手工录入',
+      fxSource,
+      sourceQuality: 'user_confirmed',
+      instrumentType: position.instrumentType,
+      positionSide: position.positionSide,
+      optionType: position.optionType,
+      strike: position.strike,
+      expiry: position.expiry,
+      multiplier: position.multiplier,
+    };
+  });
+  const equityPositions = positions.filter((position) => position.instrumentType !== 'option_contract');
+  const optionPositions = positions
+    .filter((position) => position.instrumentType === 'option_contract')
+    .map((position, index) => ({
+      id: position.id || `manual-option-${position.symbol}-${index}`,
+      underlying: position.symbol,
+      contract: formatOptionContract(position.symbol, position.expiry, position.strike, position.optionType),
+      currency: position.currency,
+      baseCurrency,
+      quantity: position.quantity,
+      marketValue: position.baseMarketValue,
+      originalMarketValue: position.originalMarketValue,
+      baseMarketValue: position.baseMarketValue,
+      marketPrice: position.baseMarketPrice,
+      originalMarketPrice: position.originalMarketPrice,
+      baseMarketPrice: position.baseMarketPrice,
+      averageCost: position.baseAverageCost,
+      originalAverageCost: position.originalAverageCost,
+      baseAverageCost: position.baseAverageCost,
+      strike: position.strike ?? undefined,
+      expiry: position.expiry ?? undefined,
+      daysToExpiry: daysToExpiry(position.expiry),
+      optionType: position.optionType ?? undefined,
+      cashRequired: computeManualOptionCashRequired(position),
+      originalCashRequired: computeManualOptionCashRequired(position, false),
+      baseCashRequired: computeManualOptionCashRequired(position),
+      marginRequired: 0,
+      originalMarginRequired: 0,
+      baseMarginRequired: 0,
+      updatedAt: position.updatedAt,
+      source: '手工录入',
+      fxSource: position.fxSource,
+      sourceQuality: position.sourceQuality,
+    }));
+  const totalAssetValue = positions.reduce((sum, item) => sum + (item.baseMarketValue ?? 0), 0);
+  const grossMarketValue = positions.reduce((sum, item) => sum + Math.abs(item.baseMarketValue ?? 0), 0);
   const updatedAt = manual.updatedAt || new Date().toISOString();
 
   return {
     dataState: {
       mode: 'live',
       label: '手工持仓已接入',
-      detail: '当前页面展示的是本账号手工确认录入的持仓数据；金额按录入价格估算，仅供巡检和补充行情前使用。',
+      detail: '当前页面展示的是本账号手工确认录入的持仓数据；缺少实时行情时按成本价估算市值，仅供巡检和补充行情前使用。',
       updatedAt,
       baseUrl,
       sourcePath: 'webapp_manual_positions',
       baseCurrency,
-      fxSource: 'manual_input',
+      fxSource: positions.some((position) => position.fxSource === 'fallback_estimate')
+        ? 'fallback_estimate'
+        : 'manual_cost_basis',
       usesEstimatedFx: true,
-      valuationDetail: `手工录入数据已按 ${baseCurrency} 页面口径展示；未补充实时行情前仅供参考。`,
+      valuationDetail: `手工录入数据按成本价估算，并按 ${baseCurrency} 页面口径折算；未补充实时行情前仅供参考。`,
     },
     overview: {
       currency: baseCurrency,
@@ -690,39 +656,20 @@ function buildManualP0Snapshot(
       marginUsed: 0,
       cashSecured: 0,
       holdingsCount: manual.positions.length,
-      equityCount: manual.positions.length,
-      optionCount: 0,
-      equityMarketValue: totalAssetValue,
-      optionMarketValue: 0,
-      grossMarketValue: totalAssetValue,
+      equityCount: equityPositions.length,
+      optionCount: optionPositions.length,
+      equityMarketValue: equityPositions.reduce((sum, item) => sum + (item.baseMarketValue ?? 0), 0),
+      optionMarketValue: optionPositions.reduce((sum, item) => sum + (item.baseMarketValue ?? 0), 0),
+      grossMarketValue,
       updatedAt,
-      fxSource: 'manual_input',
+      fxSource: positions.some((position) => position.fxSource === 'fallback_estimate')
+        ? 'fallback_estimate'
+        : 'manual_cost_basis',
       sourceQuality: 'user_confirmed',
       usesEstimatedFx: true,
     },
-    equityPositions: manual.positions.map((position, index) => ({
-      id: position.id || `manual-${position.symbol}-${index}`,
-      symbol: position.symbol,
-      name: position.name || position.symbol,
-      market: position.market,
-      currency: position.currency,
-      baseCurrency,
-      quantity: position.quantity,
-      marketValue: position.marketValue ?? undefined,
-      originalMarketValue: position.marketValue ?? undefined,
-      baseMarketValue: position.marketValue ?? undefined,
-      averageCost: position.averageCost ?? undefined,
-      originalAverageCost: position.averageCost ?? undefined,
-      baseAverageCost: position.averageCost ?? undefined,
-      marketPrice: position.marketPrice ?? undefined,
-      originalMarketPrice: position.marketPrice ?? undefined,
-      baseMarketPrice: position.marketPrice ?? undefined,
-      updatedAt: position.updatedAt,
-      source: '手工录入',
-      fxSource: 'manual_input',
-      sourceQuality: 'user_confirmed',
-    })),
-    optionPositions: [],
+    equityPositions,
+    optionPositions,
     connections: [
       {
         id: 'manual-webapp',
@@ -732,7 +679,7 @@ function buildManualP0Snapshot(
         permissionScope: '用户确认录入',
         lastSync: updatedAt,
         updatedAt,
-        detail: '由 WebApp 手工录入生成，未补充系统行情。',
+        detail: '由 WebApp 手工录入生成；缺少系统行情时按成本价估算。',
       },
     ],
     syncEvents: [
@@ -756,6 +703,93 @@ function buildManualP0Snapshot(
   };
 }
 
+const FALLBACK_FX_TO_USD: Record<string, number> = {
+  USD: 1,
+  HKD: 0.128,
+  CNY: 0.138,
+};
+
+function resolvedManualPrice(marketPrice: number | null, averageCost: number | null) {
+  if (isUsablePositiveNumber(marketPrice)) return marketPrice;
+  if (isUsablePositiveNumber(averageCost)) return averageCost;
+  return undefined;
+}
+
+function resolvedManualMarketValue(
+  marketValue: number | null,
+  quantity: number,
+  marketPrice?: number,
+  multiplier = 1
+) {
+  if (isUsableNumber(marketValue)) return marketValue;
+  if (!isUsableNumber(quantity) || marketPrice === undefined) return undefined;
+  return roundMoney(quantity * marketPrice * multiplier);
+}
+
+function resolvedManualPnlPct(marketPrice: number | undefined, averageCost: number | null) {
+  if (marketPrice === undefined || averageCost === null || averageCost <= 0) return undefined;
+  return ((marketPrice - averageCost) / averageCost) * 100;
+}
+
+function formatOptionContract(
+  underlying: string,
+  expiry?: string | null,
+  strike?: number | null,
+  optionType?: string | null
+) {
+  const normalizedType = optionType?.trim().toUpperCase();
+  const typeCode = normalizedType?.startsWith('P') ? 'P' : normalizedType?.startsWith('C') ? 'C' : '';
+  const strikeText = strike === null || strike === undefined ? '' : `${strike}`;
+  return [underlying, expiry, strikeText && typeCode ? `${strikeText}${typeCode}` : strikeText || typeCode]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function daysToExpiry(expiry?: string | null) {
+  if (!expiry) return undefined;
+  const expiryTime = Date.parse(expiry);
+  if (Number.isNaN(expiryTime)) return undefined;
+  return Math.max(0, Math.ceil((expiryTime - Date.now()) / (24 * 60 * 60 * 1000)));
+}
+
+function computeManualOptionCashRequired(
+  position: {
+    quantity?: number;
+    strike?: number | null;
+    multiplier?: number | null;
+    baseCurrency?: string;
+    currency?: string;
+  },
+  convertToBase = true
+) {
+  if (!position.quantity || position.quantity >= 0 || !position.strike) return undefined;
+  const value = Math.abs(position.quantity) * position.strike * (position.multiplier || 100);
+  if (!convertToBase) return roundMoney(value);
+  return roundMoney(value * manualFxRate(position.currency || 'USD', position.baseCurrency || 'USD'));
+}
+
+function manualFxRate(currency: string, baseCurrency: string) {
+  const source = currency.toUpperCase();
+  const target = baseCurrency.toUpperCase();
+  if (source === target) return 1;
+  const sourceToUsd = FALLBACK_FX_TO_USD[source];
+  const targetToUsd = FALLBACK_FX_TO_USD[target];
+  if (!sourceToUsd || !targetToUsd) return 1;
+  return sourceToUsd / targetToUsd;
+}
+
+function isUsablePositiveNumber(value: number | null | undefined): value is number {
+  return isUsableNumber(value) && value > 0;
+}
+
+function isUsableNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function roundMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
 function applyLiveData(workspace: WorkspaceSnapshot, live: P0ApiSnapshot) {
   const totalAssetValue =
     live.overview?.totalAssetValue ??
@@ -776,7 +810,7 @@ function applyLiveData(workspace: WorkspaceSnapshot, live: P0ApiSnapshot) {
     workspace.dashboard.actions = buildActionItems(equity, options, live.dataState);
 
     workspace.holdings.metrics = buildHoldingsMetrics(
-      workspace.chrome.activeViewId,
+      activeViewName(workspace),
       live.overview,
       equity,
       options,
@@ -786,6 +820,11 @@ function applyLiveData(workspace: WorkspaceSnapshot, live: P0ApiSnapshot) {
     workspace.holdings.options = options;
     workspace.holdings.riskRadar = buildRiskRadar(live.overview, equity, options, live.dataState);
     workspace.holdings.sources = buildHoldingSources(live, equity, options);
+
+    workspace.sellPut.metrics = buildSellPutMetrics(live.overview, options);
+    workspace.sellPut.positions = options;
+    workspace.sellPut.ladder = buildSellPutLadder(options);
+    workspace.sellPut.candidates = [];
   }
 
   if (live.connections.length || live.syncEvents.length || live.assetSources.length) {
@@ -796,6 +835,10 @@ function applyLiveData(workspace: WorkspaceSnapshot, live: P0ApiSnapshot) {
   }
 
   return workspace;
+}
+
+function activeViewName(workspace: WorkspaceSnapshot) {
+  return workspace.chrome.views.find((view) => view.id === workspace.chrome.activeViewId)?.name || '全部资产';
 }
 
 function buildDashboardMetrics(
@@ -852,7 +895,7 @@ function buildDashboardMetrics(
 }
 
 function buildHoldingsMetrics(
-  activeViewId: string,
+  activeViewName: string,
   overview: P0ApiOverview | undefined,
   equity: EquityHolding[],
   options: OptionHolding[],
@@ -861,7 +904,7 @@ function buildHoldingsMetrics(
   return [
     {
       label: '资产视图',
-      value: activeViewId === 'all-assets' ? '全部资产' : activeViewId,
+      value: activeViewName,
       hint: overview?.baseCurrency ? `按 ${overview.baseCurrency} 统一展示，可切换资产视图` : '当前页面仍支持多视图切换',
     },
     {
@@ -876,7 +919,7 @@ function buildHoldingsMetrics(
     },
     {
       label: '数据状态',
-      value: liveData.mode === 'live' ? '实时' : liveData.mode === 'partial' ? '部分实时' : '参考视图',
+      value: liveData.mode === 'live' ? '实时' : liveData.mode === 'partial' ? '部分实时' : '等待数据',
       hint:
         liveData.valuationDetail ||
         (liveData.updatedAt ? `更新 ${formatFreshness(liveData.updatedAt)}` : '等待首次同步'),
@@ -990,7 +1033,7 @@ function buildActionItems(
     items.push({
       id: 'live-action-status',
       title: '检查数据连接状态',
-      detail: '部分区块仍在使用示例或缓存视图，建议先确认数据连接与最近同步。',
+      detail: '部分区块暂未拿到真实数据，建议先确认数据连接与最近同步。',
       severity: 'warning',
       href: '/data',
     });
@@ -1081,7 +1124,7 @@ function buildDataSummary(live: P0ApiSnapshot): Metric[] {
     },
     {
       label: '数据来源',
-      value: live.dataState.mode === 'live' ? '实时' : live.dataState.mode === 'partial' ? '部分实时' : '参考数据',
+      value: live.dataState.mode === 'live' ? '实时' : live.dataState.mode === 'partial' ? '部分实时' : '等待数据',
       hint: live.dataState.mode === 'live' ? '页面优先展示最新数据' : '仍有部分区块暂未拿到最新系统数据',
       tone: live.dataState.mode === 'live' ? 'positive' : 'warning',
     },
@@ -1106,9 +1149,9 @@ function buildDataConnections(live: P0ApiSnapshot): BrokerConnection[] {
     {
       id: 'fallback-connection',
       provider: '系统行情源',
-      accountLabel: '管理员侧参考视图',
+      accountLabel: '系统数据待补齐',
       authStatus: 'degraded',
-      permissionScope: '当前仅展示参考数据',
+      permissionScope: '等待真实数据返回',
       lastSync: '等待同步',
       freshness: '等待同步',
       degradation: live.dataState.detail,
@@ -1145,12 +1188,12 @@ function buildDataSources(live: P0ApiSnapshot): AssetSourceRow[] {
     valuationRow,
     {
       id: 'fallback-source',
-      label: '参考视图',
-      type: '参考数据',
-      priority: '临时展示',
+      label: '系统数据待补齐',
+      type: '等待数据',
+      priority: '待补齐',
       confidence: '--',
       freshness: live.dataState.updatedAt ? formatFreshness(live.dataState.updatedAt) : '等待同步',
-      lineage: '实时数据暂不可用时，页面会保留参考数据，并明确标记为非实时系统数据。',
+      lineage: '实时数据暂不可用时，页面只展示空状态和待补齐说明，不回退到占位资产。',
     },
   ];
 }
@@ -1200,7 +1243,7 @@ function buildChromeSources(live: P0ApiSnapshot): SourceStatus[] {
         ? live.dataState.usesEstimatedFx
           ? '多币种金额当前按估算汇率折算，仅供参考。'
           : live.dataState.valuationDetail
-        : '总览数据暂未完整返回，相关数字会继续沿用参考数据。',
+        : '总览数据暂未完整返回，相关数字会显示为空或待补齐。',
       actionability: live.overview ? 'ready' : 'analysis_only',
     },
     {
@@ -1218,7 +1261,7 @@ function buildChromeSources(live: P0ApiSnapshot): SourceStatus[] {
       reason:
         live.equityPositions.length || live.optionPositions.length
           ? undefined
-          : '持仓数据暂未返回，页面会先使用参考数据。',
+          : '持仓数据暂未返回，页面不会展示占位标的。',
       actionability: live.equityPositions.length || live.optionPositions.length ? 'ready' : 'analysis_only',
     },
     {
@@ -1306,6 +1349,83 @@ function buildOptionHoldings(items: P0ApiOptionPosition[]): OptionHolding[] {
       actionability: dte <= 21 ? 'analysis_only' : 'ready',
     };
   });
+}
+
+function buildSellPutMetrics(
+  overview: P0ApiOverview | undefined,
+  options: OptionHolding[]
+): Metric[] {
+  const cashSecured = sumCurrency(options.map((option) => option.cashRequired));
+  const marginUsed = sumCurrency(options.map((option) => option.marginRequired));
+  const nearExpiryCount = options.filter((option) => Number(option.dte) <= 7).length;
+  const watchCount = options.filter((option) => option.risk === 'high' || option.actionability !== 'ready').length;
+
+  return [
+    {
+      label: '可用现金',
+      value: formatCurrency(overview?.cashAvailable, overview?.currency),
+      hint: '以用户确认资金为准',
+    },
+    {
+      label: '现金担保',
+      value: formatCurrency(overview?.cashSecured ?? cashSecured, overview?.currency),
+      hint: options.length ? '按真实 Sell Put 持仓估算现金占用' : '当前没有真实 Sell Put 持仓',
+    },
+    {
+      label: '保证金占用',
+      value: formatCurrency(overview?.marginUsed ?? marginUsed, overview?.currency),
+      hint: '与现金担保分开展示',
+      tone: (overview?.marginUsed ?? marginUsed) ? 'warning' : 'default',
+    },
+    {
+      label: '7 天内到期',
+      value: String(nearExpiryCount),
+      hint: nearExpiryCount ? '近到期合约需要优先复核' : '暂无 7 天内到期合约',
+      tone: nearExpiryCount ? 'danger' : 'default',
+    },
+    {
+      label: '高注意',
+      value: String(watchCount),
+      hint: watchCount ? '价内、近到期或数据字段待补齐' : '当前没有高注意 Sell Put 持仓',
+      tone: watchCount ? 'warning' : 'default',
+    },
+    {
+      label: '候选池',
+      value: '0',
+      hint: '暂无真实候选数据，不展示占位标的',
+    },
+  ];
+}
+
+function buildSellPutLadder(options: OptionHolding[]): Array<{ bucket: string; contracts: string; exposure: string }> {
+  const buckets = [
+    { bucket: '0-7 天', min: 0, max: 7 },
+    { bucket: '8-21 天', min: 8, max: 21 },
+    { bucket: '22-45 天', min: 22, max: 45 },
+    { bucket: '45 天以上', min: 46, max: Number.POSITIVE_INFINITY },
+  ];
+
+  return buckets.map(({ bucket, min, max }) => {
+    const matched = options.filter((option) => {
+      const dte = Number(option.dte);
+      return Number.isFinite(dte) && dte >= min && dte <= max;
+    });
+    return {
+      bucket,
+      contracts: String(matched.length),
+      exposure: formatCurrency(sumCurrency(matched.map((option) => option.cashRequired)), 'USD'),
+    };
+  });
+}
+
+function sumCurrency(values: Array<string | undefined>) {
+  return values.reduce((sum, value) => sum + (parseCurrencyValue(value) ?? 0), 0);
+}
+
+function parseCurrencyValue(value?: string) {
+  if (!value || value === '--') return undefined;
+  const parsed = Number(value.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function normalizeProviderName(value: string) {
@@ -1429,7 +1549,7 @@ function formatFreshness(value: string) {
   return `${diffDays}d`;
 }
 
-export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId?: string }): Promise<WorkspaceResponse> {
+export async function getWorkspaceSnapshot(options?: { state?: PageState; viewId?: string }): Promise<WorkspaceResponse> {
   const state = options?.state ?? 'ready';
 
   if (state === 'loading') return { state };
@@ -1442,7 +1562,7 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
   }
 
   const session = await getCurrentSession();
-  const account = session ? await ensureUserAccount(session.user) : null;
+  const account = session && accountDatabaseConfigured() ? await ensureUserAccount(session.user) : null;
   const workspace = withView(structuredClone(baseWorkspace), options?.viewId);
   if (account) {
     applyAccountWorkspace(workspace, account, options?.viewId);
@@ -1463,7 +1583,6 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
     workspace.holdings.options = [];
     workspace.sellPut.positions = [];
     workspace.sellPut.candidates = [];
-    workspace.confirmations.items = [];
     workspace.data.connections = [];
     workspace.ops.jobs = [];
     workspace.ops.deliveries = [];
@@ -1528,18 +1647,19 @@ export async function getWorkspaceSnapshot(options?: { state?: DemoState; viewId
 export async function getChromeSnapshot(): Promise<ChromeSnapshot> {
   const session = await getCurrentSession();
   const workspace = structuredClone(baseWorkspace);
-  if (session) {
-    const account = await ensureUserAccount(session.user);
-    applyAccountWorkspace(workspace, account);
+  if (session && accountDatabaseConfigured()) {
+    try {
+      const account = await getAccountWorkspace(session.user);
+      applyAccountWorkspace(workspace, account);
+      const live = await fetchP0ApiSnapshot({ tenantId: account.tenantId });
+      applyLiveData(workspace, live);
+    } catch {
+      // Chrome should not block page rendering if the account workspace is not initialized yet.
+    }
   }
   return workspace.chrome;
 }
 
 export function findEquityBySymbol(workspace: WorkspaceSnapshot, symbol: string) {
   return workspace.holdings.equity.find((holding) => holding.symbol === symbol);
-}
-
-export function findConfirmationById(workspace: WorkspaceSnapshot, id?: string) {
-  if (!id) return undefined;
-  return workspace.confirmations.items.find((item) => item.id === id);
 }

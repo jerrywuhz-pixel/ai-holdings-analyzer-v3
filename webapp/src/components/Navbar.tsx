@@ -7,7 +7,6 @@ const navLinks = [
   { href: '/dashboard', label: '总览' },
   { href: '/holdings', label: '持仓' },
   { href: '/sell-put', label: 'Sell Put' },
-  { href: '/confirmations', label: '确认' },
   { href: '/data', label: '数据' },
 ];
 

@@ -1,15 +1,14 @@
 import Link from 'next/link';
 
-const bindingUrl = 'https://www.11office.top/binding';
-const primaryCta = bindingUrl;
-const registerCta = '/login?mode=register&entry=wechat-clawbot';
+const primaryCta = '/login?entry=wechat-clawbot';
+const featuresCta = '/features';
 
 const heroChecks = ['微信对话式操作，简单自然', 'AI 分析与投资建议，清晰可执行', '多端数据同步，安全可控'];
 
 const chatMessages = [
   { side: 'bot', text: '你好，我是 ClawBot。你的 AI 持仓助手，有什么可以帮你？' },
   { side: 'user', text: '帮我绑定账户' },
-  { side: 'bot', text: '好的，请先访问 www.11office.top/binding 生成绑定二维码，再用微信扫码完成绑定。' },
+  { side: 'bot', text: '当前试用版由管理员基于微信绑定开通 Web 登录。绑定完成后即可用分配的账号进入控制台。' },
   { side: 'user', text: '我买入了腾讯 100 股，价格 310' },
   { side: 'bot', text: '已记录新持仓：腾讯控股 00700.HK，买入 100 股 @310。' },
   { side: 'user', text: '分析一下腾讯' },
@@ -19,10 +18,10 @@ const chatMessages = [
 ];
 
 const bindSteps = [
-  ['访问绑定页', '打开 www.11office.top/binding。'],
-  ['生成二维码', '页面生成你的专属绑定二维码。'],
-  ['微信扫码', '用微信扫码完成身份绑定。'],
-  ['绑定完成', '回到 ClawBot 对话，开始管理你的持仓。'],
+  ['微信渠道绑定', '先在 Hermes 微信渠道完成身份绑定。'],
+  ['管理员开通', '管理员查看已绑定微信账号，并分配 Web 登录名和密码。'],
+  ['登录控制台', '使用分配账号进入 WebApp 查看持仓、规则和运行状态。'],
+  ['持续使用', '回到 ClawBot 对话，继续管理你的持仓。'],
 ];
 
 const featureSections = [
@@ -40,8 +39,8 @@ const featureSections = [
     title: '买入 / 卖出自动同步',
     summary: '把成交消息转发给 ClawBot，系统解析后更新持仓记录，并保留来源与回执。',
     panels: [
-      ['买入记录', '买入 AAPL 10 股 180', '写入系统交易记录，不代表自动下单。'],
-      ['卖出记录', '卖出 TSLA 5 股 250', '清仓后可以继续生成复盘和二次买入条件。'],
+      ['买入记录', '买入 00700.HK 100 股 310', '写入系统交易记录，不代表自动下单。'],
+      ['卖出记录', '卖出 600519 10 股 1700', '清仓后可以继续生成复盘和二次买入条件。'],
     ],
   },
   {
@@ -280,7 +279,7 @@ export function WechatClawbotH5Page() {
             </span>
             <span className="truncate">AI 持仓系统</span>
           </Link>
-          <H5Button href={primaryCta}>开始绑定</H5Button>
+          <H5Button href={primaryCta}>登录控制台</H5Button>
         </nav>
       </header>
 
@@ -293,12 +292,12 @@ export function WechatClawbotH5Page() {
               管理你的持仓
             </h1>
             <p className="mt-5 text-base leading-8 text-[#5d575a] md:text-lg">
-              访问绑定页生成二维码，再用微信扫码绑定 ClawBot。绑定后，你可以随时记录、同步、分析持仓，让 Hermes 把股票、观察清单、交易纪律和提醒串成一个可追踪的投资工作流。
+              微信是 Hermes 的主要使用入口。试用阶段先在微信渠道完成绑定，再由管理员分配 Web 登录账号；之后你可以随时记录、同步、分析持仓，让 Hermes 把股票、观察清单、交易纪律和提醒串成一个可追踪的投资工作流。
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <H5Button href={primaryCta}>生成绑定二维码</H5Button>
-              <H5Button href={registerCta} secondary>
-                先创建账号
+              <H5Button href={primaryCta}>登录控制台</H5Button>
+              <H5Button href={featuresCta} secondary>
+                查看功能
               </H5Button>
             </div>
             <div className="mt-7 grid gap-3">
@@ -312,11 +311,11 @@ export function WechatClawbotH5Page() {
               ))}
             </div>
             <div className="mt-7 rounded-lg border border-[#e8e8e8] bg-white p-4 shadow-[0_12px_32px_rgba(25,23,25,0.04)]">
-              <p className="text-xs font-black text-[#6d6669]">访问绑定页面</p>
+              <p className="text-xs font-black text-[#6d6669]">试用开通方式</p>
               <p className="mt-2 rounded-lg bg-[#f4f4f4] px-3 py-2 font-mono text-sm font-bold text-[#191719]">
-                www.11office.top/binding
+                微信绑定完成后由管理员分配登录账号
               </p>
-              <p className="mt-2 text-xs leading-5 text-[#8a8587]">页面会生成专属二维码，使用微信扫码后完成绑定。</p>
+              <p className="mt-2 text-xs leading-5 text-[#8a8587]">WebApp 不再提供登录后二维码绑定和解绑入口。</p>
             </div>
             <p className="mt-4 flex items-center gap-2 text-xs font-semibold text-[#8a8587]">
               <Icon name="shield" className="h-4 w-4" />
@@ -369,16 +368,16 @@ export function WechatClawbotH5Page() {
           </SectionCard>
 
           <section className="rounded-lg bg-[#d71920] px-5 py-8 text-center text-white shadow-[0_18px_44px_rgba(215,25,32,0.22)]">
-            <h2 className="text-2xl font-black">开始绑定 ClawBot</h2>
+            <h2 className="text-2xl font-black">开始使用 Hermes</h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/85">
-              打开 www.11office.top/binding 生成绑定二维码，并使用微信扫码。完成后，你就可以用微信新建持仓、同步买卖、分析股票、设置观察和建立交易纪律。
+              通过微信渠道完成绑定后，管理员会为该微信账号分配 Web 登录名和密码。完成后，你就可以用微信新建持仓、同步买卖、分析股票、设置观察和建立交易纪律。
             </p>
             <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
               <Link
                 href={primaryCta}
                 className="inline-flex min-h-16 w-full items-center justify-center rounded-lg bg-white px-7 py-5 text-lg font-black text-[#d71920] shadow-[0_16px_30px_rgba(84,0,0,0.18)] transition hover:bg-[#fff4f4] sm:w-auto sm:min-w-[320px]"
               >
-                生成绑定二维码
+                登录控制台
               </Link>
               <Link
                 href="/features"

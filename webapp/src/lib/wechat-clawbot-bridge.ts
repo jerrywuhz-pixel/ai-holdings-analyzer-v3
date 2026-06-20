@@ -103,6 +103,23 @@ const BLOCKED_WECHAT_DELIVERY_CONTENT_TYPES = new Set([
   'system_message',
   'system',
 ]);
+const WECHAT_USER_FACING_RECOVERY_TEXT = '系统处理暂时受阻，请稍后重试。当前没有改动持仓，也没有下单。';
+const INTERNAL_STATUS_LINE_PATTERNS = [
+  /gateway\s+shutting\s+down/i,
+  /current\s+task\s+will\s+be\s+interrupted/i,
+  /not\s+accepting\s+another\s+turn/i,
+  /compacting\s+context/i,
+  /context\s+compaction/i,
+  /preflight\s+compression/i,
+  /compression\s+summary\s+failed/i,
+  /fallback\s+context\s+marker/i,
+  /\b\d{4,}[,\d]*\s+tokens?\b/i,
+  /Hermes ingress returned HTTP/i,
+  /Hermes analysis artifact persist returned HTTP/i,
+  /Reference capture returned no readable content/i,
+  /provider returned an empty response/i,
+  /Connection error/i,
+];
 
 function databaseUrl() {
   return process.env.WEBAPP_DATABASE_URL || process.env.DATABASE_URL || '';
@@ -153,6 +170,32 @@ function pickNumber(value: unknown, keys: string[]): number | undefined {
   if (!raw) return undefined;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function sanitizeWechatUserFacingText(value?: string | null) {
+  const rawText = typeof value === 'string' ? value.trim() : '';
+  if (!rawText) return null;
+
+  const normalized = rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/(搜索资料暂时不可用，未作为事实依据)[：:][^\n。]*/g, '$1')
+    .replace(/(链接资料暂时读不到，未作为事实依据)[：:][^\n。]*/g, '$1')
+    .replace(/reference_only/g, '参考资料')
+    .replace(/analysis_only/g, '仅分析')
+    .replace(/trade_draft/g, '交易草稿');
+
+  let droppedInternalLine = false;
+  const lines = normalized.split('\n').filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+    const internal = INTERNAL_STATUS_LINE_PATTERNS.some((pattern) => pattern.test(trimmed));
+    if (internal) droppedInternalLine = true;
+    return !internal;
+  });
+
+  const cleaned = lines.join('\n').trim();
+  if (cleaned) return cleaned;
+  return droppedInternalLine ? WECHAT_USER_FACING_RECOVERY_TEXT : rawText;
 }
 
 function isLikelyBotMessage(message: unknown, accountId: string) {
@@ -771,14 +814,15 @@ async function persistHermesAnalysisArtifact(
 
 function replyTextFromHermes(payload: Record<string, unknown>) {
   const replyText = payload.reply_text;
-  return typeof replyText === 'string' && replyText.trim() ? replyText.trim() : null;
+  return sanitizeWechatUserFacingText(typeof replyText === 'string' ? replyText : null);
 }
 
 async function sendText(row: BridgeCredentialRow, botToken: string, toUserId: string, contextToken: string, text: string) {
+  const userFacingText = sanitizeWechatUserFacingText(text) || WECHAT_USER_FACING_RECOVERY_TEXT;
   await requestClawbotSendTextMessage(row.base_url, botToken, {
     toUserId,
     contextToken,
-    text: text.slice(0, 1800),
+    text: userFacingText.slice(0, 1800),
   });
 }
 

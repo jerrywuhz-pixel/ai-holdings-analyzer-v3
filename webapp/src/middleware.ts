@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookies';
+import { LOCAL_SESSION_COOKIE } from '@/lib/auth-cookies';
 
 const PUBLIC_PREFIXES = [
   '/api/auth',
@@ -12,10 +12,10 @@ const PUBLIC_PREFIXES = [
   '/sitemap.xml',
 ];
 
-const PUBLIC_PATHS = new Set(['/', '/features', '/pricing', '/intro', '/wechat-clawbot', '/login']);
+const PUBLIC_PATHS = new Set(['/', '/features', '/intro', '/trading-framework', '/wechat-clawbot', '/login']);
 
 function hasSession(request: NextRequest) {
-  return request.cookies.has(ACCESS_TOKEN_COOKIE);
+  return request.cookies.has(LOCAL_SESSION_COOKIE);
 }
 
 function isPublicPath(pathname: string) {
@@ -73,8 +73,7 @@ export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const sessionExists = hasSession(request);
   const isMarketingAuthEntry =
-    request.nextUrl.searchParams.get('entry') === 'marketing' ||
-    request.nextUrl.searchParams.get('mode') === 'register';
+    request.nextUrl.searchParams.get('entry') === 'marketing';
 
   if (pathname === '/login' && sessionExists && !isMarketingAuthEntry) {
     return NextResponse.redirect(publicUrl(request, '/dashboard'));

@@ -3,7 +3,11 @@
 import { FormEvent, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { StatusPill } from '@/components/p0-ui';
-import type { DisciplineCheck, TradingRule, TradingRuleAction } from '@/lib/trading-rules';
+import type { DisciplineCheck, TradingRule, TradingRuleAction, TradingRuleSource } from '@/lib/trading-rules';
+
+const fieldClass =
+  'mt-1 w-full rounded-lg border border-[#e5ddd9] bg-white px-3 py-2 text-sm text-[#171417] outline-none transition focus:border-[#d71920]';
+const labelClass = 'text-xs font-medium text-[#6f686b]';
 
 function actionLabel(action: TradingRuleAction) {
   if (action === 'block') return '阻止继续';
@@ -42,6 +46,18 @@ function conditionSummary(rule: TradingRule) {
   return parts.join(' · ') || '按规则范围检查';
 }
 
+function sourceLabel(source: string) {
+  if (source === 'system') return '系统默认';
+  if (source === 'wechat_channel' || source === 'wechat') return '微信渠道';
+  return 'Web 侧写入';
+}
+
+function sourceTone(source: string): 'positive' | 'warning' | 'danger' | 'muted' {
+  if (source === 'wechat_channel' || source === 'wechat') return 'positive';
+  if (source === 'system') return 'muted';
+  return 'warning';
+}
+
 export default function TradingRulesManager({
   initialRules,
   recentChecks,
@@ -51,9 +67,11 @@ export default function TradingRulesManager({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [ruleType, setRuleType] = useState('blocklist');
   const [action, setAction] = useState<TradingRuleAction>('warn');
+  const [source, setSource] = useState<TradingRuleSource>('webapp');
   const [scope, setScope] = useState('manual_position');
   const [markets, setMarkets] = useState('US,HK,CN');
   const [symbols, setSymbols] = useState('');
@@ -109,6 +127,7 @@ export default function TradingRulesManager({
         condition,
         message,
         priority: 60,
+        source,
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -118,7 +137,13 @@ export default function TradingRulesManager({
     }
 
     setNotice('规则已创建');
+    setCreateOpen(false);
     setName('');
+    setRuleType('blocklist');
+    setAction('warn');
+    setSource('webapp');
+    setScope('manual_position');
+    setMarkets('US,HK,CN');
     setSymbols('');
     setMessage('');
     startTransition(() => router.refresh());
@@ -126,22 +151,46 @@ export default function TradingRulesManager({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-3">
+      <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="font-medium text-[#171417]">规则列表</p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-[#6f686b]">
+              规则按当前登录账号的 tenant 隔离保存。后续 cron 只扫描本账号启用规则，并通过已绑定微信渠道主动提醒。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setError('');
+              setNotice('');
+              setCreateOpen(true);
+            }}
+            className="rounded-lg bg-[#d71920] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#bd151b]"
+          >
+            新增规则
+          </button>
+        </div>
+
+        {notice ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p> : null}
+        {error && !createOpen ? <p className="mt-3 rounded-lg border border-[#f0c8c5] bg-[#fff0ef] p-3 text-sm text-[#d71920]">{error}</p> : null}
+
+        <div className="mt-4 space-y-3">
           {sortedRules.map((rule) => (
-            <div key={rule.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+            <div key={rule.id} className="rounded-lg border border-[#e5ddd9] bg-[#fffaf8] p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-white">{rule.name}</p>
+                    <p className="font-medium text-[#171417]">{rule.name}</p>
                     <StatusPill tone={rule.isActive ? 'positive' : 'muted'}>{rule.isActive ? '已启用' : '已停用'}</StatusPill>
+                    <StatusPill tone={sourceTone(rule.source)}>{sourceLabel(rule.source)}</StatusPill>
                     <StatusPill tone={rule.actionOnViolation === 'block' ? 'danger' : rule.actionOnViolation === 'require_confirmation' ? 'warning' : 'muted'}>
                       {actionLabel(rule.actionOnViolation)}
                     </StatusPill>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">{rule.message}</p>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">{conditionSummary(rule)}</p>
-                  <p className="mt-2 text-xs text-slate-500">
+                  <p className="mt-2 text-sm leading-6 text-[#6f686b]">{rule.message}</p>
+                  <p className="mt-2 text-xs leading-5 text-[#8a817d]">{conditionSummary(rule)}</p>
+                  <p className="mt-2 text-xs text-[#8a817d]">
                     最近触发 {rule.triggerCount} 次{rule.lastTriggeredAt ? ` · ${new Date(rule.lastTriggeredAt).toLocaleString('zh-CN')}` : ''}
                   </p>
                 </div>
@@ -149,7 +198,7 @@ export default function TradingRulesManager({
                   <select
                     value={rule.actionOnViolation}
                     onChange={(event) => mutateRule(rule.id, { actionOnViolation: event.target.value })}
-                    className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
+                    className="rounded-lg border border-[#e5ddd9] bg-white px-3 py-2 text-sm text-[#171417] outline-none transition focus:border-[#d71920]"
                   >
                     <option value="warn">提醒我</option>
                     <option value="require_confirmation">需要确认</option>
@@ -159,7 +208,7 @@ export default function TradingRulesManager({
                     type="button"
                     disabled={isPending}
                     onClick={() => mutateRule(rule.id, { isActive: !rule.isActive })}
-                    className="rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-100 transition hover:border-red-300/60 disabled:opacity-60"
+                    className="rounded-lg border border-[#e5ddd9] bg-white px-3 py-2 text-sm text-[#4f494c] transition hover:border-[#d71920] disabled:opacity-60"
                   >
                     {rule.isActive ? '停用' : '启用'}
                   </button>
@@ -168,125 +217,165 @@ export default function TradingRulesManager({
             </div>
           ))}
         </div>
-
-        <form onSubmit={handleCreate} className="space-y-3 rounded-xl border border-white/8 bg-white/[0.03] p-4">
-          <div>
-            <p className="font-medium text-white">新增纪律规则</p>
-            <p className="mt-1 text-sm text-slate-400">适合记录禁买标的、特殊提醒和需要确认的操作边界。</p>
-          </div>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-400">规则名称</span>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              placeholder="例如 不买高杠杆 ETF"
-              className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-400">规则类型</span>
-              <select
-                value={ruleType}
-                onChange={(event) => setRuleType(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-              >
-                <option value="blocklist">禁买/慎买名单</option>
-                <option value="confirmation_required">需要确认</option>
-                <option value="risk_budget">资金纪律</option>
-                <option value="time_window">交易时段</option>
-                <option value="custom">自定义</option>
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-400">命中后动作</span>
-              <select
-                value={action}
-                onChange={(event) => setAction(event.target.value as TradingRuleAction)}
-                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-              >
-                <option value="warn">提醒我</option>
-                <option value="require_confirmation">需要确认</option>
-                <option value="block">阻止继续</option>
-              </select>
-            </label>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-400">检查场景</span>
-              <select
-                value={scope}
-                onChange={(event) => setScope(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-              >
-                <option value="manual_position">记录持仓</option>
-                <option value="trade_draft">交易草稿</option>
-                <option value="sell_put">Sell Put 策略</option>
-                <option value="stock">股票/ETF</option>
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-400">适用市场</span>
-              <input
-                value={markets}
-                onChange={(event) => setMarkets(event.target.value.toUpperCase())}
-                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-              />
-            </label>
-          </div>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-400">标的代码</span>
-            <textarea
-              value={symbols}
-              onChange={(event) => setSymbols(event.target.value)}
-              rows={3}
-              placeholder="多个代码可用换行或逗号分隔，例如 BABA, PDD"
-              className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-400">提醒文案</span>
-            <textarea
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              rows={3}
-              placeholder="例如 这类标的不符合我的交易纪律，除非有明确复盘理由。"
-              className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition focus:border-red-400/50"
-            />
-          </label>
-          {notice ? <p className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">{notice}</p> : null}
-          {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-100">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={isPending}
-            className="rounded-xl bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            保存规则
-          </button>
-        </form>
       </div>
 
-      <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+      {createOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#171417]/35 px-4 py-6"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setCreateOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-trading-rule-title"
+            className="w-full max-w-3xl rounded-lg border border-[#e5ddd9] bg-white shadow-[0_24px_80px_rgba(23,20,23,0.18)]"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[#eee6e2] px-5 py-4">
+              <div>
+                <h2 id="new-trading-rule-title" className="text-lg font-semibold text-[#171417]">
+                  新增纪律规则
+                </h2>
+                <p className="mt-1 text-sm text-[#6f686b]">配置来源、检查场景和命中后的处理动作，保存后立即写入当前账号规则列表。</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="rounded-lg border border-[#e5ddd9] px-3 py-2 text-sm text-[#4f494c] transition hover:border-[#d71920]"
+              >
+                关闭
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} className="space-y-4 px-5 py-5">
+              <label className="block">
+                <span className={labelClass}>规则名称</span>
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  placeholder="例如 不买高杠杆 ETF"
+                  className={fieldClass}
+                />
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className={labelClass}>规则引入来源</span>
+                  <select value={source} onChange={(event) => setSource(event.target.value as TradingRuleSource)} className={fieldClass}>
+                    <option value="webapp">Web 侧写入</option>
+                    <option value="wechat_channel">微信渠道</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className={labelClass}>规则类型</span>
+                  <select value={ruleType} onChange={(event) => setRuleType(event.target.value)} className={fieldClass}>
+                    <option value="blocklist">禁买/慎买名单</option>
+                    <option value="confirmation_required">需要确认</option>
+                    <option value="risk_budget">资金纪律</option>
+                    <option value="time_window">交易时段</option>
+                    <option value="custom">自定义</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className={labelClass}>命中后动作</span>
+                  <select value={action} onChange={(event) => setAction(event.target.value as TradingRuleAction)} className={fieldClass}>
+                    <option value="warn">提醒我</option>
+                    <option value="require_confirmation">需要确认</option>
+                    <option value="block">阻止继续</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className={labelClass}>检查场景</span>
+                  <select value={scope} onChange={(event) => setScope(event.target.value)} className={fieldClass}>
+                    <option value="manual_position">记录持仓</option>
+                    <option value="trade_draft">交易草稿</option>
+                    <option value="sell_put">Sell Put 策略</option>
+                    <option value="stock">股票/ETF</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <span className={labelClass}>适用市场</span>
+                <input value={markets} onChange={(event) => setMarkets(event.target.value.toUpperCase())} className={fieldClass} />
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>标的代码</span>
+                <textarea
+                  value={symbols}
+                  onChange={(event) => setSymbols(event.target.value)}
+                  rows={3}
+                  placeholder="多个代码可用换行或逗号分隔，例如 600519, HK00700"
+                  className={fieldClass}
+                />
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>提醒文案</span>
+                <textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  rows={3}
+                  placeholder="例如 这类标的不符合我的交易纪律，除非有明确复盘理由。"
+                  className={fieldClass}
+                />
+              </label>
+
+              <div className="rounded-lg border border-[#e5ddd9] bg-[#fffaf8] p-3 text-sm leading-6 text-[#6f686b]">
+                保存后规则会写入当前登录账号 tenant；后续定时任务可以按来源与启用状态筛选规则，并通过微信渠道主动提醒。
+              </div>
+
+              {error ? <p className="rounded-lg border border-[#f0c8c5] bg-[#fff0ef] p-3 text-sm text-[#d71920]">{error}</p> : null}
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-lg border border-[#e5ddd9] px-4 py-2 text-sm text-[#4f494c] transition hover:border-[#d71920]"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="rounded-lg bg-[#d71920] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#bd151b] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  保存规则
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="font-medium text-white">最近纪律检查</p>
+          <p className="font-medium text-[#171417]">最近纪律检查</p>
           <StatusPill tone="muted">{recentChecks.length} 条记录</StatusPill>
         </div>
         <div className="space-y-2">
           {recentChecks.length ? (
             recentChecks.map((check) => (
-              <div key={check.id} className="flex flex-col gap-2 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div key={check.id} className="flex flex-col gap-2 rounded-lg border border-[#e5ddd9] bg-[#fffaf8] px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-slate-200">
+                  <p className="text-[#4f494c]">
                     {check.symbol || '未指定标的'} · {check.actionType}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">{new Date(check.createdAt).toLocaleString('zh-CN')}</p>
+                  <p className="mt-1 text-xs text-[#8a817d]">{new Date(check.createdAt).toLocaleString('zh-CN')}</p>
                 </div>
                 <StatusPill tone={resultTone(check.result)}>{resultLabel(check.result)}</StatusPill>
               </div>
             ))
           ) : (
-            <p className="text-sm text-slate-400">还没有纪律检查记录。记录持仓或生成交易草稿后，这里会显示命中情况。</p>
+            <p className="text-sm text-[#6f686b]">还没有纪律检查记录。记录持仓或生成交易草稿后，这里会显示命中情况。</p>
           )}
         </div>
       </div>

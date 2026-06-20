@@ -7,6 +7,7 @@ declare global {
 
 export type TradingRuleAction = 'warn' | 'block' | 'require_confirmation';
 export type DisciplineResultStatus = 'passed' | 'warned' | 'blocked' | 'requires_confirmation';
+export type TradingRuleSource = 'system' | 'webapp' | 'wechat_channel' | 'user';
 
 export interface TradingRule {
   id: string;
@@ -22,7 +23,7 @@ export interface TradingRule {
   actionOnViolation: TradingRuleAction;
   priority: number;
   isActive: boolean;
-  source: string;
+  source: TradingRuleSource;
   lastTriggeredAt: string | null;
   triggerCount: number;
   createdAt: string;
@@ -92,7 +93,7 @@ interface TradingRuleRow {
   action_on_violation: TradingRuleAction;
   priority: number;
   is_active: boolean;
-  source: string;
+  source: TradingRuleSource;
   last_triggered_at: string | Date | null;
   trigger_count: string | number;
   created_at: string | Date;
@@ -246,6 +247,14 @@ function normalizeRuleType(value: unknown) {
   return 'custom';
 }
 
+function normalizeRuleSource(value: unknown): TradingRuleSource {
+  const source = normalizeText(String(value || '')).toLowerCase();
+  if (source === 'system') return 'system';
+  if (source === 'wechat' || source === 'wechat_channel') return 'wechat_channel';
+  if (source === 'user') return 'user';
+  return 'webapp';
+}
+
 function slugifyRuleKey(value: string) {
   const slug = value
     .trim()
@@ -270,7 +279,7 @@ function mapRule(row: TradingRuleRow): TradingRule {
     actionOnViolation: row.action_on_violation,
     priority: Number(row.priority),
     isActive: row.is_active,
-    source: row.source,
+    source: normalizeRuleSource(row.source),
     lastTriggeredAt: serializeDate(row.last_triggered_at),
     triggerCount: Number(row.trigger_count) || 0,
     createdAt: serializeDate(row.created_at) || new Date().toISOString(),
@@ -421,6 +430,7 @@ export async function listRecentDisciplineChecks(tenantId: string, limit = 20) {
     SELECT id, symbol, instrument_type, action_type, result, highest_action, triggered_rule_ids, check_payload, created_at
     FROM public.discipline_checks
     WHERE tenant_id = ${tenantId}
+      AND COALESCE(array_length(triggered_rule_ids, 1), 0) > 0
     ORDER BY created_at DESC
     LIMIT ${limit}
   `;
@@ -464,6 +474,7 @@ export async function createTradingRuleForTenant(
     message?: string;
     actionOnViolation?: TradingRuleAction;
     priority?: number;
+    source?: TradingRuleSource | string;
   }
 ) {
   const sql = sqlClient();
@@ -477,6 +488,7 @@ export async function createTradingRuleForTenant(
   const instruments = normalizeArray(input.instruments);
   const priority = Number.isFinite(input.priority) ? Number(input.priority) : 100;
   const message = normalizeText(input.message) || '该动作命中你的交易纪律，请确认后再继续。';
+  const source = normalizeRuleSource(input.source);
 
   const rows = await sql<TradingRuleRow[]>`
     INSERT INTO public.trading_rules (
@@ -487,7 +499,7 @@ export async function createTradingRuleForTenant(
       ${tenantId}, ${name}, ${ruleKey}, ${ruleType},
       ${textArraySql(sql, scopes)}, ${textArraySql(sql, markets)},
       ${textArraySql(sql, instruments)}, ${sql.json((input.condition ?? {}) as any)},
-      ${message}, ${actionOnViolation}, ${priority}, 'user'
+      ${message}, ${actionOnViolation}, ${priority}, ${source}
     )
     ON CONFLICT (tenant_id, rule_key) DO UPDATE SET
       name = EXCLUDED.name,
@@ -499,6 +511,7 @@ export async function createTradingRuleForTenant(
       message = EXCLUDED.message,
       action_on_violation = EXCLUDED.action_on_violation,
       priority = EXCLUDED.priority,
+      source = EXCLUDED.source,
       is_active = TRUE,
       updated_at = now()
     RETURNING *

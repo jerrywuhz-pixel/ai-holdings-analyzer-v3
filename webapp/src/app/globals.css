@@ -4,23 +4,43 @@
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   html {
-    @apply bg-[#060708];
+    @apply bg-[#fafafa];
   }
 
   body {
-    @apply bg-[#060708] text-slate-100;
+    @apply bg-[#fafafa] text-[#171417];
   }
 
   * {
-    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-color: rgba(23, 20, 23, 0.18) transparent;
   }
 
   ::selection {
-    background: rgba(255, 67, 87, 0.3);
-    color: white;
+    background: rgba(215, 25, 32, 0.18);
+    color: #171417;
+  }
+
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    background-color: #ffffff !important;
+    color: #171417 !important;
+    border-color: #e5ddd9 !important;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #8a817d !important;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: #d71920 !important;
+    box-shadow: 0 0 0 1px rgba(215, 25, 32, 0.18);
   }
 }

@@ -8,13 +8,13 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-5">
-      <p className="text-sm font-medium text-red-200">页面渲染失败</p>
-      <p className="mt-2 text-sm leading-6 text-red-100/85">{error.message}</p>
+    <div className="rounded-lg border border-[#efb5b2] bg-[#fff0ef] p-5">
+      <p className="text-sm font-medium text-[#d71920]">页面渲染失败</p>
+      <p className="mt-2 text-sm leading-6 text-[#a8181e]/85">{error.message}</p>
       <button
         type="button"
         onClick={reset}
-        className="mt-4 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-100 transition hover:bg-red-500/15"
+        className="mt-4 rounded-lg border border-[#f0c8c5] bg-[#fff0ef] px-3 py-2 text-sm text-[#a8181e] transition hover:bg-[#ffe9e7]"
       >
         重试
       </button>

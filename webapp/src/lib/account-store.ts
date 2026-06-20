@@ -89,11 +89,17 @@ export interface ManualPositionRecord {
   name: string | null;
   market: string;
   instrumentType: string;
+  positionSide: string;
   quantity: number;
   averageCost: number | null;
   marketPrice: number | null;
   marketValue: number | null;
   currency: string;
+  optionType?: string | null;
+  strike?: number | null;
+  expiry?: string | null;
+  multiplier?: number | null;
+  unrealizedPnlPct?: number | null;
   sourceTier: string;
   sourceActionability: string;
   updatedAt: string;
@@ -116,6 +122,10 @@ function normalizeEmail(email: string) {
 
 function databaseUrl() {
   return process.env.WEBAPP_DATABASE_URL || process.env.DATABASE_URL || '';
+}
+
+export function accountDatabaseConfigured() {
+  return Boolean(databaseUrl());
 }
 
 function sqlClient() {
@@ -203,6 +213,16 @@ async function ensureWorkspaceSchema() {
   }
 
   const sql = sqlClient();
+  await sql`
+    CREATE TABLE IF NOT EXISTS public.users (
+      id UUID PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      role TEXT NOT NULL DEFAULT 'user',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
   await sql`ALTER TABLE public.tenant_accounts ADD COLUMN IF NOT EXISTS account_id UUID`;
   await sql`UPDATE public.tenant_accounts SET account_id = gen_random_uuid() WHERE account_id IS NULL`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_accounts_account_id ON public.tenant_accounts(account_id)`;
@@ -396,22 +416,6 @@ async function ensureAuthUser(user: AppUser) {
   const sql = sqlClient();
   const email = normalizeEmail(user.email);
   await sql`
-    INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data)
-    VALUES (
-      ${user.id},
-      'authenticated',
-      'authenticated',
-      ${email},
-      now(),
-      ${sql.json({ name: user.name, provider: user.provider })}
-    )
-    ON CONFLICT (id) DO UPDATE SET
-      email = EXCLUDED.email,
-      email_confirmed_at = COALESCE(auth.users.email_confirmed_at, EXCLUDED.email_confirmed_at),
-      raw_user_meta_data = auth.users.raw_user_meta_data || EXCLUDED.raw_user_meta_data,
-      updated_at = now()
-  `;
-  await sql`
     INSERT INTO public.users (id, email, role, status)
     VALUES (${user.id}, ${email}, ${userRole(user)}, ${userStatus(user)})
     ON CONFLICT (id) DO UPDATE SET
@@ -472,6 +476,29 @@ async function ensurePortfolioView(
   settings: Record<string, unknown> = {}
 ) {
   const sql = sqlClient();
+  if (isDefault) {
+    const existingDefault = await sql<{ id: string }[]>`
+      SELECT id
+      FROM public.portfolio_views
+      WHERE tenant_id = ${tenantId}
+        AND is_default = TRUE
+      LIMIT 1
+    `;
+    if (existingDefault[0]) {
+      await sql`
+        UPDATE public.portfolio_views
+        SET
+          name = COALESCE(name, ${name}),
+          view_type = COALESCE(view_type, ${viewType}),
+          base_currency = COALESCE(base_currency, ${baseCurrency}),
+          settings = COALESCE(settings, '{}'::jsonb) || ${sql.json(settings as any)},
+          updated_at = now()
+        WHERE id = ${existingDefault[0].id}
+      `;
+      return existingDefault[0].id;
+    }
+  }
+
   const rows = await sql<{ id: string }[]>`
     INSERT INTO public.portfolio_views (
       tenant_id, name, slug, view_type, base_currency, is_default, settings
@@ -881,6 +908,7 @@ export async function listManualPositions(
       name,
       market,
       instrument_type,
+      position_side,
       quantity,
       average_cost,
       market_price,
@@ -888,6 +916,8 @@ export async function listManualPositions(
       currency,
       source_tier,
       source_actionability,
+      source_as_of,
+      source_lineage,
       updated_at
     FROM public.webapp_manual_positions
     WHERE tenant_id = ${account.tenantId} AND position_status = 'open'
@@ -906,6 +936,7 @@ interface ManualPositionDbRow {
   name: string | null;
   market: string;
   instrument_type: string;
+  position_side: string;
   quantity: string | number;
   average_cost: string | number | null;
   market_price: string | number | null;
@@ -919,21 +950,71 @@ interface ManualPositionDbRow {
 }
 
 function toManualPositionRecord(row: ManualPositionDbRow): ManualPositionRecord {
+  const quantity = Number(row.quantity);
+  const averageCost = toNumber(row.average_cost);
+  const marketPrice = resolveManualMarketPrice(toNumber(row.market_price), averageCost);
+  const marketValue = resolveManualMarketValue(toNumber(row.market_value), quantity, marketPrice);
+  const sourceLineage = asRecord(row.source_lineage);
+  const displayName =
+    row.name ||
+    stringFromRecord(sourceLineage, 'display_name') ||
+    stringFromRecord(sourceLineage, 'name') ||
+    stringFromRecord(sourceLineage, 'stock_name') ||
+    null;
   return {
     id: row.id,
     symbol: row.symbol,
-    name: row.name,
+    name: displayName,
     market: row.market,
     instrumentType: row.instrument_type,
-    quantity: Number(row.quantity),
-    averageCost: toNumber(row.average_cost),
-    marketPrice: toNumber(row.market_price),
-    marketValue: toNumber(row.market_value),
+    positionSide: row.position_side || 'long',
+    quantity,
+    averageCost,
+    marketPrice,
+    marketValue,
     currency: row.currency,
+    optionType: stringFromRecord(sourceLineage, 'option_type'),
+    strike: numberFromRecord(sourceLineage, 'strike'),
+    expiry: stringFromRecord(sourceLineage, 'expiry'),
+    multiplier: numberFromRecord(sourceLineage, 'multiplier'),
+    unrealizedPnlPct: resolveManualPnlPct(marketPrice, averageCost),
     sourceTier: row.source_tier || 'user_confirmed',
     sourceActionability: row.source_actionability || 'analysis_only',
-    updatedAt: serializeDate(row.updated_at) || new Date().toISOString(),
+    updatedAt: serializeDate(row.source_as_of) || serializeDate(row.updated_at) || new Date().toISOString(),
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringFromRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function numberFromRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  if (value === null || value === undefined || value === '') return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function resolveManualMarketPrice(marketPrice: number | null, averageCost: number | null) {
+  if (marketPrice !== null) return marketPrice;
+  if (averageCost !== null && averageCost > 0) return averageCost;
+  return null;
+}
+
+function resolveManualMarketValue(marketValue: number | null, quantity: number, marketPrice: number | null) {
+  if (marketValue !== null) return marketValue;
+  if (!Number.isFinite(quantity) || marketPrice === null) return null;
+  return Number((quantity * marketPrice).toFixed(2));
+}
+
+function resolveManualPnlPct(marketPrice: number | null, averageCost: number | null) {
+  if (marketPrice === null || averageCost === null || averageCost <= 0) return null;
+  return ((marketPrice - averageCost) / averageCost) * 100;
 }
 
 async function rebuildManualBrokerSnapshot(tenantId: string) {
@@ -1010,6 +1091,8 @@ async function rebuildManualBrokerSnapshot(tenantId: string) {
   const snapshotId = snapshotRows[0].id;
 
   for (const position of positionRows) {
+    const marketPrice = resolveManualMarketPrice(toNumber(position.market_price), toNumber(position.average_cost));
+    const marketValue = resolveManualMarketValue(toNumber(position.market_value), Number(position.quantity), marketPrice);
     await sql`
       INSERT INTO public.broker_position_snapshots (
         tenant_id, broker_sync_snapshot_id, asset_source_id, instrument_type, provider_symbol,
@@ -1029,8 +1112,8 @@ async function rebuildManualBrokerSnapshot(tenantId: string) {
         ${position.quantity},
         ${position.average_cost},
         ${position.average_cost === null ? null : Number(position.average_cost) * Number(position.quantity)},
-        ${position.market_price},
-        ${position.market_value},
+        ${marketPrice},
+        ${marketValue},
         ${position.currency},
         ${position.source_quality},
         'unverified',

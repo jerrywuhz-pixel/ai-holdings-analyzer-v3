@@ -37,15 +37,15 @@ function CheckRow({
 
 export default async function OnboardingReviewPage() {
   const state = await getOnboardingState();
-  const ready = state.checks.profile && state.checks.wechat;
+  const ready = state.checks.profile;
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="注册初始化"
         title="完成前检查"
-        description="这里会确认账号配置和微信 ClawBot 绑定都已经建立。系统行情源由管理员统一维护，不再要求普通用户绑定 Futu OpenD。"
-        actions={<StatusPill tone="muted">3 / 3</StatusPill>}
+        description="试用阶段登录账号由管理员基于已绑定微信账号分配。用户侧只需要确认账户口径，系统行情源由管理员统一维护。"
+        actions={<StatusPill tone="muted">2 / 2</StatusPill>}
       />
 
       <Panel
@@ -61,10 +61,10 @@ export default async function OnboardingReviewPage() {
             href="/onboarding/profile"
           />
           <CheckRow
-            ok={state.checks.wechat}
-            title="微信 ClawBot 绑定"
-            detail={state.wechatBinding ? (state.wechatBinding.channel_account_id || state.wechatBinding.openclaw_account_id) : '尚未完成二维码授权和绑定码验证'}
-            href="/onboarding/wechat"
+            ok={Boolean(state.wechatBinding)}
+            title="微信账号映射"
+            detail={state.wechatBinding ? (state.wechatBinding.channel_account_id || state.wechatBinding.openclaw_account_id) : '当前登录账号由管理员分配；如未看到微信映射，请联系管理员检查绑定。'}
+            href="/settings"
           />
         </div>
 

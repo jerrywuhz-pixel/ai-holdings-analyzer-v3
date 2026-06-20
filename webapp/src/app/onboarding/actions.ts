@@ -8,11 +8,6 @@ import {
   completeOnboarding,
   saveTenantProfile,
 } from '@/lib/onboarding';
-import {
-  refreshWechatBindingStatus,
-  startWechatBindingSession,
-  verifyWechatBindingConversation,
-} from '@/lib/wechat-binding';
 import { requireUser } from '@/lib/supabase';
 
 function formString(formData: FormData, name: string, fallback = '') {
@@ -47,41 +42,12 @@ export async function saveProfile(formData: FormData) {
   });
 
   revalidatePath('/onboarding');
-  redirect('/onboarding/wechat');
-}
-
-export async function startWechatBinding() {
-  const { user } = await requireUser();
-  await startWechatBindingSession(user);
-  revalidatePath('/onboarding/wechat');
-  redirect('/onboarding/wechat');
-}
-
-export async function refreshWechatStatus(formData: FormData) {
-  const { user } = await requireUser();
-  const authSessionId = formString(formData, 'auth_session_id');
-  if (!authSessionId) redirect('/onboarding/wechat');
-
-  await refreshWechatBindingStatus(user, authSessionId);
-  revalidatePath('/onboarding/wechat');
-  redirect('/onboarding/wechat');
-}
-
-export async function verifyWechatConversation(formData: FormData) {
-  const { user } = await requireUser();
-  const authSessionId = formString(formData, 'auth_session_id');
-  if (!authSessionId) redirect('/onboarding/wechat');
-
-  const result = await verifyWechatBindingConversation(user, authSessionId);
-  revalidatePath('/onboarding/wechat');
-  if (!result.binding) redirect('/onboarding/wechat');
   redirect('/onboarding/review');
 }
 
 export async function finishOnboarding() {
   const state = await getOnboardingState();
   if (!state.checks.profile) redirect('/onboarding/profile');
-  if (!state.checks.wechat) redirect('/onboarding/wechat');
 
   await completeOnboarding(state.tenantId);
 

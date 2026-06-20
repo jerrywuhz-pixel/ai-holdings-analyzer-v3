@@ -286,10 +286,10 @@ export async function fetchP0ApiSnapshot(options: FetchP0ApiSnapshotOptions = {}
     return {
       dataState: {
         mode: 'fallback',
-        label: '当前显示参考视图',
+        label: '等待真实数据',
         detail: errors[0]
-          ? `暂时还没拿到最新账户数据，当前先展示参考数据。${errors[0]}`
-          : '暂时还没拿到最新账户数据，当前先展示参考数据。',
+          ? `暂时还没拿到最新账户数据，页面不会回退到占位资产。${errors[0]}`
+          : '暂时还没拿到最新账户数据，页面不会回退到占位资产。',
         baseUrl,
         error: errors[0],
       },
@@ -306,7 +306,7 @@ export async function fetchP0ApiSnapshot(options: FetchP0ApiSnapshotOptions = {}
   const detailSegments = [
     mode === 'live'
       ? '页面优先展示最新账户数据；少量尚未补齐的区块会继续明确标记。'
-      : '已接到部分真实数据，其余字段会明确标记为待补全，避免把参考数据误读成真实账户数据。',
+      : '已接到部分真实数据，其余字段会明确标记为待补全，避免把空字段误读成真实账户数据。',
   ];
 
   if (valuation.valuationDetail) {
@@ -721,11 +721,6 @@ function normalizeOptionPosition(
   const data = asRecord(payload);
   if (!data) return undefined;
 
-  const contract =
-    getString(data, ['contract', 'contract_symbol', 'contractSymbol', 'symbol', 'provider_symbol']) ||
-    undefined;
-  if (!contract) return undefined;
-
   const quantity = getNumber(data, ['quantity', 'qty']);
   const multiplier = getNumber(data, ['contract_size', 'contractSize']) || 100;
   const currency = getString(data, ['currency']) || defaults.baseCurrency;
@@ -738,6 +733,19 @@ function normalizeOptionPosition(
   const baseMarketValue = getNumber(data, ['base_market_value', 'baseMarketValue']);
   const strike = getNumber(data, ['strike', 'strike_price', 'strikePrice']);
   const expiry = getString(data, ['expiry', 'expiration', 'expiry_date', 'expiryDate']) || undefined;
+  const optionType = getString(data, ['option_type', 'optionType']);
+  const underlying =
+    getString(data, ['underlying', 'underlying_symbol', 'underlyingSymbol', 'symbol', 'provider_symbol']) ||
+    undefined;
+  const rawContract =
+    getString(data, ['contract', 'contract_symbol', 'contractSymbol']) ||
+    getString(data, ['symbol', 'provider_symbol']) ||
+    undefined;
+  const contract =
+    rawContract && (rawContract !== underlying || !strike)
+      ? rawContract
+      : formatOptionContract(underlying, expiry, strike, optionType);
+  if (!contract) return undefined;
   const originalAverageCost = getNumber(data, ['average_cost', 'averageCost', 'cost_basis', 'costBasis']);
   const baseAverageCost = getNumber(data, [
     'base_average_cost',
@@ -756,9 +764,7 @@ function normalizeOptionPosition(
 
   return {
     id: getString(data, ['id']) || `option-${contract}-${index}`,
-    underlying:
-      getString(data, ['underlying', 'underlying_symbol', 'underlyingSymbol']) ||
-      inferUnderlyingSymbol(contract),
+    underlying: underlying || inferUnderlyingSymbol(contract),
     contract,
     currency,
     baseCurrency,
@@ -780,7 +786,7 @@ function normalizeOptionPosition(
     delta: getNumber(data, ['delta']),
     impliedVolatility:
       getNumber(data, ['implied_volatility', 'impliedVolatility', 'iv']),
-    optionType: getString(data, ['option_type', 'optionType']),
+    optionType,
     cashRequired: baseCashRequired ?? originalCashRequired,
     originalCashRequired,
     baseCashRequired: baseCashRequired ?? (baseCurrency === currency ? originalCashRequired : undefined),
@@ -793,6 +799,21 @@ function normalizeOptionPosition(
     fxSource,
     sourceQuality,
   };
+}
+
+function formatOptionContract(
+  underlying?: string,
+  expiry?: string,
+  strike?: number,
+  optionType?: string
+) {
+  if (!underlying) return undefined;
+  const normalizedType = optionType?.trim().toUpperCase();
+  const typeCode = normalizedType?.startsWith('P') ? 'P' : normalizedType?.startsWith('C') ? 'C' : '';
+  const strikeText = strike === undefined ? '' : `${strike}`;
+  return [underlying, expiry, strikeText && typeCode ? `${strikeText}${typeCode}` : strikeText || typeCode]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function normalizeStatus(
@@ -976,7 +997,7 @@ function normalizeAssetSources(
       lineage:
         isConnected
           ? '通过管理员侧 OpenD 读取行情和期权链；不会同步普通用户个人账户。'
-          : '等待系统行情源返回行情；当前仅展示可用的参考数据。',
+          : '等待系统行情源返回行情；当前只展示已经返回的数据。',
     },
   ];
 }
@@ -998,7 +1019,7 @@ function normalizeUserFacingNote(note?: string): string | undefined {
 function normalizeUserFacingLineage(value: string): string {
   return value
     .replaceAll('data-service', '资产汇总结果')
-    .replaceAll('fallback', '参考数据')
+    .replaceAll('fallback', '待补齐')
     .replaceAll('sidecar', '本机连接服务')
     .replaceAll('broker sync', '数据来源更新')
     .replaceAll('broker', '数据来源')
@@ -1275,7 +1296,7 @@ function computeUnrealizedPnlPct(
   marketPrice?: number,
   averageCost?: number
 ): number | undefined {
-  if (marketPrice === undefined || averageCost === undefined || averageCost === 0) {
+  if (marketPrice === undefined || averageCost === undefined || averageCost <= 0) {
     return undefined;
   }
   return ((marketPrice - averageCost) / averageCost) * 100;

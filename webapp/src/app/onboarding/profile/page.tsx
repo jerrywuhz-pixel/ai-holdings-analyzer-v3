@@ -115,7 +115,7 @@ export default async function OnboardingProfilePage() {
               type="submit"
               className="w-full rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-400"
             >
-              保存并绑定微信
+              保存并继续检查
             </button>
           </div>
         </Panel>

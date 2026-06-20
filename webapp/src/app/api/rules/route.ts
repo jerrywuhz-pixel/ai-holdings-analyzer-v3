@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       message: body?.message ? String(body.message) : undefined,
       actionOnViolation: body?.actionOnViolation as TradingRuleAction | undefined,
       priority: Number(body?.priority),
+      source: body?.source ? String(body.source) : undefined,
     });
 
     return NextResponse.json({ status: 'created', rule });

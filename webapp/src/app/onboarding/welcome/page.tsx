@@ -6,15 +6,14 @@ export const dynamic = 'force-dynamic';
 
 const sourceItems = [
   ['手工录入', '先记录少量持仓、现金和成本，适合快速试用。'],
-  ['买卖消息', '通过微信发送买入、卖出、加仓、清仓，系统解析后生成待确认记录。'],
+  ['买卖消息', '通过微信发送买入、卖出、加仓、清仓，系统解析后生成待复核记录。'],
   ['截图 OCR', '从交易 App 截图识别资产，用于初始化和人工校对。'],
   ['系统行情源', '管理员侧 Futu OpenD 只提供行情和期权链，不同步普通用户个人账户。'],
 ];
 
 const setupSteps = [
   ['1', '账户口径', '展示币种、主要市场、风险偏好和 Sell Put 开关。'],
-  ['2', '微信绑定', '把当前系统账号绑定到一个微信助手，后续接收提醒和确认指令。'],
-  ['3', '完成检查', '确认持仓、消息和分析能力进入同一个账号空间。'],
+  ['2', '完成检查', '确认登录账号、微信映射和分析能力进入同一个账号空间。'],
 ];
 
 export default async function OnboardingWelcomePage() {
@@ -41,7 +40,7 @@ export default async function OnboardingWelcomePage() {
               先把你的资产来源和分析口径整理清楚
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-[#514b4e] md:text-lg">
-              初始化只需要完成三步：设置账户口径、绑定微信助手、完成最终检查。之后所有持仓、关注清单、清仓复盘和对话记忆都会隔离在当前账号下。
+              试用账号由管理员基于已绑定微信账号分配。首次进入只需要设置账户口径并完成最终检查，之后所有持仓、关注清单、清仓复盘和对话记忆都会隔离在当前账号下。
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link

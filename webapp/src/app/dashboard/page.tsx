@@ -11,9 +11,15 @@ import {
   Panel,
   StatusPill,
 } from '@/components/p0-ui';
-import { getWorkspaceSnapshot, resolveDemoState } from '@/lib/p0';
+import { getWorkspaceSnapshot, resolvePageState } from '@/lib/p0';
 
 export const dynamic = 'force-dynamic';
+
+function pnlClassName(value: string) {
+  if (value.trim().startsWith('+')) return 'text-[#d71920]';
+  if (value.trim().startsWith('-')) return 'text-emerald-700';
+  return 'text-[#4f494c]';
+}
 
 export default async function HomePage({
   searchParams,
@@ -21,18 +27,18 @@ export default async function HomePage({
   searchParams?: Promise<{ state?: string; view?: string }>;
 }) {
   const params = (await searchParams) ?? {};
-  const state = resolveDemoState(params.state);
+  const state = resolvePageState(params.state);
   const snapshot = await getWorkspaceSnapshot({ state, viewId: params.view });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <PageHeader
         eyebrow="总览"
         title="30 秒看清资产、风险和今天该处理什么"
         description="总览优先展示资产、Sell Put 资金占用、数据更新状态与待处理事项。多币种金额按当前展示币种统一口径汇总，用于巡检与比较，不等同交易账户结单净资产。"
         actions={
           <>
-            <InlineLink href="/confirmations">待处理确认</InlineLink>
+            <InlineLink href="/ops">消息与处理状态</InlineLink>
             <InlineLink href="/sell-put">Sell Put 工作台</InlineLink>
           </>
         }
@@ -51,7 +57,7 @@ export default async function HomePage({
         <>
           <DegradationBanner sources={snapshot.data.chrome.sources} />
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 md:gap-4 xl:grid-cols-3">
             {snapshot.data.dashboard.metrics.map((metric) => (
               <MetricCard key={metric.label} metric={metric} />
             ))}
@@ -60,7 +66,7 @@ export default async function HomePage({
           <div className="grid gap-4 xl:grid-cols-[1.25fr_0.95fr]">
             <Panel
               title="今日行动"
-              description="优先级遵循：待确认 / 冲突 > 高风险到期 > Sell Put 到期 > 异动提醒。"
+              description="优先级遵循：待复核 / 冲突 > 高风险到期 > Sell Put 到期 > 异动提醒。"
               aside={<StatusPill tone="danger">{snapshot.data.dashboard.actions.length} 项待处理</StatusPill>}
             >
               <div className="space-y-3">
@@ -68,14 +74,14 @@ export default async function HomePage({
                   <Link
                     key={item.id}
                     href={item.href}
-                    className="flex flex-col gap-2 rounded-xl border border-white/8 bg-white/[0.03] p-4 transition hover:border-red-400/20 hover:bg-white/[0.05] md:flex-row md:items-start md:justify-between"
+                    className="flex flex-col gap-2 rounded-lg border border-[#e5ddd9] bg-white p-4 transition hover:border-[#f0c8c5] hover:bg-[#fff4f1] md:flex-row md:items-start md:justify-between"
                   >
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-white">{item.title}</p>
+                        <p className="font-medium text-[#171417]">{item.title}</p>
                         {item.badge ? <StatusPill tone="danger">{item.badge}</StatusPill> : null}
                       </div>
-                      <p className="mt-1 text-sm text-slate-400">{item.detail}</p>
+                      <p className="mt-1 text-sm text-[#6f686b]">{item.detail}</p>
                     </div>
                     <StatusPill
                       tone={
@@ -96,14 +102,14 @@ export default async function HomePage({
             <Panel title="风险雷达" description="集中度、到期、交易纪律与数据更新风险集中展示。">
               <div className="space-y-3">
                 {snapshot.data.dashboard.riskRadar.map((risk) => (
-                  <div key={risk.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={risk.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-white">{risk.title}</p>
+                      <p className="font-medium text-[#171417]">{risk.title}</p>
                       <StatusPill tone={risk.level === 'high' ? 'danger' : risk.level === 'medium' ? 'warning' : 'muted'}>
                         {risk.badge}
                       </StatusPill>
                     </div>
-                    <p className="mt-2 text-sm text-slate-400">{risk.detail}</p>
+                    <p className="mt-2 text-sm text-[#6f686b]">{risk.detail}</p>
                   </div>
                 ))}
               </div>
@@ -118,30 +124,30 @@ export default async function HomePage({
             >
               <div className="space-y-3 md:hidden">
                 {snapshot.data.dashboard.holdingsPreview.map((holding) => (
-                  <div key={holding.symbol} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={holding.symbol} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <Link href={`/holdings/${holding.symbol}`} className="font-medium text-white hover:text-red-200">
+                        <Link href={`/holdings/${holding.symbol}`} className="font-medium text-[#171417] hover:text-[#d71920]">
                           {holding.symbol}
                         </Link>
-                        <p className="mt-1 text-xs text-slate-500">{holding.name}</p>
+                        <p className="mt-1 text-xs text-[#8a817d]">{holding.name}</p>
                       </div>
                       <DisciplinePill state={holding.discipline} />
                     </div>
-                    <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
+                    <div className="mt-4 grid gap-3 text-sm text-[#4f494c] sm:grid-cols-2">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">市值</p>
-                        <p className="mt-1 text-slate-200">{holding.marketValue}</p>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[#8a817d]">市值</p>
+                        <p className="mt-1 text-[#4f494c]">{holding.marketValue}</p>
                         {holding.marketValueDetail ? (
-                          <p className="mt-1 text-xs text-slate-500">{holding.marketValueDetail}</p>
+                          <p className="mt-1 text-xs text-[#8a817d]">{holding.marketValueDetail}</p>
                         ) : null}
                         {holding.valuationBasis ? (
-                          <p className="mt-1 text-xs text-slate-500">{holding.valuationBasis}</p>
+                          <p className="mt-1 text-xs text-[#8a817d]">{holding.valuationBasis}</p>
                         ) : null}
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">盈亏</p>
-                        <p className="mt-1 text-slate-200">{holding.pnl}</p>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[#8a817d]">盈亏</p>
+                        <p className={['mt-1 font-semibold', pnlClassName(holding.pnl)].join(' ')}>{holding.pnl}</p>
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
@@ -151,9 +157,9 @@ export default async function HomePage({
                 ))}
               </div>
 
-              <div className="hidden overflow-x-auto rounded-xl border border-white/8 md:block">
-                <table className="min-w-full divide-y divide-white/8 text-sm">
-                  <thead className="bg-white/[0.03] text-left text-slate-400">
+              <div className="hidden overflow-x-auto rounded-lg border border-[#e5ddd9] md:block">
+                <table className="min-w-full divide-y divide-[#e5ddd9] text-sm">
+                  <thead className="bg-white text-left text-[#6f686b]">
                     <tr>
                       <th className="px-4 py-3 font-medium">标的</th>
                       <th className="px-4 py-3 font-medium">市值</th>
@@ -162,25 +168,27 @@ export default async function HomePage({
                       <th className="px-4 py-3 font-medium">数据更新</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/8">
+                  <tbody className="divide-y divide-[#e5ddd9]">
                     {snapshot.data.dashboard.holdingsPreview.map((holding) => (
-                      <tr key={holding.symbol} className="bg-black/10">
+                      <tr key={holding.symbol} className="bg-[#fffaf8]">
                         <td className="px-4 py-3">
-                          <Link href={`/holdings/${holding.symbol}`} className="font-medium text-white hover:text-red-200">
+                          <Link href={`/holdings/${holding.symbol}`} className="font-medium text-[#171417] hover:text-[#d71920]">
                             {holding.symbol}
                           </Link>
-                          <p className="text-xs text-slate-500">{holding.name}</p>
+                          <p className="text-xs text-[#8a817d]">{holding.name}</p>
                         </td>
-                        <td className="px-4 py-3 text-slate-200">
+                        <td className="px-4 py-3 text-[#4f494c]">
                           <p>{holding.marketValue}</p>
                           {holding.marketValueDetail ? (
-                            <p className="mt-1 text-xs text-slate-500">{holding.marketValueDetail}</p>
+                            <p className="mt-1 text-xs text-[#8a817d]">{holding.marketValueDetail}</p>
                           ) : null}
                           {holding.valuationBasis ? (
-                            <p className="mt-1 text-xs text-slate-500">{holding.valuationBasis}</p>
+                            <p className="mt-1 text-xs text-[#8a817d]">{holding.valuationBasis}</p>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3 text-slate-200">{holding.pnl}</td>
+                        <td className={['px-4 py-3 font-semibold', pnlClassName(holding.pnl)].join(' ')}>
+                          {holding.pnl}
+                        </td>
                         <td className="px-4 py-3">
                           <DisciplinePill state={holding.discipline} />
                         </td>
@@ -197,11 +205,11 @@ export default async function HomePage({
             <Panel title="Sell Put 摘要" description="候选、资金占用、近到期风险优先于趋势图。">
               <div className="space-y-3">
                 {snapshot.data.dashboard.optionsPreview.map((option) => (
-                  <div key={option.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={option.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="font-medium text-white">{option.contract}</p>
-                        <p className="mt-1 text-sm text-slate-400">
+                        <p className="font-medium text-[#171417]">{option.contract}</p>
+                        <p className="mt-1 text-sm text-[#6f686b]">
                           现金占用 {option.cashRequired} · 期权市值 {option.optionMarketValue}
                         </p>
                       </div>

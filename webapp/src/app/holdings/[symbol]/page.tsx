@@ -8,7 +8,7 @@ import {
   Panel,
   StatusPill,
 } from '@/components/p0-ui';
-import { findEquityBySymbol, getWorkspaceSnapshot, resolveDemoState } from '@/lib/p0';
+import { findEquityBySymbol, getWorkspaceSnapshot, resolvePageState } from '@/lib/p0';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +21,7 @@ export default async function HoldingDetailPage({
 }) {
   const { symbol } = await params;
   const query = (await searchParams) ?? {};
-  const state = resolveDemoState(query.state);
+  const state = resolvePageState(query.state);
   const snapshot = await getWorkspaceSnapshot({ state });
 
   if (snapshot.state === 'error' || snapshot.state === 'loading' || snapshot.state === 'empty') {
@@ -60,7 +60,7 @@ export default async function HoldingDetailPage({
         actions={
           <>
             <InlineLink href="/holdings">返回持仓</InlineLink>
-            <InlineLink href="/confirmations">录入交易进入确认中心</InlineLink>
+            <InlineLink href="/ops">查看微信处理状态</InlineLink>
           </>
         }
       />
@@ -74,17 +74,17 @@ export default async function HoldingDetailPage({
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <Panel title="纪律与策略" description="止盈 / 止损 / 财报前限制等动作只生成草稿或规则请求，不自动下单。">
           <div className="space-y-4">
-            <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+            <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium text-white">纪律状态</p>
+                <p className="font-medium text-[#171417]">纪律状态</p>
                 <DisciplinePill state={holding.discipline} />
               </div>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="mt-2 text-sm text-[#6f686b]">
                 当前页面保留规则命中、策略建议与确认入口，不直接提交交易事实。
               </p>
             </div>
-            <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4 text-sm text-slate-300">
-              <p className="font-medium text-white">后续分析入口</p>
+            <div className="rounded-lg border border-[#e5ddd9] bg-white p-4 text-sm text-[#4f494c]">
+              <p className="font-medium text-[#171417]">后续分析入口</p>
               <ul className="mt-3 space-y-2">
                 <li>价格与收益路径图：接入历史行情后展示。</li>
                 <li>交易时间线：同步交易记录后展示。</li>
@@ -94,18 +94,18 @@ export default async function HoldingDetailPage({
           </div>
         </Panel>
 
-        <Panel title="来源 / 更新 / 确认" description="任何影响持仓事实的数据修正都必须走确认中心。">
+        <Panel title="来源 / 更新 / 微信处理" description="影响持仓事实的数据修正以微信渠道和后台处理记录为准，WebApp 只展示当前结果和来源。">
           <div className="space-y-3">
-            <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">数据来源</p>
-              <p className="mt-2 font-medium text-white">{holding.source}</p>
+            <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-[#8a817d]">数据来源</p>
+              <p className="mt-2 font-medium text-[#171417]">{holding.source}</p>
             </div>
-            <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">更新时间</p>
-              <p className="mt-2 font-medium text-white">{holding.freshness}</p>
+            <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-[#8a817d]">更新时间</p>
+              <p className="mt-2 font-medium text-[#171417]">{holding.freshness}</p>
             </div>
-            <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">建议下一步</p>
+            <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-[#8a817d]">建议下一步</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <StatusPill tone="muted">发起深研</StatusPill>
                 <StatusPill tone="warning">生成止盈 / 止损草稿</StatusPill>

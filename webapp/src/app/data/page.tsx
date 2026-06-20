@@ -9,7 +9,7 @@ import {
 } from '@/components/p0-ui';
 import ManualPositionForm from '@/components/manual-position-form';
 import { ensureUserAccount } from '@/lib/account-store';
-import { getWorkspaceSnapshot, resolveDemoState } from '@/lib/p0';
+import { getWorkspaceSnapshot, resolvePageState } from '@/lib/p0';
 import { requireUser } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,7 @@ export default async function DataPage({
   searchParams?: Promise<{ state?: string }>;
 }) {
   const params = (await searchParams) ?? {};
-  const state = resolveDemoState(params.state);
+  const state = resolvePageState(params.state);
   const session = await requireUser();
   const [account, snapshot] = await Promise.all([
     ensureUserAccount(session.user),
@@ -62,27 +62,27 @@ export default async function DataPage({
 
           <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
             <Panel title="账户工作区" description="每个登录账号都有独立的 account_id、tenant_id、资产视图和数据来源。">
-              <div className="grid gap-3 text-sm text-slate-300">
-                <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">account_id</p>
-                  <p className="mt-2 break-all font-mono text-white">{account.accountId}</p>
+              <div className="grid gap-3 text-sm text-[#4f494c]">
+                <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#8a817d]">account_id</p>
+                  <p className="mt-2 break-all font-mono text-[#171417]">{account.accountId}</p>
                 </div>
-                <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">tenant_id</p>
-                  <p className="mt-2 break-all font-mono text-white">{account.tenantId}</p>
+                <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#8a817d]">tenant_id</p>
+                  <p className="mt-2 break-all font-mono text-[#171417]">{account.tenantId}</p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                    <p className="text-xs text-slate-500">资产视图</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{account.portfolioViews.length}</p>
+                  <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+                    <p className="text-xs text-[#8a817d]">资产视图</p>
+                    <p className="mt-1 text-lg font-semibold text-[#171417]">{account.portfolioViews.length}</p>
                   </div>
-                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                    <p className="text-xs text-slate-500">关注清单</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{account.followView?.itemCount ?? 0}</p>
+                  <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+                    <p className="text-xs text-[#8a817d]">关注清单</p>
+                    <p className="mt-1 text-lg font-semibold text-[#171417]">{account.followView?.itemCount ?? 0}</p>
                   </div>
-                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                    <p className="text-xs text-slate-500">清仓回溯</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{account.listView?.itemCount ?? 0}</p>
+                  <div className="rounded-lg border border-[#e5ddd9] bg-white p-4">
+                    <p className="text-xs text-[#8a817d]">清仓回溯</p>
+                    <p className="mt-1 text-lg font-semibold text-[#171417]">{account.listView?.itemCount ?? 0}</p>
                   </div>
                 </div>
               </div>
@@ -103,35 +103,35 @@ export default async function DataPage({
             <Panel title="系统行情源" description="这里只说明系统级行情源是否可用；普通用户持仓和现金不从个人 Futu 账号自动同步。">
               <div className="space-y-3">
                 {snapshot.data.data.connections.map((connection) => (
-                  <div key={connection.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={connection.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="font-medium text-white">{connection.provider}</p>
-                        <p className="mt-1 text-sm text-slate-400">{connection.accountLabel}</p>
+                        <p className="font-medium text-[#171417]">{connection.provider}</p>
+                        <p className="mt-1 text-sm text-[#6f686b]">{connection.accountLabel}</p>
                       </div>
                       <StatusPill tone={connection.authStatus === 'connected' ? 'positive' : 'warning'}>
                         {connectionStatusLabel[connection.authStatus] ?? connection.authStatus}
                       </StatusPill>
                     </div>
-                    <div className="mt-3 grid gap-2 text-sm text-slate-300">
+                    <div className="mt-3 grid gap-2 text-sm text-[#4f494c]">
                       <p>权限 {connection.permissionScope}</p>
                       <p>最近更新 {connection.lastSync}</p>
                       <p>更新 {connection.freshness}</p>
                     </div>
                     {connection.degradation ? (
-                      <p className="mt-3 text-sm text-amber-300">{connection.degradation}</p>
+                      <p className="mt-3 text-sm text-amber-700">{connection.degradation}</p>
                     ) : null}
                   </div>
                 ))}
               </div>
             </Panel>
 
-            <Panel title="最近更新记录" description="告诉你最近一次拿到新数据的时间，以及当前为什么可能还在使用参考数据。">
+            <Panel title="最近更新记录" description="告诉你最近一次拿到新数据的时间，以及当前还有哪些字段待补齐。">
               <div className="space-y-3">
                 {snapshot.data.data.syncEvents.map((event) => (
-                  <div key={event.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={event.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="font-medium text-white">{event.title}</p>
+                      <p className="font-medium text-[#171417]">{event.title}</p>
                       <StatusPill
                         tone={
                           event.status === 'success'
@@ -146,8 +146,8 @@ export default async function DataPage({
                         {syncStatusLabel[event.status]}
                       </StatusPill>
                     </div>
-                    <p className="mt-2 text-sm text-slate-400">{event.detail}</p>
-                    <p className="mt-2 text-xs text-slate-500">开始时间 {event.startedAt}</p>
+                    <p className="mt-2 text-sm text-[#6f686b]">{event.detail}</p>
+                    <p className="mt-2 text-xs text-[#8a817d]">开始时间 {event.startedAt}</p>
                   </div>
                 ))}
               </div>
@@ -157,26 +157,26 @@ export default async function DataPage({
           <Panel title="资产数据来源" description="展示系统行情、手工录入、截图识别以及多币种折算口径的优先级、可信度和更新时间。">
             <div className="space-y-3 md:hidden">
               {snapshot.data.data.assetSources.map((source) => (
-                <div key={source.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                <div key={source.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-medium text-white">{source.label}</p>
-                      <p className="mt-1 text-sm text-slate-400">{source.type}</p>
+                      <p className="font-medium text-[#171417]">{source.label}</p>
+                      <p className="mt-1 text-sm text-[#6f686b]">{source.type}</p>
                     </div>
                     <StatusPill tone="muted">{source.priority}</StatusPill>
                   </div>
-                  <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
+                  <div className="mt-4 grid gap-3 text-sm text-[#4f494c] sm:grid-cols-2">
                     <p>可信度 {source.confidence}</p>
                     <p>数据更新 {source.freshness}</p>
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-400">{source.lineage}</p>
+                  <p className="mt-3 text-sm leading-6 text-[#6f686b]">{source.lineage}</p>
                 </div>
               ))}
             </div>
 
             <div className="hidden overflow-x-auto md:block">
-              <table className="min-w-full divide-y divide-white/8 text-sm">
-                <thead className="text-left text-slate-400">
+              <table className="min-w-full divide-y divide-[#e5ddd9] text-sm">
+                <thead className="text-left text-[#6f686b]">
                   <tr>
                     <th className="px-3 py-3 font-medium">来源</th>
                     <th className="px-3 py-3 font-medium">类型</th>
@@ -186,15 +186,15 @@ export default async function DataPage({
                     <th className="px-3 py-3 font-medium">来源说明</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/8">
+                <tbody className="divide-y divide-[#e5ddd9]">
                   {snapshot.data.data.assetSources.map((source) => (
                     <tr key={source.id}>
-                      <td className="px-3 py-3 font-medium text-white">{source.label}</td>
-                      <td className="px-3 py-3 text-slate-300">{source.type}</td>
-                      <td className="px-3 py-3 text-slate-300">{source.priority}</td>
-                      <td className="px-3 py-3 text-slate-300">{source.confidence}</td>
-                      <td className="px-3 py-3 text-slate-300">{source.freshness}</td>
-                      <td className="px-3 py-3 text-slate-400">{source.lineage}</td>
+                      <td className="px-3 py-3 font-medium text-[#171417]">{source.label}</td>
+                      <td className="px-3 py-3 text-[#4f494c]">{source.type}</td>
+                      <td className="px-3 py-3 text-[#4f494c]">{source.priority}</td>
+                      <td className="px-3 py-3 text-[#4f494c]">{source.confidence}</td>
+                      <td className="px-3 py-3 text-[#4f494c]">{source.freshness}</td>
+                      <td className="px-3 py-3 text-[#6f686b]">{source.lineage}</td>
                     </tr>
                   ))}
                 </tbody>

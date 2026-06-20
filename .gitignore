@@ -3,6 +3,7 @@ node_modules/
 __pycache__/
 *.pyc
 .venv/
+.venv-agent-reach/
 venv/
 
 # Env
@@ -29,6 +30,7 @@ coverage/
 
 # Local generated reports
 /json
+social-card-trading-framework/
 
 # IDE
 .vscode/

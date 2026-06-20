@@ -5,7 +5,7 @@ import {
   Panel,
   StatusPill,
 } from '@/components/p0-ui';
-import { getWorkspaceSnapshot, resolveDemoState } from '@/lib/p0';
+import { getWorkspaceSnapshot, resolvePageState } from '@/lib/p0';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,7 @@ export default async function OpsPage({
   searchParams?: Promise<{ state?: string }>;
 }) {
   const params = (await searchParams) ?? {};
-  const state = resolveDemoState(params.state);
+  const state = resolvePageState(params.state);
   const snapshot = await getWorkspaceSnapshot({ state });
 
   return (
@@ -64,9 +64,9 @@ export default async function OpsPage({
             <Panel title="处理进度" description="展示研究、账户更新、重算等事项的当前进度。">
               <div className="space-y-3">
                 {snapshot.data.ops.jobs.map((job) => (
-                  <div key={job.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={job.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="font-medium text-white">{job.lane}</p>
+                      <p className="font-medium text-[#171417]">{job.lane}</p>
                       <StatusPill
                         tone={
                           job.status === 'failed'
@@ -81,7 +81,7 @@ export default async function OpsPage({
                         {taskStatusLabel[job.status]}
                       </StatusPill>
                     </div>
-                    <p className="mt-2 text-sm text-slate-400">由 {job.owner} 处理 · 更新时间 {job.updatedAt}</p>
+                    <p className="mt-2 text-sm text-[#6f686b]">由 {job.owner} 处理 · 更新时间 {job.updatedAt}</p>
                   </div>
                 ))}
               </div>
@@ -90,26 +90,26 @@ export default async function OpsPage({
             <Panel title="消息与系统行情" description="微信提醒、系统行情源和自动补发状态统一展示。">
               <div className="space-y-3">
                 {snapshot.data.ops.deliveries.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={item.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="font-medium text-white">{item.channel}</p>
+                      <p className="font-medium text-[#171417]">{item.channel}</p>
                       <StatusPill tone="warning">等待重试</StatusPill>
                     </div>
-                    <p className="mt-2 text-sm text-slate-400">{item.reason}</p>
-                    <p className="mt-2 text-xs text-slate-500">
+                    <p className="mt-2 text-sm text-[#6f686b]">{item.reason}</p>
+                    <p className="mt-2 text-xs text-[#8a817d]">
                       {item.lastAttempt} · {item.recovery}
                     </p>
                   </div>
                 ))}
                 {snapshot.data.ops.brokerSyncs.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                  <div key={item.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="font-medium text-white">{item.title}</p>
+                      <p className="font-medium text-[#171417]">{item.title}</p>
                       <StatusPill tone={item.status === 'failed' ? 'danger' : item.status === 'success' ? 'positive' : 'warning'}>
                         {syncStatusLabel[item.status]}
                       </StatusPill>
                     </div>
-                    <p className="mt-2 text-sm text-slate-400">{item.detail}</p>
+                    <p className="mt-2 text-sm text-[#6f686b]">{item.detail}</p>
                   </div>
                 ))}
               </div>
@@ -119,14 +119,14 @@ export default async function OpsPage({
           <Panel title="等待继续处理" description="确认提交、来源冲突或账户更新异常后，需要继续更新数字的事项会出现在这里。">
             <div className="grid gap-3 md:grid-cols-2">
               {snapshot.data.ops.replayQueue.map((item) => (
-                <div key={item.id} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                <div key={item.id} className="rounded-lg border border-[#e5ddd9] bg-white p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="font-medium text-white">{item.objectType}</p>
+                    <p className="font-medium text-[#171417]">{item.objectType}</p>
                     <StatusPill tone={item.status === 'blocked' ? 'danger' : 'warning'}>
                       {recoveryStatusLabel[item.status] ?? item.status}
                     </StatusPill>
                   </div>
-                  <p className="mt-2 text-sm text-slate-400">{item.reason}</p>
+                  <p className="mt-2 text-sm text-[#6f686b]">{item.reason}</p>
                 </div>
               ))}
             </div>

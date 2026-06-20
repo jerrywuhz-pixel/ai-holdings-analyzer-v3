@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic';
 
 export default async function OnboardingBrokerPage() {
   const state = await getOnboardingState();
-  const hasWechat = state.checks.wechat;
 
   return (
     <div className="space-y-6">
@@ -27,10 +26,10 @@ export default async function OnboardingBrokerPage() {
             <p>这个页面保留为历史入口说明，不再提供用户级 Futu 配对操作。</p>
             <p>如果需要初始化持仓，请在进入系统后使用“数据与账户”里的手工录入，或通过微信发送持仓截图进行识别和确认。</p>
             <Link
-              href={hasWechat ? '/onboarding/review' : '/onboarding/wechat'}
+              href="/onboarding/review"
               className="inline-flex rounded-xl bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-400"
             >
-              {hasWechat ? '继续最终检查' : '返回微信绑定'}
+              继续最终检查
             </Link>
           </div>
         </Panel>
