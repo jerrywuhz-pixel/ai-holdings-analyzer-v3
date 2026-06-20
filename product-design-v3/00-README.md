@@ -45,6 +45,9 @@
 | `37-production-dependency-config-package.md` | 生产依赖配置包：本地 secret 文件、仍需外部提供的域名/云资源/API key/授权清单 |
 | `38-webapp-growth-onboarding-design-concepts.md` | WebApp 增长型站点与新用户引导三套高保真方案：首页、核心功能页、会员页、onboarding |
 | `39-webapp-prelogin-site-bc-design.md` | 登录前站点定稿方向：以长期资产管家为主，融合 AI 投研任务流，覆盖移动端适配 |
+| `40-openclaw-hermes-skills-mcp-integration-review.md` | OpenClaw / Hermes skills 与 MCP 集成 review：技能安装、工具暴露、运行时边界和风险补齐 |
+| `41-p0-cron-task-list.md` | P0 定时任务清单：收盘摘要、风险提醒、同步、回放与运维任务 |
+| `42-analysis-insight-trading-framework.md` | 分析洞察升级交易框架：结合宏观文章、半人马交易者思想和 Hermes 交易纪律的完整分析/风控/输出契约 |
 | `prd/00-README.md` | PRD 索引：持仓核心、数据/券商/对账、交互/确认/Agent 体验 |
 | `system-analysis/00-README.md` | 系统分析索引：PRD 完成后的编码前架构分析入口 |
 | `system-analysis/04-architecture-integration-and-coding-entry.md` | 三份 PRD 与三份系统分析的架构整合、共享契约、编码任务切分和编码前确认结果 |

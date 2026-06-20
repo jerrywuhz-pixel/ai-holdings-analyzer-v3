@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI+人，半人马座交易框架</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #fbfbfa;
+        --paper: #ffffff;
+        --ink: #111827;
+        --muted: #596275;
+        --soft: #f3f5f8;
+        --line: #dfe4ea;
+        --line-strong: #c8d0da;
+        --red: #cf1f2b;
+        --red-soft: #fff0f1;
+        --navy: #0f3568;
+        --navy-soft: #edf4ff;
+        --green: #0b8357;
+        --green-soft: #edf9f4;
+        --amber: #a76500;
+        --amber-soft: #fff7e8;
+        --shadow: 0 20px 56px rgba(25, 38, 55, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        line-height: 1.62;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid rgba(223, 228, 234, 0.86);
+        background: rgba(251, 251, 250, 0.9);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav {
+        width: min(1180px, calc(100% - 40px));
+        min-height: 68px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 22px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 900;
+        letter-spacing: 0;
+      }
+
+      .brand-mark {
+        width: 31px;
+        height: 31px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--red);
+        color: #fff;
+        box-shadow: 0 10px 24px rgba(207, 31, 43, 0.2);
+      }
+
+      .brand-mark svg,
+      .section-icon svg,
+      .notice-icon svg,
+      .loop-icon svg {
+        width: 18px;
+        height: 18px;
+        stroke-width: 2.4;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        color: #4b5565;
+        font-size: 14px;
+        font-weight: 720;
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(120deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.9) 48%, rgba(237, 244, 255, 0.86) 100%),
+          radial-gradient(circle at 82% 8%, rgba(207, 31, 43, 0.1), transparent 26%),
+          radial-gradient(circle at 16% 78%, rgba(15, 53, 104, 0.08), transparent 34%),
+          linear-gradient(180deg, #fff, #f7f9fc);
+      }
+
+      .hero-inner {
+        width: min(1180px, calc(100% - 40px));
+        min-height: 590px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        padding: 72px 0 66px;
+      }
+
+      .hero-copy {
+        width: min(100%, 1040px);
+        margin: 0 auto;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin: 0 auto 20px;
+        max-width: 990px;
+        font-size: 76px;
+        line-height: 1.05;
+        letter-spacing: 0;
+        text-align: center;
+      }
+
+      .hero-lede {
+        max-width: 820px;
+        margin: 0 auto 36px;
+        color: #354053;
+        font-size: 21px;
+        text-align: center;
+      }
+
+      .principles {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        max-width: 920px;
+        margin: 0 auto;
+      }
+
+      .principle {
+        display: grid;
+        gap: 8px;
+        align-items: start;
+        min-height: 132px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 14px 36px rgba(25, 38, 55, 0.05);
+        color: #354053;
+        text-align: left;
+      }
+
+      .principle strong {
+        color: var(--navy);
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      .principle span:last-child {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .dot {
+        width: 26px;
+        height: 4px;
+        margin-bottom: 4px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+
+      .notice {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 14px;
+        align-items: center;
+        margin: 38px auto 0;
+        padding: 18px;
+        border: 1px solid #f0b6bb;
+        border-radius: 8px;
+        background: rgba(255, 240, 241, 0.76);
+        max-width: 780px;
+        text-align: left;
+      }
+
+      .notice-icon,
+      .section-icon,
+      .loop-icon {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+      }
+
+      .notice-icon {
+        background: #fff;
+        color: var(--red);
+      }
+
+      .notice strong {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--red);
+        font-size: 16px;
+      }
+
+      .notice p {
+        margin: 0;
+        color: #4b5565;
+        font-size: 14px;
+      }
+
+      .section {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 84px 0;
+      }
+
+      .section + .section {
+        border-top: 1px solid var(--line);
+      }
+
+      .section-heading {
+        display: grid;
+        grid-template-columns: 52px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+        max-width: 780px;
+        margin-bottom: 36px;
+      }
+
+      .section-icon {
+        background: var(--navy-soft);
+        color: var(--navy);
+      }
+
+      .section-heading h2 {
+        margin: 0 0 8px;
+        font-size: 38px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      .section-heading p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .state-card,
+      .action-card,
+      .budget-card,
+      .loop-step {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: 0 14px 36px rgba(25, 38, 55, 0.05);
+      }
+
+      .state-card {
+        min-height: 246px;
+        padding: 22px;
+      }
+
+      .state-card h3,
+      .action-card h3,
+      .budget-card h3,
+      .loop-step h3 {
+        margin: 0 0 10px;
+        font-size: 20px;
+        line-height: 1.25;
+      }
+
+      .state-card p,
+      .action-card p,
+      .budget-card p,
+      .loop-step p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .signal-list {
+        display: grid;
+        gap: 9px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .signal-list li {
+        display: grid;
+        grid-template-columns: 18px 1fr;
+        gap: 8px;
+        color: #3a4658;
+        font-size: 14px;
+      }
+
+      .signal-list li::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        margin-top: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.68;
+      }
+
+      .state-card.is-red {
+        border-color: #efc2c6;
+        background: linear-gradient(180deg, #fff, var(--red-soft));
+      }
+
+      .state-card.is-blue {
+        border-color: #c7d8ef;
+        background: linear-gradient(180deg, #fff, var(--navy-soft));
+      }
+
+      .state-card.is-green {
+        border-color: #b9e3d2;
+        background: linear-gradient(180deg, #fff, var(--green-soft));
+      }
+
+      .decision-band {
+        display: grid;
+        grid-template-columns: 0.86fr 1.14fr;
+        gap: 20px;
+        align-items: start;
+      }
+
+      .action-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .action-card {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 14px;
+        align-items: start;
+        padding: 18px;
+      }
+
+      .action-code {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        background: var(--soft);
+        color: var(--navy);
+        font-size: 13px;
+        font-weight: 920;
+      }
+
+      .action-card:nth-child(3) .action-code {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .action-card:nth-child(4) .action-code {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .action-card:nth-child(5) .action-code {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .rule-box {
+        position: sticky;
+        top: 98px;
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #111827;
+        color: #fff;
+        box-shadow: var(--shadow);
+      }
+
+      .rule-box h3 {
+        margin: 0 0 16px;
+        font-size: 28px;
+        line-height: 1.18;
+      }
+
+      .rule-box p {
+        color: #d8dee8;
+      }
+
+      .rule-list {
+        display: grid;
+        gap: 12px;
+        margin: 24px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .rule-list li {
+        padding: 13px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.16);
+        color: #f7f9fc;
+        font-weight: 720;
+      }
+
+      .budget-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+
+      .budget-card {
+        padding: 22px;
+      }
+
+      .budget-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 14px;
+      }
+
+      .budget-card strong {
+        color: var(--navy);
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      .budget-meter {
+        height: 10px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--soft);
+      }
+
+      .budget-fill {
+        height: 100%;
+        background: var(--navy);
+      }
+
+      .budget-card.attack .budget-fill {
+        background: var(--red);
+      }
+
+      .budget-card.elastic .budget-fill {
+        background: var(--amber);
+      }
+
+      .budget-card.cash .budget-fill {
+        background: var(--green);
+      }
+
+      .trigger-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .trigger {
+        min-height: 152px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+      }
+
+      .trigger h3 {
+        margin: 0 0 10px;
+        color: var(--red);
+        font-size: 18px;
+      }
+
+      .trigger:first-child h3 {
+        color: var(--green);
+      }
+
+      .trigger p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .loop {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .loop-step {
+        position: relative;
+        min-height: 236px;
+        padding: 22px;
+      }
+
+      .loop-icon {
+        margin-bottom: 18px;
+        background: var(--navy-soft);
+        color: var(--navy);
+      }
+
+      .loop-step::after {
+        content: "";
+        position: absolute;
+        top: 42px;
+        right: -21px;
+        width: 26px;
+        height: 1px;
+        background: var(--line-strong);
+      }
+
+      .loop-step:last-child::after {
+        display: none;
+      }
+
+      .bottom-note {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto 42px;
+        padding: 20px 22px;
+        border: 1px solid #f0b6bb;
+        border-radius: 8px;
+        background: var(--red-soft);
+        color: #4b5565;
+      }
+
+      .bottom-note strong {
+        color: var(--red);
+      }
+
+      @media (max-width: 980px) {
+        .nav {
+          min-height: 64px;
+        }
+
+        .nav-links {
+          display: none;
+        }
+
+        .hero-inner {
+          min-height: auto;
+          padding: 48px 0;
+        }
+
+        h1 {
+          font-size: 52px;
+        }
+
+        .hero-lede {
+          font-size: 18px;
+        }
+
+        .principles {
+          grid-template-columns: 1fr;
+        }
+
+        .state-grid,
+        .decision-band,
+        .budget-layout,
+        .trigger-row,
+        .loop {
+          grid-template-columns: 1fr;
+        }
+
+        .rule-box {
+          position: static;
+        }
+
+        .loop-step::after {
+          display: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .nav,
+        .hero-inner,
+        .section,
+        .bottom-note {
+          width: min(100% - 28px, 1180px);
+        }
+
+        h1 {
+          font-size: 38px;
+        }
+
+        .section {
+          padding: 58px 0;
+        }
+
+        .section-heading {
+          grid-template-columns: 1fr;
+        }
+
+        .section-heading h2 {
+          font-size: 30px;
+        }
+
+        .principle {
+          min-height: auto;
+        }
+
+        .notice {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="页面导航">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" />
+              <path d="M8.5 12.5l2.2 2.2 4.8-5" />
+            </svg>
+          </span>
+          <span>交易纪律框架</span>
+        </a>
+        <div class="nav-links">
+          <a href="#regime">市场状态</a>
+          <a href="#gates">四层决策门</a>
+          <a href="#cushion">利润垫</a>
+          <a href="#review">复盘闭环</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <h1 id="hero-title">AI+人，半人马座交易框架</h1>
+            <p class="hero-lede">
+              AI 负责扫描事实、归一信息和执行纪律；人负责判断范式变化、风险底线和最终取舍。框架的目标不是预测得更响，而是让每一次行动都能被约束、解释和复盘。
+            </p>
+            <div class="principles" aria-label="核心原则">
+              <div class="principle"><span class="dot"></span><strong>AI 做扫描</strong><span>处理行情、文章、历史对照和规则检查，把噪音压缩成可验证信号。</span></div>
+              <div class="principle"><span class="dot"></span><strong>人做判断</strong><span>识别范式转移、政策变化和账户承受力，保留最终决策权。</span></div>
+              <div class="principle"><span class="dot"></span><strong>纪律做边界</strong><span>用事实门、叙事门、纪律门和利润垫预算限制行动上限。</span></div>
+            </div>
+            <div class="notice">
+              <span class="notice-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" />
+                  <path d="M12 8v5" />
+                  <path d="M12 17h.01" />
+                </svg>
+              </span>
+              <p><strong>重要说明</strong>本页面用于投资者教育和方法论分享，不构成任何投资建议。市场有风险，决策需独立，盈亏自负。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="regime" aria-labelledby="regime-title">
+        <div class="section-heading">
+          <span class="section-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M4 17l5-5 4 4 7-9" />
+              <path d="M4 20h16" />
+            </svg>
+          </span>
+          <div>
+            <h2 id="regime-title">先判断市场状态</h2>
+            <p>市场状态不直接给买卖结论，但会决定仓位、杠杆、期权阈值和复盘重点。</p>
+          </div>
+        </div>
+        <div class="state-grid">
+          <article class="state-card is-blue">
+            <h3>宏观流动性</h3>
+            <p>观察联储、实际利率、美元、美债和财政压力。鹰派环境下，高估值和广谱资产需要更强证据。</p>
+            <ul class="signal-list">
+              <li>降息路径是否明确</li>
+              <li>长端利率是否继续压估值</li>
+              <li>风险事件是否倒逼宽松</li>
+            </ul>
+          </article>
+          <article class="state-card is-red">
+            <h3>AI Capex 与硬科技</h3>
+            <p>把 AI 主线拆成独立状态，避免把单票上涨误判成全面牛市。</p>
+            <ul class="signal-list">
+              <li>云厂商 Capex 是否上修</li>
+              <li>半导体 ETF 是否共振</li>
+              <li>财报窗口是否继续验证</li>
+            </ul>
+          </article>
+          <article class="state-card is-green">
+            <h3>账户利润垫</h3>
+            <p>机会质量由市场决定，能承受多少波动由账户决定。利润垫必须来自可追溯来源。</p>
+            <ul class="signal-list">
+              <li>年度利润是否显著</li>
+              <li>哪些利润必须锁住</li>
+              <li>回撤线是否已定义</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="gates" aria-labelledby="gates-title">
+        <div class="section-heading">
+          <span class="section-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" />
+              <path d="M8 12h8" />
+              <path d="M12 8v8" />
+            </svg>
+          </span>
+          <div>
+            <h2 id="gates-title">四层决策门</h2>
+            <p>框架不是为了让结论更激进，而是让每个动作都有边界、有反例、有退出条件。</p>
+          </div>
+        </div>
+
+        <div class="decision-band">
+          <aside class="rule-box">
+            <h3>未通过任意一门，就不能升级到交易草稿。</h3>
+            <p>文章、观点和市场叙事只能作为参考源。只有事实可用、假设清楚、纪律通过、执行条件满足，才允许进入更高行动等级。</p>
+            <ul class="rule-list">
+              <li>没有退出条件，不生成草稿。</li>
+              <li>不熟悉领域，只做分析或研究。</li>
+              <li>现金、保证金不可验证，直接阻断。</li>
+              <li>出现情绪化补仓意图，优先复盘。</li>
+            </ul>
+          </aside>
+
+          <div class="action-stack" aria-label="行动等级">
+            <article class="action-card">
+              <div class="action-code">INFO</div>
+              <div>
+                <h3>info_only</h3>
+                <p>事实查询、行情状态、持仓摘要。只回答“现在是什么”。</p>
+              </div>
+            </article>
+            <article class="action-card">
+              <div class="action-code">ANA</div>
+              <div>
+                <h3>analysis_only</h3>
+                <p>宏观文章、观点材料、数据缺失或用户不熟悉领域。只做分析，不给动作草稿。</p>
+              </div>
+            </article>
+            <article class="action-card">
+              <div class="action-code">ACT</div>
+              <div>
+                <h3>suggested_action</h3>
+                <p>可建立关注、提醒、研究任务、复核日或止盈风险观察。</p>
+              </div>
+            </article>
+            <article class="action-card">
+              <div class="action-code">DRAFT</div>
+              <div>
+                <h3>trade_draft</h3>
+                <p>四层门都通过，只形成系统内草稿或确认对象，不代表自动下单。</p>
+              </div>
+            </article>
+            <article class="action-card">
+              <div class="action-code">STOP</div>
+              <div>
+                <h3>blocked</h3>
+                <p>硬规则命中、数据冲突、现金不可验证或高风险越权时，停止升级。</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="cushion" aria-labelledby="cushion-title">
+        <div class="section-heading">
+          <span class="section-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M4 19V5" />
+              <path d="M8 19v-6" />
+              <path d="M12 19V9" />
+              <path d="M16 19v-9" />
+              <path d="M20 19V7" />
+            </svg>
+          </span>
+          <div>
+            <h2 id="cushion-title">利润垫决定进攻预算</h2>
+            <p>“更大胆”不是放弃风控，而是用已定义的利润垫承受可解释的波动。</p>
+          </div>
+        </div>
+
+        <div class="budget-layout">
+          <article class="budget-card core">
+            <div class="budget-top">
+              <h3>核心主线仓</h3>
+              <strong>40-50%</strong>
+            </div>
+            <p>用于吃主线趋势，不因小波动轻易卖飞。前提是主线未被财报、ETF 或宏观窗口证伪。</p>
+            <div class="budget-meter" aria-hidden="true"><div class="budget-fill" style="width: 48%"></div></div>
+          </article>
+          <article class="budget-card attack">
+            <div class="budget-top">
+              <h3>进攻加速仓</h3>
+              <strong>20-30%</strong>
+            </div>
+            <p>突破、放量、财报确认后放大收益。需要复核日和停止新增条件。</p>
+            <div class="budget-meter" aria-hidden="true"><div class="budget-fill" style="width: 28%"></div></div>
+          </article>
+          <article class="budget-card elastic">
+            <div class="budget-top">
+              <h3>高弹性仓</h3>
+              <strong>10-15%</strong>
+            </div>
+            <p>期权、杠杆 ETF 或高波动小票只能使用小部分利润垫，必须有最大亏损线。</p>
+            <div class="budget-meter" aria-hidden="true"><div class="budget-fill" style="width: 15%"></div></div>
+          </article>
+          <article class="budget-card cash">
+            <div class="budget-top">
+              <h3>现金与防守仓</h3>
+              <strong>15-25%</strong>
+            </div>
+            <p>保留分歧日再进攻能力，避免被迫卖出。现金等待是纪律，不是失败。</p>
+            <div class="budget-meter" aria-hidden="true"><div class="budget-fill" style="width: 24%"></div></div>
+          </article>
+        </div>
+
+        <div class="trigger-row" aria-label="利润垫触发条件">
+          <article class="trigger">
+            <h3>允许进攻</h3>
+            <p>主线验证信号满足、账户月收益仍健康、利润垫预算和退出条件已定义。</p>
+          </article>
+          <article class="trigger">
+            <h3>停止新增</h3>
+            <p>单日亏损过大、半导体 ETF 放量长阴、财报高开低走或美债收益率快速上冲。</p>
+          </article>
+          <article class="trigger">
+            <h3>强制保护</h3>
+            <p>年度利润垫回撤触及保护线，或用户出现“靠一笔赚回来”的情绪化意图。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="review" aria-labelledby="review-title">
+        <div class="section-heading">
+          <span class="section-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+              <path d="M20 4v6h-6" />
+            </svg>
+          </span>
+          <div>
+            <h2 id="review-title">每次判断都要能复盘</h2>
+            <p>好的框架会把当时的证据、反例、纪律命中和后验结果保存下来，减少下一次重复犯错。</p>
+          </div>
+        </div>
+
+        <div class="loop">
+          <article class="loop-step">
+            <div class="loop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M6 3h9l3 3v15H6z" />
+                <path d="M14 3v4h4" />
+              </svg>
+            </div>
+            <h3>记录</h3>
+            <p>保留来源、时间、读取状态和数据质量，区分事实源与观点源。</p>
+          </article>
+          <article class="loop-step">
+            <div class="loop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M4 19l6-6 4 4 6-9" />
+                <path d="M4 5h16" />
+              </svg>
+            </div>
+            <h3>归因</h3>
+            <p>判断收益或亏损来自市场状态、主题验证、仓位预算还是纪律执行。</p>
+          </article>
+          <article class="loop-step">
+            <div class="loop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M4 6h16" />
+                <path d="M7 12h10" />
+                <path d="M10 18h4" />
+              </svg>
+            </div>
+            <h3>迭代</h3>
+            <p>把被验证或证伪的信号沉淀成规则，而不是沉淀成更强的情绪。</p>
+          </article>
+          <article class="loop-step">
+            <div class="loop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" />
+                <path d="M8.5 12.5l2.2 2.2 4.8-5" />
+              </svg>
+            </div>
+            <h3>沉淀</h3>
+            <p>形成可回放的知识资产，让下一次行动从更高质量的边界开始。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="bottom-note">
+      <strong>风险提示：</strong>框架的作用是提高决策质量和执行一致性，而不是消除风险。请始终做好资金管理、控制回撤，并保留长期参与的资格。
+    </footer>
+  </body>
+</html>
