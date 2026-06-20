@@ -126,6 +126,8 @@ services:
       FUTU_CONNECTOR_MODE: ${FUTU_CONNECTOR_MODE:-local_mock}
       FUTU_CONNECTOR_BASE_URL: ${FUTU_CONNECTOR_BASE_URL:-http://host.docker.internal:8765}
       HERMES_REFERENCE_CAPTURE_URL: ${HERMES_REFERENCE_CAPTURE_URL:-http://reference-capture:8010}
+      TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN:-}
+      TWITTER_CT0: ${TWITTER_CT0:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
