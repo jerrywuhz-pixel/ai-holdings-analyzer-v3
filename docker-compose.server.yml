@@ -90,9 +90,9 @@ services:
       OBJECT_STORAGE_BUCKET_ARTIFACTS: ${MINIO_BUCKET_ARTIFACTS:-hermes-artifacts}
       OBJECT_STORAGE_BUCKET_REPLAYS: ${MINIO_BUCKET_REPLAYS:-replay-evidence}
       OBJECT_STORAGE_BUCKET_MEDIA: ${MINIO_BUCKET_MEDIA:-tenant-media}
-      HISTORICAL_STORAGE_BACKEND: ${HISTORICAL_STORAGE_BACKEND:-supabase_storage}
+      HISTORICAL_STORAGE_BACKEND: ${HISTORICAL_STORAGE_BACKEND:-file}
       HISTORICAL_STORAGE_FILE_ROOT: ${HISTORICAL_STORAGE_FILE_ROOT:-/app/.historical-cache}
-      HISTORICAL_MANIFEST_BACKEND: ${HISTORICAL_MANIFEST_BACKEND:-supabase_storage}
+      HISTORICAL_MANIFEST_BACKEND: ${HISTORICAL_MANIFEST_BACKEND:-file}
       HISTORICAL_MANIFEST_FILE_ROOT: ${HISTORICAL_MANIFEST_FILE_ROOT:-/app/.historical-manifests}
       FX_RATES_SOURCE: ${FX_RATES_SOURCE:-fallback_estimate}
       FX_RATES_JSON: ${FX_RATES_JSON:-}
@@ -111,6 +111,15 @@ services:
       HERMES_IMA_ARCHIVE_UPLOAD_ENABLED: ${HERMES_IMA_ARCHIVE_UPLOAD_ENABLED:-true}
       HERMES_IMA_ARCHIVE_ROOT: ${HERMES_IMA_ARCHIVE_ROOT:-/app/.artifacts/hermes/ima-archive}
       HERMES_IMA_ARCHIVE_USE_DATE_FOLDER: ${HERMES_IMA_ARCHIVE_USE_DATE_FOLDER:-true}
+      HERMES_IMA_ARCHIVE_GITHUB_BACKUP_ENABLED: ${HERMES_IMA_ARCHIVE_GITHUB_BACKUP_ENABLED:-false}
+      HERMES_IMA_ARCHIVE_GITHUB_REPO: ${HERMES_IMA_ARCHIVE_GITHUB_REPO:-jerrywuhz-pixel/obsidan-vault}
+      HERMES_IMA_ARCHIVE_GITHUB_BRANCH: ${HERMES_IMA_ARCHIVE_GITHUB_BRANCH:-main}
+      HERMES_IMA_ARCHIVE_GITHUB_BASE_PATH: ${HERMES_IMA_ARCHIVE_GITHUB_BASE_PATH:-持仓分析系统知识库}
+      HERMES_IMA_ARCHIVE_GITHUB_WORKTREE: ${HERMES_IMA_ARCHIVE_GITHUB_WORKTREE:-/app/.artifacts/hermes/github-backup/obsidan-vault}
+      HERMES_IMA_ARCHIVE_GITHUB_AUTHOR_NAME: ${HERMES_IMA_ARCHIVE_GITHUB_AUTHOR_NAME:-Hermes Archive Bot}
+      HERMES_IMA_ARCHIVE_GITHUB_AUTHOR_EMAIL: ${HERMES_IMA_ARCHIVE_GITHUB_AUTHOR_EMAIL:-hermes-archive-bot@users.noreply.github.com}
+      GH_TOKEN: ${GH_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       LONGBRIDGE_MCP_URL: ${LONGBRIDGE_MCP_URL:-https://mcp.longbridge.com}
       LONGBRIDGE_MCP_ACCESS_TOKEN: ${LONGBRIDGE_MCP_ACCESS_TOKEN:-}
       HERMES_WORKER_MODE: ${HERMES_WORKER_MODE:-stub}
@@ -142,6 +151,7 @@ services:
       - ./skills/ftshare-market-data:/app/skills/ftshare-market-data:ro
       - ./openclaw/skills/ima-skill:/app/skills/ima-skill:ro
       - hermes_ima_archive:/app/.artifacts/hermes/ima-archive
+      - hermes_ima_github_backup:/app/.artifacts/hermes/github-backup
       - historical_cache:/app/.historical-cache
       - historical_manifests:/app/.historical-manifests
 
@@ -271,3 +281,4 @@ volumes:
   historical_manifests:
   gbrain_artifacts:
   hermes_ima_archive:
+  hermes_ima_github_backup:

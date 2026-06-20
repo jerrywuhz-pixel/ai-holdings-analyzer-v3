@@ -1,5 +1,8 @@
+import json
+
 import pytest
 
+import services.hermes.domain_tools as domain_tools
 from services.hermes.reference_capture import WebReferencePersistence
 from services.hermes.domain_tools import DomainToolsFacade
 
@@ -480,6 +483,269 @@ async def test_reference_web_search_reports_not_configured(monkeypatch):
     assert result["failed"]["reason"] == "search_source_not_configured"
     assert result["data"]["items"] == []
     assert FakeClient.calls == []
+
+
+@pytest.mark.asyncio
+async def test_reference_social_timeline_requires_finite_watch_accounts(monkeypatch):
+    monkeypatch.delenv("HERMES_SOCIAL_WATCHLIST_JSON", raising=False)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke(
+        "reference.social.timeline",
+        {
+            "tenant_id": "tenant-test",
+            "symbol": "NVDA",
+            "query": "NVDA 全网讨论",
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "social_watchlist_required"
+    assert result["data"]["audit"]["global_search_enabled"] is False
+    assert result["data"]["items"] == []
+    assert result["data"]["data_quality"]["status"] == "watchlist_required"
+
+
+@pytest.mark.asyncio
+async def test_reference_social_watchlist_reads_database_accounts(monkeypatch):
+    async def fake_db_accounts(tenant_id=""):
+        return [
+            {
+                "platform": "twitter",
+                "handle": "macro-signal",
+                "symbols": ["NVDA"],
+                "priority": 5,
+            }
+        ]
+
+    monkeypatch.delenv("HERMES_SOCIAL_WATCHLIST_JSON", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.setattr(domain_tools, "_social_watch_accounts_from_db", fake_db_accounts)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke("reference.social.watchlist", {"symbol": "NVDA", "platforms": ["twitter"]})
+
+    assert result["ok"] is True
+    assert result["data"]["accounts"][0]["handle"] == "macro-signal"
+    assert result["data"]["audit"]["db_configured"] is True
+
+
+@pytest.mark.asyncio
+async def test_reference_social_health_reports_twitter_setup_hint(monkeypatch):
+    calls = []
+
+    async def fake_run(command, args, *, timeout_seconds):
+        calls.append((command, args))
+        return {"ok": False, "missing": True, "error": f"{command} missing"}
+
+    monkeypatch.setattr(domain_tools, "_run_social_command", fake_run)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke("reference.social.health", {"providers": ["twitter"], "timeout_ms": 1000})
+
+    attempt = result["data"]["providers_attempted"][0]
+    assert result["ok"] is False
+    assert attempt["provider"] == "twitter"
+    assert attempt["status"] == "twitter_cli_missing"
+    assert "帮我配 Twitter" in attempt["setup_hint"]
+    assert result["data"]["data_quality"]["providers_attempted_count"] == 1
+    assert calls == [("twitter", ["status"])]
+
+
+@pytest.mark.asyncio
+async def test_reference_social_health_checks_xhs_http_mcp(monkeypatch):
+    calls = []
+
+    async def fake_call(tool_name, arguments, *, timeout_seconds):
+        calls.append((tool_name, arguments, timeout_seconds))
+        return {"ok": True, "data": {"is_logged_in": True}}
+
+    monkeypatch.setenv("HERMES_XHS_MCP_URL", "http://127.0.0.1:18060/mcp")
+    monkeypatch.setattr(domain_tools, "_call_xhs_mcp_tool", fake_call)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke("reference.social.health", {"providers": ["xhs"], "timeout_ms": 1000})
+
+    attempt = result["data"]["providers_attempted"][0]
+    assert result["ok"] is True
+    assert attempt["provider"] == "xhs"
+    assert attempt["transport"] == "http_mcp"
+    assert attempt["status"] == "ok"
+    assert calls == [("check_login_status", {}, 1.0)]
+
+
+def test_social_watch_accounts_preserves_xhs_xsec_token():
+    accounts = domain_tools._social_watch_accounts(
+        [
+            {
+                "platform": "xiaohongshu",
+                "handle": "xhs-user",
+                "user_id": "user-1",
+                "xsec_token": "token-1",
+            }
+        ]
+    )
+
+    assert accounts == [
+        {
+            "platform": "xhs",
+            "handle": "xhs-user",
+            "display_name": None,
+            "url": None,
+            "channel_url": None,
+            "user_id": "user-1",
+            "xsec_token": "token-1",
+            "symbols": [],
+            "priority": 100,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reference_social_timeline_reads_xhs_watch_account_via_http_mcp(monkeypatch):
+    calls = []
+
+    async def fake_health(provider, *, timeout_seconds):
+        return {"provider": provider, "configured": True, "ok": True, "status": "ok"}
+
+    async def fake_call(tool_name, arguments, *, timeout_seconds):
+        calls.append((tool_name, arguments))
+        return {
+            "ok": True,
+            "data": {
+                "notes": [
+                    {
+                        "title": "NVDA 需求观察",
+                        "desc": "AI 服务器需求继续强劲。",
+                        "note_url": "https://www.xiaohongshu.com/explore/1",
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setenv("HERMES_XHS_MCP_URL", "http://127.0.0.1:18060/mcp")
+    monkeypatch.setenv("HERMES_SOCIAL_PROVIDER_MIN_INTERVAL_SECONDS", "0")
+    monkeypatch.setattr(domain_tools, "_social_provider_health", fake_health)
+    monkeypatch.setattr(domain_tools, "_call_xhs_mcp_tool", fake_call)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke(
+        "reference.social.timeline",
+        {
+            "symbol": "NVDA",
+            "platforms": ["xhs"],
+            "accounts": [
+                {
+                    "platform": "xhs",
+                    "handle": "xhs-user",
+                    "user_id": "user-1",
+                    "xsec_token": "token-1",
+                    "symbols": ["NVDA"],
+                }
+            ],
+            "limit": 5,
+            "timeout_ms": 1000,
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["items"][0]["platform"] == "xhs"
+    assert result["data"]["items"][0]["account_id"] == "xhs-user"
+    assert result["data"]["items"][0]["url"] == "https://www.xiaohongshu.com/explore/1"
+    assert calls == [("user_profile", {"user_id": "user-1", "xsec_token": "token-1"})]
+
+
+@pytest.mark.asyncio
+async def test_reference_social_timeline_reads_youtube_watch_account(monkeypatch):
+    async def fake_run(command, args, *, timeout_seconds):
+        if command == "yt-dlp" and args == ["--version"]:
+            return {"ok": True, "stdout": "2026.01.01\n", "stderr": ""}
+        if command == "yt-dlp":
+            return {
+                "ok": True,
+                "stdout": json.dumps(
+                    {
+                        "title": "NVDA AI demand update",
+                        "description": "Growth looks strong and risk is manageable.",
+                        "webpage_url": "https://youtube.com/watch?v=1",
+                        "view_count": 100,
+                    }
+                ),
+                "stderr": "",
+            }
+        return {"ok": False, "missing": True, "error": f"{command} missing"}
+
+    monkeypatch.setenv("HERMES_SOCIAL_PROVIDER_MIN_INTERVAL_SECONDS", "0")
+    monkeypatch.setattr(domain_tools, "_run_social_command", fake_run)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke(
+        "reference.social.timeline",
+        {
+            "symbol": "NVDA",
+            "platforms": ["youtube"],
+            "accounts": [
+                {
+                    "platform": "youtube",
+                    "handle": "ai-channel",
+                    "channel_url": "https://youtube.com/@ai-channel/videos",
+                    "symbols": ["NVDA"],
+                }
+            ],
+            "limit": 5,
+            "timeout_ms": 1000,
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["items"][0]["platform"] == "youtube"
+    assert result["data"]["items"][0]["account_id"] == "ai-channel"
+    assert result["data"]["providers_attempted"][1]["provider"] == "youtube"
+    assert result["data"]["data_quality"]["providers_ok_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_social_sentiment_snapshot_uses_only_watched_accounts(monkeypatch):
+    monkeypatch.delenv("HERMES_SOCIAL_WATCHLIST_JSON", raising=False)
+    facade = DomainToolsFacade(http_client_factory=FakeClient)
+
+    result = await facade.invoke(
+        "sentiment.social.snapshot",
+        {
+            "tenant_id": "tenant-test",
+            "symbol": "NVDA",
+            "accounts": [
+                {"platform": "xueqiu", "handle": "long-ai", "display_name": "Long AI", "symbols": ["NVDA"]},
+            ],
+            "items": [
+                {
+                    "platform": "xueqiu",
+                    "account_id": "long-ai",
+                    "text": "NVDA AI 需求强劲，财报可能继续 beat。",
+                    "symbols": ["NVDA"],
+                    "url": "https://xueqiu.com/status/1",
+                },
+                {
+                    "platform": "xueqiu",
+                    "account_id": "unwatched",
+                    "text": "这条不在账号清单里，必须被过滤。",
+                    "symbols": ["NVDA"],
+                },
+            ],
+            "query": "NVDA 全网讨论",
+        },
+    )
+
+    context = result["data"]["social_context"]
+    assert result["ok"] is True
+    assert context["status"] == "available"
+    assert context["sample_count"] == 1
+    assert context["items"][0]["account_id"] == "long-ai"
+    assert context["sentiment"]["label"] == "bullish"
+    assert context["providers_attempted"][0]["provider"] == "inline_items"
+    assert context["data_quality"]["global_search_enabled"] is False
+    assert result["data"]["audit"]["global_search_enabled"] is False
+    assert result["data"]["timeline"]["audit"]["query_ignored"] is True
 
 
 @pytest.mark.asyncio

@@ -33,7 +33,7 @@
 | 类型 | 任务 | 展开规则 |
 | --- | --- | --- |
 | 平台任务 | `p0-health-heartbeat`、`p0-delivery-retry`、`p0-backup-verify` | 全局运行，不要求账号已有持仓 |
-| 业务任务 | `p0-broker-sync-planner`、`p0-broker-sync-staleness`、`p0-market-watchlist-refresh`、`p0-price-alert-evaluator`、`p0-cn-close-summary`、`p0-us-close-summary`、`p0-weekly-review` | 按 active 微信绑定账号展开，且该账号必须有非空持仓 |
+| 业务任务 | `p0-broker-sync-planner`、`p0-broker-sync-staleness`、`p0-market-watchlist-refresh`、`p0-price-alert-evaluator`、`p0-cn-close-summary`、`p0-us-close-summary`、`p0-weekly-review`、`p0-opportunity-research-cn-hk-premarket`、`p0-opportunity-research-us-premarket`、`p0-opportunity-research-daily-review` | 按 active 微信绑定账号展开，且该账号必须有非空持仓 |
 
 业务任务每次 tick 的共同 gate：
 
@@ -56,6 +56,9 @@
 | `p0-price-alert-evaluator` | 价格与规则提醒评估 | `*/10 9-23 * * 1-5` | tenant | 评估关注价、止盈止损、规则命中、期权风险提醒 | 是 |
 | `p0-cn-close-summary` | A 股/港股收盘摘要 | `30 16 * * 1-5` | tenant | 生成日内变化、风险、待处理项摘要 | 是 |
 | `p0-us-close-summary` | 美股收盘摘要 | `30 6 * * 2-6` | tenant | 生成美股与美股期权持仓摘要 | 是 |
+| `p0-opportunity-research-cn-hk-premarket` | A股/港股盘前机会研究 | `0 9 * * 1-5` | tenant | 基于交易框架扫描持仓、关注和动态候选池，按 3.5 资产路径与五层蛋糕筛选每组 Top 3 龙头，生成机会 case、四道门结论和信号账本 | 是 |
+| `p0-opportunity-research-us-premarket` | 美股盘前机会研究 | `0 20 * * 1-5` | tenant | 基于交易框架扫描美股持仓、关注、AI/硬科技动态候选池和 Sell Put 候选，只让主题/层级 Top 3 龙头进入深研 | 是 |
+| `p0-opportunity-research-daily-review` | 机会研究每日复盘 | `45 16,7 * * 1-5` | tenant | 对上一轮机会 case 做事实核对、paper PnL、benchmark excess 和纪律复盘 | 摘要/异常时推送 |
 | `p0-weekly-review` | 周复盘摘要 | `0 18 * * 5` | tenant | 汇总本周持仓变化、纪律命中、已完成任务和下周关注 | 是 |
 | `p0-backup-verify` | 备份与关键数据完整性巡检 | `30 3 * * *` | 平台 | 校验数据库备份、对象存储、artifact 索引和关键表行数 | 异常时推送 |
 
@@ -69,8 +72,13 @@
 | `p0-broker-sync-staleness` | 正常静默，异常推送 | 数据质量提醒 | 显示 freshness 降级、影响、建议、`actionability`、`degrade_reason` | 写入具体过期资产、过期时长、最后成功同步时间 |
 | `p0-market-watchlist-refresh` | 正常静默，异常推送 | 市场机会提醒 | 显示关注清单/市场刷新异常、机会边界、风险、`actionability`、`degrade_reason` | 真正写入 `sector_daily_snapshots` 后推送强势板块变化和候选池变化 |
 | `p0-price-alert-evaluator` | 命中或异常推送 | 价格/纪律提醒 | 显示规则命中待复核、影响、建议、`actionability`、`degrade_reason` | 补充具体条件、触发价、当前价、同日去重和后续口令 |
+| `p0-opportunity-research-cn-hk-premarket` | 每日推送摘要，全文归档 | A/H 盘前机会研究 | Top 3 机会、四道门、仓位层、触发/失效条件；完整 artifact 与 `opportunity_cases` 入库 | 接入交易所节假日日历后跳过休市日 |
+| `p0-opportunity-research-us-premarket` | 每日推送摘要，强触发机会高优先级 | 美股盘前机会研究 | AI/硬科技机会、Sell Put 候选、利润垫/纪律门；完整 artifact 与信号账本入库 | 接入期权链 freshness 与现金占用后提升 Sell Put actionability |
+| `p0-opportunity-research-daily-review` | 摘要/异常推送，全文归档 | 机会研究每日复盘 | 核对昨日建议与次日事实，更新 `opportunity_case_marks`、paper PnL、benchmark excess | 每周聚合胜率、平均 R、最大回撤和 QQQ 2x stretch 偏离 |
 | `p0-backup-verify` | 正常静默，异常推送 | 数据可恢复性告警 | 显示 Postgres/对象存储探针状态、`actionability`、`degrade_reason` | 增加最近备份时间、备份大小、恢复演练结果 |
 | `p0-weekly-review` | 每周推送 | 周复盘摘要 | 尚未单独升级，本轮仍沿用复盘口径 | 下轮应从日报模板中抽取周贡献、规则偏离和下周计划 |
+
+机会研究的候选池自动化写入 `opportunity_candidate_pool`：每日从持仓、已有候选池和 3.5 资产路径种子池出发，映射到黄仁勋五层蛋糕分组，按行情强度/相对强弱打分；每个主题路径与层级允许当前 Top 3 进入 `stock.analysis` 深研和 `opportunity_cases`，失去 Top 3 或强度不足的标的写入 `remove`，非 Top 3 但仍值得跟踪的标的写入 `watch`。该机制用于“半人马座交易”的动态筛选：AI 负责解释和批判，强弱排名、移入/移除和入账由确定性规则计算。
 
 日终持仓行动简报在市场/板块快照缺失时必须显式降级：展示 `source / as_of / freshness / actionability / degrade_reason`，并把“整体市场数据缺口”列为明日观察项，避免用户把持仓清单误读为市场判断。一旦 `sector_daily_snapshots` 有最新数据，模板自动展示市场走向、强势板块和弱势风险板块。
 

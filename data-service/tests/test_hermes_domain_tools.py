@@ -138,3 +138,93 @@ async def test_stock_analysis_domain_tool_accepts_news_context(monkeypatch):
     assert result["data"]["news_payload"]["tool"] == "news.context"
     assert news_context["items"][0]["headline"] == "NVIDIA 发布新 AI 芯片路线图"
     assert news_context["catalysts"][0]["label"] == "财报窗口"
+
+
+@pytest.mark.asyncio
+async def test_stock_analysis_domain_tool_accepts_social_context(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeStockAnalysisService:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def analyze(self, **kwargs):
+            social_reader = captured["social_context_reader"]
+            social_payload = await social_reader(
+                kwargs["tenant_id"],
+                kwargs["symbol"],
+                "US",
+                "Technology",
+                "Semiconductors",
+            )
+            return type(
+                "FakeResult",
+                (),
+                {
+                    "model_dump": lambda self: {
+                        "tool": "stock.analysis",
+                        "ok": True,
+                        "status": "ok",
+                        "data": {"symbol": kwargs["symbol"], "social_payload": social_payload},
+                        "source_refs": [],
+                    }
+                },
+            )()
+
+    monkeypatch.setattr(domain_tools, "HermesStockAnalysisService", FakeStockAnalysisService)
+
+    result = await DomainToolsFacade().invoke(
+        "stock.analysis",
+        {
+            "tenant_id": "tenant-test",
+            "symbol": "NVDA",
+            "persist": False,
+            "social_context": {
+                "status": "available",
+                "items": [{"platform": "xueqiu", "account_id": "long-ai", "text": "NVDA AI 需求仍然强劲"}],
+                "accounts": [{"platform": "xueqiu", "handle": "long-ai"}],
+                "summary": "有限账号清单偏多",
+            },
+        },
+    )
+
+    social_context = result["data"]["social_payload"]["data"]["social_context"]
+    assert result["tool"] == "stock.analysis"
+    assert result["data"]["social_payload"]["tool"] == "sentiment.social.snapshot"
+    assert social_context["items"][0]["account_id"] == "long-ai"
+    assert social_context["accounts"][0]["handle"] == "long-ai"
+
+
+def test_opportunity_research_tools_are_in_manifest():
+    names = {tool["name"] for tool in domain_tools.domain_tool_manifest()}
+
+    assert "opportunity.research.run" in names
+    assert "opportunity.review.run" in names
+    assert "opportunity.ledger.mark" in names
+
+
+@pytest.mark.asyncio
+async def test_opportunity_ledger_mark_domain_tool_uses_deterministic_accounting():
+    result = await DomainToolsFacade().invoke(
+        "opportunity.ledger.mark",
+        {
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "case_id": "44444444-4444-4444-4444-444444444444",
+            "persist": False,
+            "mark": {
+                "entry_price": 100,
+                "mark_price": 106,
+                "benchmark_entry_price": 100,
+                "benchmark_mark_price": 102,
+                "stretch_daily_returns": [0.02, 0.02],
+                "thesis_status": "confirmed",
+                "discipline_status": "adhered",
+            },
+        },
+    )
+
+    assert result["tool"] == "opportunity.ledger.mark"
+    assert result["ok"] is True
+    assert result["data"]["mark"]["paper_pnl_pct"] == 6.0
+    assert result["data"]["mark"]["benchmark_return"] == 2.0
+    assert result["data"]["persistence"]["status"] == "skipped"

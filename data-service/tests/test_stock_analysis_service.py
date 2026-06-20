@@ -146,6 +146,41 @@ async def _news_context_reader(_tenant_id: str, symbol: str, market: str, _secto
     }
 
 
+async def _social_context_reader(_tenant_id: str, symbol: str, market: str, _sector: str | None, _industry: str | None):
+    return {
+        "tool": "sentiment.social.snapshot",
+        "ok": True,
+        "status": "available",
+        "data": {
+            "schema_version": "social_sentiment_tool_result_v1",
+            "social_context": {
+                "schema_version": "social_sentiment_snapshot_v1",
+                "status": "available",
+                "symbol": symbol,
+                "market": market,
+                "window": "72h",
+                "sentiment": {"label": "bullish", "score": 0.5, "confidence": "medium"},
+                "summary": "有限账号清单整体偏多。",
+                "items": [
+                    {
+                        "platform": "xueqiu",
+                        "account_id": "long-ai",
+                        "text": "NVDA AI 需求强劲。",
+                        "sentiment": "bullish",
+                        "symbols": [symbol],
+                    }
+                ],
+                "accounts": [{"platform": "xueqiu", "handle": "long-ai", "symbols": [symbol]}],
+                "providers_attempted": [{"provider": "inline_items", "configured": True, "ok": True, "items": 1}],
+                "data_quality": {"status": "available", "item_count": 1, "limited_to_accounts": True, "global_search_enabled": False},
+                "themes": [{"label": "需求/增长", "stance": "bullish", "evidence_count": 1}],
+                "risk_flags": [],
+            },
+        },
+        "source_refs": [{"source": "xueqiu", "ref": "long-ai"}],
+    }
+
+
 @pytest.mark.asyncio
 async def test_stock_analysis_builds_conclusion_first_bounded_report():
     service = HermesStockAnalysisService(
@@ -333,6 +368,30 @@ async def test_stock_analysis_v2_outputs_news_catalysts_and_change_reason():
     assert "为什么变了" in data["report"]["why_changed"]
     assert any("近期催化剂" in item for item in data["risk_flags"])
     assert all(len(value) <= MAX_REPORT_MODULE_CHARS for value in data["report"].values())
+
+
+@pytest.mark.asyncio
+async def test_stock_analysis_v2_outputs_social_context_from_finite_accounts():
+    service = HermesStockAnalysisService(
+        quote_reader=_quote_reader,
+        positions_reader=_positions_reader,
+        history_reader=_history_reader,
+        social_context_reader=_social_context_reader,
+        persistence=StockAnalysisPersistence(None),
+    )
+
+    result = await service.analyze(tenant_id="tenant-test", symbol="NVDA", persist=False)
+    data = result.model_dump()["data"]
+
+    assert data["context_pack"]["summary"]["social_status"] == "available"
+    assert data["data_quality"]["social_status"] == "available"
+    assert data["data_quality"]["social_items_count"] == 1
+    assert data["data_quality"]["social_providers_attempted"][0]["provider"] == "inline_items"
+    assert data["data_quality"]["social_data_quality"]["limited_to_accounts"] is True
+    assert data["social_context"]["accounts"][0]["handle"] == "long-ai"
+    assert data["social_context"]["providers_attempted"][0]["provider"] == "inline_items"
+    assert "社媒信号" in data["report"]["social"]
+    assert "有限账号社媒样本 1 条" in data["why_changed"]["summary"]
 
 
 @pytest.mark.asyncio

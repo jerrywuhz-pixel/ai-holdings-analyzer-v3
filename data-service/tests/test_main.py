@@ -179,6 +179,37 @@ class FakeDomainTools:
                     {"source": "web", "ref": "https://example.com/nvda-news"},
                 ],
             }
+        if tool_name == "sentiment.social.snapshot":
+            return {
+                "tool": "sentiment.social.snapshot",
+                "ok": True,
+                "status": "available",
+                "data": {
+                    "schema_version": "social_sentiment_tool_result_v1",
+                    "reference_only": True,
+                    "social_context": {
+                        "schema_version": "social_sentiment_snapshot_v1",
+                        "status": "available",
+                        "symbol": arguments["symbol"],
+                        "window": "72h",
+                        "sentiment": {"label": "bullish", "score": 0.5, "confidence": "medium"},
+                        "summary": "Watched social accounts lean bullish.",
+                        "items": [
+                            {
+                                "platform": "xueqiu",
+                                "account_id": "long-ai",
+                                "text": "NVDA demand remains strong among watched accounts.",
+                                "sentiment": "bullish",
+                            }
+                        ],
+                        "accounts": [{"platform": "xueqiu", "handle": "long-ai"}],
+                        "themes": [{"label": "demand", "stance": "bullish", "evidence_count": 1}],
+                        "risk_flags": [],
+                    },
+                    "audit": {"scope": "finite_accounts_only", "global_search_enabled": False},
+                },
+                "source_refs": [{"source": "xueqiu", "ref": "long-ai"}],
+            }
         return {"tool": tool_name, "ok": False, "status": "error", "error": "unexpected tool", "source_refs": []}
 
 
@@ -332,6 +363,9 @@ def test_hermes_domain_tools_manifest_is_served_by_data_service(monkeypatch):
     assert any(tool["name"] == "stock.analysis" for tool in data["tools"])
     assert any(tool["name"] == "reference.web.read" for tool in data["tools"])
     assert any(tool["name"] == "reference.web.search" for tool in data["tools"])
+    assert any(tool["name"] == "reference.social.watchlist" for tool in data["tools"])
+    assert any(tool["name"] == "reference.social.timeline" for tool in data["tools"])
+    assert any(tool["name"] == "sentiment.social.snapshot" for tool in data["tools"])
 
 
 def test_hermes_wechat_ingress_default_reply_is_hermes_runtime(monkeypatch):
@@ -541,7 +575,8 @@ def test_hermes_wechat_url_intent_reads_reference_only(monkeypatch):
     assert data["intent"] == {"name": "web_reference_read", "url": "https://example.com/nvda-note"}
     assert data["reference_summary"]["reference_only"] is True
     assert data["persistence"]["status"] == "saved"
-    assert "reference_only" in data["reply_text"]
+    assert "参考资料" in data["reply_text"]
+    assert "reference_only" not in data["reply_text"]
     assert fake_tools.calls == [
         (
             "reference.web.read",
@@ -619,8 +654,10 @@ def test_hermes_wechat_url_failure_preserves_failed_snapshot(monkeypatch):
     data = response.json()
     assert data["result_type"] == "web_reference_error"
     assert data["intent"] == {"name": "web_reference_read", "url": "https://example.com/blocked"}
-    assert "Reference capture returned no readable content" in data["reply_text"]
+    assert "这个链接暂时读不到" in data["reply_text"]
+    assert "Reference capture returned no readable content" not in data["reply_text"]
     assert data["reference_summary"]["failed"]["reason"] == "empty_content"
+    assert data["internal_failure"]["reason"] == "empty_content"
     assert data["persistence"]["artifact_status"] == "failed"
     assert data["safety"] == {"mode": "reference_only", "writes_fact_store": True, "places_orders": False}
     assert fake_tools.calls[0][0] == "reference.web.read"
@@ -643,7 +680,8 @@ def test_hermes_wechat_url_stock_analysis_injects_news_context(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["result_type"] == "stock_analysis"
-    assert "reference_only" in data["reply_text"]
+    assert "参考资料" in data["reply_text"]
+    assert "reference_only" not in data["reply_text"]
     assert fake_tools.calls[0] == (
         "reference.web.read",
         {
@@ -681,7 +719,8 @@ def test_hermes_wechat_search_intent_reads_top_reference(monkeypatch):
     assert data["intent"] == {"name": "web_reference_search", "query": "NVDA 最新新闻"}
     assert data["search_results"][0]["url"] == "https://example.com/nvda-news"
     assert data["reference_summary"]["reference_only"] is True
-    assert "reference_only" in data["reply_text"]
+    assert "参考资料" in data["reply_text"]
+    assert "reference_only" not in data["reply_text"]
     assert fake_tools.calls == [
         (
             "reference.web.search",
@@ -723,6 +762,62 @@ def test_hermes_wechat_search_stock_analysis_injects_news_context(monkeypatch):
     assert arguments["news_context"]["schema_version"] == "web_reference_search_news_context_v1"
     assert arguments["news_context"]["items"][0]["url"] == "https://example.com/nvda-news"
     assert arguments["news_context"]["items"][0]["summary"].startswith("NVIDIA data center")
+
+
+def test_hermes_wechat_social_stock_analysis_injects_social_context(monkeypatch):
+    fake_tools = FakeDomainTools()
+    monkeypatch.setenv("HERMES_INTERNAL_TOKEN", "test-secret")
+    monkeypatch.setattr(hermes, "_domain_tools_facade", fake_tools)
+
+    response = client.post(
+        "/api/hermes/wechat/messages",
+        headers={"X-Hermes-Internal-Token": "test-secret"},
+        json={
+            "routing": {"tenant_id": "tenant-test", "channel": "hermes_wechat"},
+            "message": {"type": "text", "text": "社区里大家怎么看 NVDA，帮我分析"},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_type"] == "stock_analysis"
+    assert "有限账号清单" in data["reply_text"]
+    assert fake_tools.calls[0][0] == "sentiment.social.snapshot"
+    assert fake_tools.calls[0][1]["symbol"] == "NVDA"
+    tool_name, arguments = fake_tools.calls[1]
+    assert tool_name == "stock.analysis"
+    assert arguments["symbol"] == "NVDA"
+    assert arguments["social_context"]["schema_version"] == "social_sentiment_snapshot_v1"
+    assert arguments["social_context"]["items"][0]["account_id"] == "long-ai"
+
+
+def test_hermes_reply_sanitizes_internal_runtime_status():
+    data = hermes._reply(
+        "runtime_status",
+        "Compacting context — summarizing earlier conversation so I can continue...\nPreflight compression: 139677 tokens",
+    )
+
+    assert data["reply_text"] == "系统处理暂时受阻，请稍后重试。当前没有改动持仓，也不会下单。"
+
+
+def test_hermes_tool_error_reply_hides_raw_exception():
+    data = hermes._tool_error_reply(
+        "market_quote_error",
+        "NVDA 行情暂时不可用",
+        {
+            "tool": "market.quote",
+            "ok": False,
+            "status": "upstream_error",
+            "error": "HTTPStatusError: 503 Service Unavailable for url https://internal/provider",
+            "source_refs": [],
+        },
+        intent={"name": "market_quote", "symbol": "NVDA"},
+    )
+
+    assert "NVDA 行情暂时不可用，请稍后重试" in data["reply_text"]
+    assert "HTTPStatusError" not in data["reply_text"]
+    assert "provider" not in data["reply_text"]
+    assert data["internal_failure"]["status"] == "upstream_error"
 
 
 def test_hermes_wechat_search_analysis_query_prefers_company_topic(monkeypatch):

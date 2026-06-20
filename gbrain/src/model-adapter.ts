@@ -49,7 +49,13 @@ function estimateTokens(text: string): number {
 
 function estimateCost(provider: ModelProviderId, inputTokens: number, outputTokens: number): number {
   const unitPrice =
-    provider === "openai" || provider === "openai-codex" ? 0.00001 : provider === "minimax" ? 0.000004 : 0.0;
+    provider === "openai" || provider === "openai-codex"
+      ? 0.00001
+      : provider === "glm"
+        ? 0.000006
+        : provider === "minimax"
+          ? 0.000004
+          : 0.0;
   return Number(((inputTokens + outputTokens) * unitPrice).toFixed(6));
 }
 
@@ -82,6 +88,10 @@ function resolveMiniMaxApiKey(): string {
   return process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || "";
 }
 
+function resolveGlmApiKey(): string {
+  return process.env.GLM_API_KEY || process.env.ZHIPUAI_API_KEY || process.env.HERMES_GLM_API_KEY || "";
+}
+
 function liveModelsEnabled(): boolean {
   return ["1", "true", "yes"].includes((process.env.GBRAIN_LIVE_MODELS_ENABLED || "").toLowerCase());
 }
@@ -89,6 +99,7 @@ function liveModelsEnabled(): boolean {
 function hasProviderCredentials(provider: ModelProviderId): boolean {
   if (provider === "openai") return resolveOpenAIApiKey() !== "";
   if (provider === "openai-codex") return hasOpenAICodexAuthBridge();
+  if (provider === "glm") return resolveGlmApiKey() !== "";
   if (provider === "minimax") return resolveMiniMaxApiKey() !== "" || (resolveMiniMaxApiFormat() === "hermes-cli" && hermesMiniMaxCliEnabled());
   return false;
 }
@@ -106,8 +117,21 @@ function resolveDeepModel(): string {
   return "gpt-5.5";
 }
 
+function resolveGlmModel(): string {
+  return process.env.HERMES_DEEP_MODEL || process.env.HERMES_GLM_MODEL || process.env.GLM_MODEL || "glm-5.2";
+}
+
 function resolveOpenAIBaseUrl(): string {
   return (process.env.OPENAI_BASE_URL || process.env.GBRAIN_OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+}
+
+function resolveGlmBaseUrl(): string {
+  return (
+    process.env.GLM_BASE_URL ||
+    process.env.ZHIPUAI_BASE_URL ||
+    process.env.HERMES_GLM_BASE_URL ||
+    "https://open.bigmodel.cn/api/paas/v4"
+  ).replace(/\/+$/, "");
 }
 
 function resolveMiniMaxBaseUrl(): string {
@@ -141,7 +165,7 @@ function miniMaxAnthropicStreamingEnabled(): boolean {
 
 function resolveDeepProvider(): ModelProviderId {
   const configured = process.env.HERMES_DEEP_PROVIDER || process.env.MODEL_ADAPTER_FALLBACK_PROVIDER;
-  if (configured === "openai" || configured === "openai-codex" || configured === "minimax") {
+  if (configured === "openai" || configured === "openai-codex" || configured === "minimax" || configured === "glm") {
     return configured;
   }
   if (process.env.MODEL_AUTH_MODE === "openai_codex" || process.env.MODEL_AUTH_MODE === "hermes_auth_profile") {
@@ -368,6 +392,18 @@ export class OpenAIChatCompletionProvider extends HttpChatCompletionProvider {
 
   protected baseUrl(): string {
     return resolveOpenAIBaseUrl();
+  }
+}
+
+export class GlmChatCompletionProvider extends HttpChatCompletionProvider {
+  id: ModelProviderId = "glm";
+
+  protected apiKey(): string {
+    return resolveGlmApiKey();
+  }
+
+  protected baseUrl(): string {
+    return resolveGlmBaseUrl();
   }
 }
 
@@ -697,6 +733,7 @@ export function buildDefaultModelAdapter(): ModelAdapter {
   return new ModelAdapter([
     new OpenAIChatCompletionProvider(),
     new OpenAICodexBridgeProvider(),
+    new GlmChatCompletionProvider(),
     new MiniMaxChatCompletionProvider(),
     new FallbackTemplateProvider(),
   ]);
@@ -715,7 +752,7 @@ function shouldUseDeepResearchRoute(timeoutMs: number, complexity?: HermesComple
 
 export function createDefaultHermesModelPolicy(timeoutMs: number, complexity?: HermesComplexity, jobType?: HermesJobType): ModelPolicy {
   const primaryProvider: ModelProviderId = shouldUseDeepResearchRoute(timeoutMs, complexity, jobType) ? resolveDeepProvider() : "minimax";
-  const primaryModel = primaryProvider === "minimax" ? resolveLightModel() : resolveDeepModel();
+  const primaryModel = primaryProvider === "minimax" ? resolveLightModel() : primaryProvider === "glm" ? resolveGlmModel() : resolveDeepModel();
   const fallbacks: ModelRoute[] =
     primaryProvider === "minimax"
       ? []

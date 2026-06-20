@@ -10,7 +10,7 @@ async def test_process_ready_cancels_suppressed_system_delivery(monkeypatch):
 
     monkeypatch.setattr(
         delivery,
-        "_load_ready_deliveries",
+        "_claim_ready_deliveries",
         lambda _database_url, _limit: [
             {
                 "id": "delivery-system",
@@ -24,6 +24,7 @@ async def test_process_ready_cancels_suppressed_system_delivery(monkeypatch):
         "_mark_cancelled",
         lambda _database_url, delivery_id, reason: cancelled.append((delivery_id, reason)),
     )
+    monkeypatch.setattr(delivery, "_insert_message_event", lambda *_args: None)
 
     async def fail_send(_self, _record):
         raise AssertionError("suppressed deliveries must not call the webhook sender")

@@ -197,7 +197,7 @@ class PortfolioReadModelService:
             )
         )
         position_values = [
-            _convert_amount(_to_float(row.get("market_value")), row.get("currency"), resolved_base_currency, fx_snapshot=fx_snapshot)
+            _convert_amount(_to_float(_position_market_value(row)), row.get("currency"), resolved_base_currency, fx_snapshot=fx_snapshot)
             for row in bundle.positions
         ]
         gross_market_value = _round_money(
@@ -351,38 +351,9 @@ class SupabasePortfolioSnapshotRepository:
             return None
 
         newest_updated_at = max(_to_datetime(row.get("updated_at")) for row in rows)
-        positions: list[dict[str, Any]] = []
-        for row in rows:
-            updated_at = row.get("source_as_of") or row.get("updated_at")
-            positions.append(
-                {
-                    "provider_symbol": row.get("symbol"),
-                    "instrument_type": row.get("instrument_type") or "stock",
-                    "market": row.get("market") or "",
-                    "exchange": row.get("exchange"),
-                    "position_side": row.get("position_side") or "long",
-                    "quantity": row.get("quantity"),
-                    "average_cost": row.get("average_cost"),
-                    "cost_basis": _manual_cost_basis(row),
-                    "market_price": row.get("market_price"),
-                    "market_value": row.get("market_value"),
-                    "currency": row.get("currency") or "USD",
-                    "source_quality": row.get("source_quality") or "user_confirmed",
-                    "position_payload": {
-                        "name": row.get("name"),
-                        "note": row.get("note"),
-                        "source": "webapp_manual_positions",
-                        "source_tier": row.get("source_tier"),
-                        "source_actionability": row.get("source_actionability"),
-                        "source_lineage": row.get("source_lineage") or {},
-                    },
-                    "as_of": updated_at,
-                }
-            )
-
         return BrokerSnapshotBundle(
             snapshot=_manual_snapshot(tenant_id, newest_updated_at),
-            positions=positions,
+            positions=[_manual_position_to_broker_position(row) for row in rows],
             cash_balances=[],
             margin_balances=[],
         )
@@ -608,6 +579,11 @@ def _manual_snapshot(tenant_id: str, updated_at: datetime) -> dict[str, Any]:
 
 def _manual_position_to_broker_position(row: dict[str, Any]) -> dict[str, Any]:
     updated_at = row.get("source_as_of") or row.get("updated_at")
+    market_price = _manual_market_price(row)
+    market_value = _manual_market_value(row, market_price=market_price)
+    source_lineage = row.get("source_lineage") or {}
+    if not isinstance(source_lineage, dict):
+        source_lineage = {}
     return {
         "provider_symbol": row.get("symbol"),
         "instrument_type": row.get("instrument_type") or "stock",
@@ -617,17 +593,24 @@ def _manual_position_to_broker_position(row: dict[str, Any]) -> dict[str, Any]:
         "quantity": row.get("quantity"),
         "average_cost": row.get("average_cost"),
         "cost_basis": _manual_cost_basis(row),
-        "market_price": row.get("market_price"),
-        "market_value": row.get("market_value"),
+        "market_price": market_price,
+        "market_value": market_value,
         "currency": row.get("currency") or "USD",
         "source_quality": row.get("source_quality") or "user_confirmed",
         "position_payload": {
-            "name": row.get("name"),
+            "name": row.get("name") or source_lineage.get("display_name") or source_lineage.get("name"),
+            "display_name": source_lineage.get("display_name"),
+            "stock_name": source_lineage.get("stock_name"),
+            "option_type": source_lineage.get("option_type"),
+            "strike": source_lineage.get("strike"),
+            "expiry": source_lineage.get("expiry"),
+            "multiplier": source_lineage.get("multiplier"),
             "note": row.get("note"),
             "source": "webapp_manual_positions",
             "source_tier": row.get("source_tier"),
             "source_actionability": row.get("source_actionability"),
-            "source_lineage": row.get("source_lineage") or {},
+            "valuation_basis": "manual_cost_basis" if row.get("market_value") is None else "manual_market_value",
+            "source_lineage": source_lineage,
         },
         "as_of": updated_at,
     }
@@ -666,7 +649,7 @@ def _extract_currencies(bundle: BrokerSnapshotBundle) -> list[str]:
 
 def _position_sort_key(row: dict[str, Any]) -> tuple[float, str]:
     symbol = str(row.get("provider_symbol") or "")
-    return (-abs(_to_float(row.get("market_value"))), symbol)
+    return (-abs(_to_float(_position_market_value(row))), symbol)
 
 
 def _to_equity_position(
@@ -676,7 +659,7 @@ def _to_equity_position(
     fx_snapshot: FxRateSnapshot,
 ) -> EquityPositionDTO:
     currency = normalize_currency(row.get("currency"))
-    market_value = _optional_float(row.get("market_value"))
+    market_value = _position_market_value(row)
     payload = row.get("position_payload") or {}
     if not isinstance(payload, dict):
         payload = {}
@@ -685,6 +668,7 @@ def _to_equity_position(
         name=_optional_str(
             row.get("name")
             or payload.get("name")
+            or payload.get("display_name")
             or payload.get("stock_name")
             or payload.get("security_name")
             or payload.get("short_name")
@@ -904,6 +888,42 @@ def _manual_cost_basis(row: dict[str, Any]) -> Optional[float]:
     if average_cost is None or quantity is None:
         return None
     return average_cost * quantity
+
+
+def _manual_market_price(row: dict[str, Any]) -> Optional[float]:
+    market_price = _optional_float(row.get("market_price"))
+    if market_price is not None:
+        return market_price
+    average_cost = _optional_float(row.get("average_cost"))
+    if average_cost is not None and average_cost > 0:
+        return average_cost
+    return None
+
+
+def _manual_market_value(row: dict[str, Any], *, market_price: Optional[float]) -> Optional[float]:
+    market_value = _optional_float(row.get("market_value"))
+    if market_value is not None:
+        return market_value
+    quantity = _optional_float(row.get("quantity"))
+    if market_price is None or quantity is None:
+        return None
+    multiplier = 1.0
+    source_lineage = row.get("source_lineage") or {}
+    if isinstance(source_lineage, dict) and (row.get("instrument_type") or "") == "option_contract":
+        multiplier = _optional_float(source_lineage.get("multiplier")) or 100.0
+    return market_price * quantity * multiplier
+
+
+def _position_market_value(row: dict[str, Any]) -> Optional[float]:
+    market_value = _optional_float(row.get("market_value"))
+    if market_value is not None:
+        return market_value
+    payload = row.get("position_payload") or {}
+    if isinstance(payload, dict) and payload.get("source") == "webapp_manual_positions":
+        manual_value = _manual_market_value(row, market_price=_manual_market_price(row))
+        if manual_value is not None:
+            return manual_value
+    return None
 
 
 def _to_float(value: Any) -> float:

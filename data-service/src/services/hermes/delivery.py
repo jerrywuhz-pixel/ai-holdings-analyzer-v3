@@ -69,7 +69,11 @@ class HermesDeliveryProcessor:
     async def process_ready(self, *, limit: int = 50, dry_run: bool = False) -> JsonDict:
         if not self._database_url:
             return {"ok": False, "status": "skipped", "reason": "database_url_not_configured"}
-        records = await asyncio.to_thread(_load_ready_deliveries, self._database_url, limit)
+        records = await asyncio.to_thread(
+            _load_ready_deliveries if dry_run else _claim_ready_deliveries,
+            self._database_url,
+            limit,
+        )
         stats = DeliveryProcessStats(scanned=len(records))
         details: list[JsonDict] = []
 
@@ -87,7 +91,7 @@ class HermesDeliveryProcessor:
             if dry_run:
                 details.append({"delivery_id": delivery_id, "status": "dry_run"})
                 continue
-            await asyncio.to_thread(_mark_sending, self._database_url, delivery_id)
+            await asyncio.to_thread(_insert_message_event, self._database_url, delivery_id, "sending", {"status": "sending"})
             try:
                 response = await self._send(record)
                 await asyncio.to_thread(_mark_delivered, self._database_url, delivery_id, response)
@@ -132,6 +136,40 @@ def _load_ready_deliveries(database_url: str, limit: int) -> list[JsonDict]:
             """,
             {"now": now, "limit": limit},
         ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def _claim_ready_deliveries(database_url: str, limit: int) -> list[JsonDict]:
+    import psycopg
+    from psycopg.rows import dict_row
+
+    now = datetime.now(timezone.utc)
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        rows = conn.execute(
+            """
+            WITH candidates AS (
+              SELECT id
+              FROM public.delivery_outbox
+              WHERE status IN ('pending', 'retrying')
+                AND (next_retry_at IS NULL OR next_retry_at <= %(now)s)
+              ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC
+              LIMIT %(limit)s
+              FOR UPDATE SKIP LOCKED
+            ), claimed AS (
+              UPDATE public.delivery_outbox AS d
+              SET status = 'sending'::public.outbox_status,
+                  last_attempt_at = %(now)s,
+                  updated_at = %(now)s
+              FROM candidates
+              WHERE d.id = candidates.id
+              RETURNING d.*
+            )
+            SELECT *
+            FROM claimed
+            """,
+            {"now": now, "limit": limit},
+        ).fetchall()
+        conn.commit()
         return [dict(row) for row in rows]
 
 

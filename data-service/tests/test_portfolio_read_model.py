@@ -373,6 +373,50 @@ async def test_postgres_repository_falls_back_to_webapp_manual_positions_without
     assert bundle.positions[0]["position_payload"]["source"] == "webapp_manual_positions"
 
 
+@pytest.mark.asyncio
+async def test_postgres_manual_position_fallback_estimates_value_from_cost_basis():
+    def connect_factory(_database_url: str):
+        return FakePostgresConnection(
+            {
+                "broker_sync_snapshots": [],
+                "webapp_manual_positions": [
+                    {
+                        "id": "manual-1",
+                        "tenant_id": "tenant-1",
+                        "instrument_type": "stock",
+                        "symbol": "TSLA",
+                        "name": "Tesla",
+                        "market": "US",
+                        "exchange": "NASDAQ",
+                        "position_side": "long",
+                        "quantity": 3,
+                        "average_cost": 200,
+                        "market_price": None,
+                        "market_value": None,
+                        "currency": "USD",
+                        "source_quality": "user_confirmed",
+                        "source_tier": "user_confirmed",
+                        "source_actionability": "analysis_only",
+                        "source_as_of": None,
+                        "source_lineage": {"source": "test"},
+                        "note": "manual",
+                        "position_status": "open",
+                        "updated_at": "2026-05-10T10:01:00+00:00",
+                    }
+                ],
+            }
+        )
+
+    repository = PostgresPortfolioSnapshotRepository("postgresql://example", connect_factory=connect_factory)
+
+    bundle = await repository.get_latest_snapshot_bundle("tenant-1")
+
+    assert bundle is not None
+    assert bundle.positions[0]["market_price"] == 200
+    assert bundle.positions[0]["market_value"] == 600
+    assert bundle.positions[0]["position_payload"]["valuation_basis"] == "manual_cost_basis"
+
+
 def test_repository_factory_uses_database_url_when_supabase_env_is_missing(monkeypatch):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)

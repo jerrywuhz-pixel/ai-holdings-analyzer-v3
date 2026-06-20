@@ -160,6 +160,116 @@ def test_daily_summary_exposes_no_holding_context(monkeypatch, tmp_path):
     assert "整体市场/板块数据暂不可用" in message
 
 
+def test_close_summary_uses_outbox_not_direct_send(monkeypatch, tmp_path):
+    db_path = tmp_path / "holdings.db"
+    create_holdings_db(db_path)
+    module = load_dispatcher(monkeypatch, "p0-us-close-summary", db_path)
+    sent_directly = []
+    enqueued = []
+
+    monkeypatch.setattr(module, "task_probe_details", lambda: ("ok", {"data_service": "ok"}))
+    monkeypatch.setattr(
+        module,
+        "eligible_accounts",
+        lambda: (
+            "ok",
+            {
+                "active_wechat_bindings": 1,
+                "eligible_accounts": 1,
+                "skipped_empty_holdings": 0,
+                "eligible_tenants": ["tenant-1"],
+                "skipped_empty_tenants": [],
+            },
+            [{"tenant_id": "tenant-1", "holdings_count": 1, "channel_binding_id": "binding-1"}],
+        ),
+    )
+    monkeypatch.setattr(module, "local_binding_for_tenant", lambda tenant_id: {"wechat_user_id": "wechat-user-1"})
+    monkeypatch.setattr(module, "summary_direct_message", lambda binding, status, details: "summary for " + binding["wechat_user_id"])
+    monkeypatch.setattr(module, "send_local_binding_message", lambda *_args: sent_directly.append(_args) or {"success": True})
+
+    def fake_enqueue(accounts, probe_status, probe_details, message_builder=None):
+        enqueued.append(
+            {
+                "accounts": accounts,
+                "probe_status": probe_status,
+                "text": message_builder(accounts[0]),
+            }
+        )
+        return {"inserted": 1, "target_accounts": 1}
+
+    monkeypatch.setattr(module, "enqueue_for_accounts", fake_enqueue)
+    monkeypatch.setattr(module, "delivery_retry", lambda: ("ok", {"mode": "delivery_retry", "scanned": 1, "delivered": 1}))
+
+    status, details = module.holding_push_task()
+
+    assert status == "ok"
+    assert details["mode"] == "summary_outbox_fanout"
+    assert enqueued == [{"accounts": [{"tenant_id": "tenant-1", "holdings_count": 1, "channel_binding_id": "binding-1"}], "probe_status": "ok", "text": "summary for wechat-user-1"}]
+    assert sent_directly == []
+
+
+def test_opportunity_research_task_invokes_domain_tool(monkeypatch, tmp_path):
+    db_path = tmp_path / "holdings.db"
+    create_holdings_db(db_path)
+    module = load_dispatcher(monkeypatch, "p0-opportunity-research-us-premarket", db_path)
+    calls = []
+
+    monkeypatch.setattr(module, "task_probe_details", lambda: ("ok", {"data_service": "ok"}))
+    monkeypatch.setattr(
+        module,
+        "eligible_accounts",
+        lambda: (
+            "ok",
+            {
+                "active_wechat_bindings": 1,
+                "eligible_accounts": 1,
+                "skipped_empty_holdings": 0,
+                "eligible_tenants": ["tenant-1"],
+                "skipped_empty_tenants": [],
+            },
+            [
+                {
+                    "tenant_id": "tenant-1",
+                    "holdings_count": 1,
+                    "channel_binding_id": "binding-1",
+                    "openclaw_account_id": "wechat-user-1",
+                    "target_conversation": "wechat-user-1",
+                    "context_token": "ctx",
+                }
+            ],
+        ),
+    )
+
+    def fake_invoke(tool, arguments, tenant_id):
+        calls.append({"tool": tool, "arguments": arguments, "tenant_id": tenant_id})
+        return {
+            "ok": True,
+            "result": {
+                "tool": tool,
+                "ok": True,
+                "status": "ok",
+                "data": {
+                    "cases": [{"symbol": "NVDA"}],
+                    "summary": {"title": "Hermes 机会研究", "counts": {"cases": 1, "trade_drafts": 0}},
+                    "persistence": {"delivery": {"status": "enqueued"}},
+                },
+            },
+        }
+
+    monkeypatch.setattr(module, "invoke_domain_tool", fake_invoke)
+    monkeypatch.setattr(module, "delivery_retry", lambda: ("ok", {"mode": "delivery_retry", "delivered": 1}))
+
+    status, details = module.holding_push_task()
+
+    assert status == "ok"
+    assert details["mode"] == "opportunity_research_workflow"
+    assert details["cases_created"] == 1
+    assert calls[0]["tool"] == "opportunity.research.run"
+    assert calls[0]["arguments"]["market"] == "US"
+    assert calls[0]["arguments"]["session_type"] == "premarket"
+    assert calls[0]["arguments"]["delivery_context"]["channel_binding_id"] == "binding-1"
+
+
 def test_alert_task_templates_are_specific(monkeypatch, tmp_path):
     db_path = tmp_path / "holdings.db"
     db_path.touch()

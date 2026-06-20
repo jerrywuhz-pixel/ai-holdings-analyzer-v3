@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     nodejs \
     curl \
+    git \
+    gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

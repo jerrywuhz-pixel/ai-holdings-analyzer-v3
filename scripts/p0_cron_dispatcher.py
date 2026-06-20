@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 TASK = os.getenv("P0_TASK") or os.path.basename(sys.argv[0]).replace(".sh", "")
 LOG = os.getenv("P0_CRON_LOG", "/root/.hermes/cron/p0-task-runs.jsonl")
-DATA_SERVICE = os.getenv("P0_DATA_SERVICE_URL", "http://172.17.0.1:8000")
+DATA_SERVICE = os.getenv("P0_DATA_SERVICE_URL") or os.getenv("DATA_SERVICE_URL") or "http://127.0.0.1:8000"
 WEBAPP = os.getenv("P0_WEBAPP_URL", "http://127.0.0.1:3000")
 HERMES = os.getenv("P0_HERMES_BIN", "/usr/local/lib/hermes-agent/venv/bin/hermes")
 DEPLOY_DIR = os.getenv("P0_DEPLOY_DIR", "/opt/ai-holdings-analyzer-v3")
@@ -36,6 +36,9 @@ HOLDING_PUSH_TASKS = set([
     "p0-us-close-summary",
     "p0-weekly-review",
     "p0-backup-verify",
+    "p0-opportunity-research-cn-hk-premarket",
+    "p0-opportunity-research-us-premarket",
+    "p0-opportunity-research-daily-review",
 ])
 
 PLATFORM_NO_PUSH_TASKS = set([
@@ -71,6 +74,9 @@ TASK_LABELS = {
     "p0-us-close-summary": "美股收盘摘要",
     "p0-weekly-review": "每周持仓复盘",
     "p0-backup-verify": "持仓系统备份校验",
+    "p0-opportunity-research-cn-hk-premarket": "A股/港股盘前机会研究",
+    "p0-opportunity-research-us-premarket": "美股盘前机会研究",
+    "p0-opportunity-research-daily-review": "机会研究每日复盘",
 }
 
 SUPPRESSED_STALE_BACKLOG_PREFIX = "suppressed stale backlog"
@@ -149,6 +155,23 @@ def get(url, timeout=5):
             return 200 <= resp.status < 500, "http=%s %s" % (resp.status, body[:160])
     except Exception as exc:
         return False, str(exc)
+
+
+def post_json(url, payload, headers=None, timeout=45):
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", **(headers or {})},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read(8000).decode("utf-8", "replace")
+        parsed = json.loads(raw) if raw else {}
+        return 200 <= resp.status < 300, parsed, None
+    except Exception as exc:
+        return False, None, str(exc)
 
 
 def internal_key():
@@ -387,6 +410,18 @@ def task_message(details):
             f"degrade_reason：{reason}\n"
             "行动等级：info_only。不会改动持仓，也不会下单。"
         )
+    if TASK.startswith("p0-opportunity-research"):
+        summary = details.get("summary") if isinstance(details.get("summary"), dict) else {}
+        counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+        reason = details.get("reason") or summary.get("title") or "机会研究 workflow 已完成或需要复核"
+        return (
+            "【抓钱小螃蟹】机会研究工作流\n"
+            f"时间：{sh_time}\n"
+            f"状态：{str(reason)[:160]}\n"
+            f"产出：cases={counts.get('cases', details.get('cases_created', '未知'))}；trade_drafts={counts.get('trade_drafts', '未知')}\n"
+            "收益口径：信号账本 paper P&L，不代表真实成交，不自动下单。\n"
+            "行动等级：analysis_only/suggested_action/trade_draft 由四道门决定。"
+        )
     status_line = "本轮检查已进入持仓运营链路。"
     return (
         f"【抓钱小螃蟹】{label}\n"
@@ -396,7 +431,7 @@ def task_message(details):
     )
 
 
-def enqueue_for_accounts(accounts, probe_status, probe_details):
+def enqueue_for_accounts(accounts, probe_status, probe_details, message_builder=None):
     if DRY_RUN:
         return {"dry_run": True, "enqueued": 0, "target_accounts": len(accounts)}
     dedupe_bucket = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
@@ -406,7 +441,7 @@ def enqueue_for_accounts(accounts, probe_status, probe_details):
         tenant_id = account["tenant_id"]
         content = {
             "title": label,
-            "text": task_message(probe_details),
+            "text": message_builder(account) if message_builder else task_message(probe_details),
             "task": TASK,
             "probe_status": probe_status,
             "holdings_count": account.get("holdings_count"),
@@ -473,6 +508,88 @@ SELECT json_build_object('inserted', (SELECT count(*) FROM inserted), 'target_ac
     if not ok:
         return {"enqueue_error": raw}
     return result or {}
+
+
+def opportunity_task_spec():
+    if TASK == "p0-opportunity-research-cn-hk-premarket":
+        return "opportunity.research.run", {
+            "market": "CN_HK",
+            "session_type": "premarket",
+            "universe_policy": "holdings_watchlist_hard_tech",
+        }
+    if TASK == "p0-opportunity-research-us-premarket":
+        return "opportunity.research.run", {
+            "market": "US",
+            "session_type": "premarket",
+            "universe_policy": "holdings_watchlist_hard_tech",
+        }
+    if TASK == "p0-opportunity-research-daily-review":
+        return "opportunity.review.run", {"market": None}
+    return "", {}
+
+
+def invoke_domain_tool(tool, arguments, tenant_id):
+    headers = {}
+    key = internal_key()
+    if key:
+        headers["X-Hermes-Internal-Token"] = key
+    ok, parsed, error = post_json(
+        DATA_SERVICE.rstrip("/") + "/api/hermes/domain-tools/invoke",
+        {"tool": tool, "tenant_id": tenant_id, "arguments": arguments},
+        headers=headers,
+        timeout=90,
+    )
+    if not ok:
+        return {"ok": False, "error": error or "domain tool request failed", "response": parsed}
+    return parsed or {}
+
+
+def opportunity_research_task(accounts):
+    tool, base_args = opportunity_task_spec()
+    if not tool:
+        return "alert", {"reason": "unknown_opportunity_task"}
+    if DRY_RUN:
+        return "ok", {"mode": "opportunity_research_workflow", "dry_run": True, "tool": tool, "target_accounts": len(accounts)}
+    results = []
+    failed = 0
+    cases_created = 0
+    for account in accounts:
+        tenant_id = account.get("tenant_id")
+        args = dict(base_args)
+        args["tenant_id"] = tenant_id
+        args["report_date"] = datetime.now().date().isoformat()
+        args["delivery_context"] = {
+            "channel_binding_id": account.get("channel_binding_id"),
+            "openclaw_account_id": account.get("openclaw_account_id") or account.get("channel_account_id"),
+            "target_conversation": account.get("target_conversation") or None,
+            "context_token": account.get("context_token") or None,
+        }
+        result = invoke_domain_tool(tool, args, tenant_id)
+        result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+        data = result_payload.get("data") if isinstance(result_payload.get("data"), dict) else {}
+        cases_created += len(data.get("cases") or []) if isinstance(data.get("cases"), list) else 0
+        if not result.get("ok"):
+            failed += 1
+        results.append(
+            {
+                "tenant_id": tenant_id,
+                "ok": bool(result.get("ok")),
+                "status": result_payload.get("status") or result_payload.get("error"),
+                "summary": data.get("summary") if isinstance(data.get("summary"), dict) else None,
+                "persistence": data.get("persistence") if isinstance(data.get("persistence"), dict) else None,
+            }
+        )
+    retry_status, retry_details = delivery_retry()
+    status = "ok" if failed == 0 and retry_status == "ok" else "alert"
+    return status, {
+        "mode": "opportunity_research_workflow",
+        "tool": tool,
+        "target_accounts": len(accounts),
+        "failed": failed,
+        "cases_created": cases_created,
+        "results": results[:10],
+        "delivery_retry": retry_details,
+    }
 
 
 def local_eligible_bindings(include_without_holdings=False):
@@ -1586,38 +1703,8 @@ def summary_direct_message(binding, probe_status, probe_details):
     )
 
 
-def send_summary_direct_to_all(probe_status, probe_details):
-    bindings = [row for row in local_eligible_bindings(include_without_holdings=True) if not row.get("error")]
-    errors = [row for row in local_eligible_bindings(include_without_holdings=True) if row.get("error")]
-    sent = 0
-    failed = 0
-    results = []
-    for binding in bindings:
-        msg = summary_direct_message(binding, probe_status, probe_details)
-        result = send_local_binding_message(binding, msg)
-        ok = bool(result.get("success") or result.get("dry_run")) and not result.get("error")
-        if ok:
-            sent += 1
-        else:
-            failed += 1
-        safe = dict(result)
-        if safe.get("token"):
-            safe["token"] = "***"
-        results.append({
-            "wechat_user_id": binding.get("wechat_user_id"),
-            "hermes_profile": binding.get("hermes_profile"),
-            "holdings_count": binding.get("holdings_count"),
-            "result": safe,
-        })
-    return {"target_bindings": len(bindings), "sent": sent, "failed": failed, "local_errors": errors[:3], "results": results[:5]}
-
-
 def holding_push_task():
     probe_status, probe_details = task_probe_details()
-    if TASK in SUMMARY_DIRECT_FANOUT_TASKS:
-        direct_delivery = send_summary_direct_to_all(probe_status, probe_details)
-        status = "ok" if direct_delivery.get("failed", 0) == 0 and direct_delivery.get("target_bindings", 0) > 0 else "alert"
-        return status, {"mode": "summary_direct_local_fanout", "probe_status": probe_status, "probe": probe_details, "direct_delivery": direct_delivery}
     gate_status, gate_details, accounts = eligible_accounts()
     if gate_status != "ok":
         return "alert", gate_details
@@ -1644,6 +1731,21 @@ def holding_push_task():
         return "skipped", {"mode": "holding_push_expansion", "reason": "skipped_no_active_wechat_binding", **gate_details, "probe": probe_details}
     if gate_details["eligible_accounts"] == 0:
         return "skipped", {"mode": "holding_push_expansion", "reason": "skipped_empty_holdings", **gate_details, "probe": probe_details}
+    if TASK.startswith("p0-opportunity-research"):
+        status, details = opportunity_research_task(accounts)
+        return status, {**gate_details, "probe": probe_details, **details}
+    if TASK in SUMMARY_DIRECT_FANOUT_TASKS:
+        def summary_message_for_account(account):
+            binding = local_binding_for_tenant(account.get("tenant_id"))
+            return summary_direct_message(binding or {}, probe_status, probe_details)
+
+        enqueue_result = enqueue_for_accounts(accounts, probe_status, probe_details, message_builder=summary_message_for_account)
+        if enqueue_result.get("enqueue_error"):
+            return "alert", {"mode": "summary_outbox_fanout", **gate_details, "probe": probe_details, "enqueue": enqueue_result}
+        retry_status, retry_details = delivery_retry()
+        if retry_status != "ok":
+            return "alert", {"mode": "summary_outbox_fanout", **gate_details, "probe": probe_details, "enqueue": enqueue_result, "delivery_retry": retry_details}
+        return "ok", {"mode": "summary_outbox_fanout", **gate_details, "probe": probe_details, "enqueue": enqueue_result, "delivery_retry": retry_details}
     if TASK in ROUTINE_OK_SILENT_TASKS and probe_status == "ok":
         return "ok", {
             "mode": "holding_push_expansion",
@@ -1700,6 +1802,24 @@ def delivery_secret():
 def ready_deliveries(limit=25):
     blocked_content_types = ", ".join("'%s'" % item.replace("'", "''") for item in sorted(BLOCKED_DELIVERY_CONTENT_TYPES))
     sql = r"""
+WITH candidates AS (
+  SELECT id
+  FROM public.delivery_outbox
+  WHERE status IN ('pending'::public.outbox_status, 'retrying'::public.outbox_status)
+    AND (next_retry_at IS NULL OR next_retry_at <= now())
+    AND content_type NOT IN (%s)
+  ORDER BY priority DESC, created_at ASC
+  LIMIT %d
+  FOR UPDATE SKIP LOCKED
+), claimed AS (
+  UPDATE public.delivery_outbox AS d
+  SET status='sending'::public.outbox_status,
+      last_attempt_at=now(),
+      updated_at=now()
+  FROM candidates
+  WHERE d.id = candidates.id
+  RETURNING d.*
+)
 SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
 FROM (
   SELECT
@@ -1716,12 +1836,7 @@ FROM (
     context_token,
     confirmation_session_id::text,
     source_run_id::text
-  FROM public.delivery_outbox
-  WHERE status IN ('pending'::public.outbox_status, 'retrying'::public.outbox_status)
-    AND (next_retry_at IS NULL OR next_retry_at <= now())
-    AND content_type NOT IN (%s)
-  ORDER BY priority DESC, created_at ASC
-  LIMIT %d
+  FROM claimed
 ) t;
 """ % (blocked_content_types, int(limit))
     ok, raw, rows = psql_json(sql, timeout=20)
@@ -1797,11 +1912,12 @@ def delivery_payload(row):
 def mark_delivery(delivery_id, status, error=None):
     if status == "delivered":
         sql = """
-UPDATE public.delivery_outbox
-SET status='delivered'::public.outbox_status,
-    delivered_at=now(), last_attempt_at=now(), updated_at=now(), last_error=NULL
-WHERE id='%s'::uuid;
-""" % delivery_id
+	UPDATE public.delivery_outbox
+	SET status='delivered'::public.outbox_status,
+	    delivered_at=now(), last_attempt_at=now(), updated_at=now(), last_error=NULL
+	WHERE id='%s'::uuid
+	  AND status='sending'::public.outbox_status;
+	""" % delivery_id
     else:
         safe_error = json.dumps(str(error or "delivery failed"), ensure_ascii=False)
         sql = """
@@ -1809,11 +1925,12 @@ UPDATE public.delivery_outbox
 SET status=CASE WHEN attempt_count + 1 >= 5 THEN 'failed'::public.outbox_status ELSE 'retrying'::public.outbox_status END,
     attempt_count=attempt_count + 1,
     last_attempt_at=now(),
-    next_retry_at=CASE WHEN attempt_count + 1 >= 5 THEN NULL ELSE now() + interval '5 minutes' END,
-    last_error=%s,
-    updated_at=now()
-WHERE id='%s'::uuid;
-""" % (safe_error, delivery_id)
+	    next_retry_at=CASE WHEN attempt_count + 1 >= 5 THEN NULL ELSE now() + interval '5 minutes' END,
+	    last_error=%s,
+	    updated_at=now()
+	WHERE id='%s'::uuid
+	  AND status='sending'::public.outbox_status;
+	""" % (safe_error, delivery_id)
     return psql(sql, timeout=10)
 
 

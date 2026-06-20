@@ -11,7 +11,7 @@ export type HermesJobType =
 export type HermesComplexity = "quick" | "standard" | "deep" | "background";
 export type HermesStage = "queued" | "collecting" | "analyzing" | "reviewing" | "ready" | "failed";
 export type HermesJobStatus = "pending" | "running" | "waiting_tool" | "succeeded" | "failed" | "cancelled";
-export type ModelProviderId = "minimax" | "openai" | "openai-codex" | "fallback-template";
+export type ModelProviderId = "minimax" | "openai" | "openai-codex" | "glm" | "fallback-template";
 export type MemoryKind =
   | "preference"
   | "lesson"

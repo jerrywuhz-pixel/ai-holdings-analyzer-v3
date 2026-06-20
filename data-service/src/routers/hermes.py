@@ -63,6 +63,20 @@ REFERENCE_SEARCH_KEYWORDS = (
     "news",
     "search",
 )
+USER_FACING_RECOVERY_TEXT = "系统处理暂时受阻，请稍后重试。当前没有改动持仓，也不会下单。"
+INTERNAL_STATUS_TEXT_PATTERNS = (
+    re.compile(r"gateway\s+shutting\s+down", re.IGNORECASE),
+    re.compile(r"current\s+task\s+will\s+be\s+interrupted", re.IGNORECASE),
+    re.compile(r"not\s+accepting\s+another\s+turn", re.IGNORECASE),
+    re.compile(r"compacting\s+context", re.IGNORECASE),
+    re.compile(r"context\s+compaction", re.IGNORECASE),
+    re.compile(r"preflight\s+compression", re.IGNORECASE),
+    re.compile(r"compression\s+summary\s+failed", re.IGNORECASE),
+    re.compile(r"fallback\s+context\s+marker", re.IGNORECASE),
+    re.compile(r"\b\d{4,}[,\d]*\s+tokens?\b", re.IGNORECASE),
+    re.compile(r"connection\s+error", re.IGNORECASE),
+    re.compile(r"provider\s+returned\s+an\s+empty\s+response", re.IGNORECASE),
+)
 
 
 class DomainToolInvokeRequest(BaseModel):
@@ -289,6 +303,15 @@ async def _build_wechat_message_response(
             intent={"name": "web_reference_read", "url": reference_url},
             work=lambda: _web_reference_reply(payload.routing.tenant_id, text, reference_url),
         )
+
+    if _looks_like_social_signal_query(text):
+        analysis_symbol = _extract_analysis_symbol(text)
+        if analysis_symbol:
+            return await _stock_analysis_with_social_context_reply(
+                analysis_symbol,
+                payload.routing.tenant_id,
+                text,
+            )
 
     if _looks_like_reference_search(text):
         analysis_symbol = _extract_analysis_symbol(text)
@@ -554,9 +577,51 @@ def _reply(result_type: str, reply_text: str, **extra: Any) -> dict[str, Any]:
         "ok": True,
         "runtime": "hermes",
         "result_type": result_type,
-        "reply_text": reply_text,
+        "reply_text": _sanitize_user_facing_reply_text(reply_text),
         **extra,
     }
+
+
+def _sanitize_user_facing_reply_text(reply_text: str) -> str:
+    text = str(reply_text or "").strip()
+    if not text:
+        return USER_FACING_RECOVERY_TEXT
+
+    text = re.sub(
+        r"(搜索资料暂时不可用，未作为事实依据)[：:][^\n。]*",
+        r"\1",
+        text,
+    )
+    text = re.sub(
+        r"(链接资料暂时读不到，未作为事实依据)[：:][^\n。]*",
+        r"\1",
+        text,
+    )
+    text = (
+        text.replace("reference_only", "参考资料")
+        .replace("analysis_only", "仅分析")
+        .replace("trade_draft", "交易草稿")
+    )
+
+    kept_lines: list[str] = []
+    dropped_internal_line = False
+    for line in text.splitlines():
+        if _is_internal_status_text(line):
+            dropped_internal_line = True
+            continue
+        kept_lines.append(line)
+
+    cleaned = "\n".join(kept_lines).strip()
+    if cleaned:
+        return cleaned
+    return USER_FACING_RECOVERY_TEXT if dropped_internal_line else text
+
+
+def _is_internal_status_text(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    return any(pattern.search(normalized) for pattern in INTERNAL_STATUS_TEXT_PATTERNS)
 
 
 def _schedule_ima_archive(
@@ -1098,14 +1163,14 @@ async def _positions_reply(tenant_id: str) -> dict[str, Any]:
             f"资产：总资产 {total_value}，持仓市值 {gross_value}，现金 {cash}，可用购买力 {buying_power}，现金担保/保证金占用 {cash_secured}。\n"
             f"风险：{'; '.join(risk_lines)}\n"
             f"{symbol_text}\n"
-            f"数据：source_quality={source_quality}；{freshness['text']}。\n"
+            f"数据：来源质量为{_source_quality_label(source_quality)}；{freshness['text']}。\n"
             "下一步：可以回复“分析 NVDA”看单票，或“设置提醒 NVDA 跌破 110”进入观察。"
         )
     else:
         reply_text = (
             "已查询组合，但当前没有读到 open 持仓。\n"
             f"资产：现金 {cash}，可用购买力 {buying_power}。\n"
-            f"数据：source_quality={source_quality}；{freshness['text']}。\n"
+            f"数据：来源质量为{_source_quality_label(source_quality)}；{freshness['text']}。\n"
             "如果你确认有持仓，请先检查券商同步或手工持仓导入。"
         )
 
@@ -1253,7 +1318,7 @@ async def _reference_reply_with_timeout(
         )
         return _reply(
             "web_reference_reading",
-            "正在读取这条资料，超过即时回复窗口了。读取完成后我会通过微信推送结果。\n这一步仍然是 reference_only，不会改动持仓或下单。",
+            "正在读取这条资料，超过即时回复窗口了。读取完成后我会通过微信推送结果。\n这一步仍然只作为参考资料，不会改动持仓或下单。",
             intent={**intent, "async": True},
             safety={"mode": "reference_only", "writes_fact_store": False, "places_orders": False},
             async_delivery={
@@ -1277,9 +1342,10 @@ async def _complete_reference_async_delivery(
         logger.exception("Hermes reference async work failed")
         result = _reply(
             "web_reference_async_error",
-            f"资料读取任务失败：{exc}。\n我没有改动持仓，也不会把未读取内容当作事实。",
+            "资料读取任务暂时失败。\n我没有改动持仓，也不会把未读取内容当作事实。",
             intent={**intent, "async": True},
             safety={"mode": "reference_only", "writes_fact_store": False, "places_orders": False},
+            internal_error=str(exc),
         )
     queue_result = await asyncio.to_thread(
         _queue_reference_delivery_sync,
@@ -1422,14 +1488,14 @@ async def _web_reference_search_reply(tenant_id: str, prompt: str, query: str) -
     read_result = data.get("read_result") if isinstance(data.get("read_result"), dict) else None
     if not result.get("ok"):
         failed = result.get("failed") if isinstance(result.get("failed"), dict) else {}
-        reason = failed.get("message") or failed.get("reason") or result.get("status") or "unknown error"
         return _reply(
             "web_reference_search_error",
-            f"搜索源暂时不可用：{reason}。\n我没有改动持仓，也不会把未验证搜索结果当作交易事实。",
+            "搜索源暂时不可用。\n我没有改动持仓，也不会把未验证搜索结果当作交易事实。",
             intent={"name": "web_reference_search", "query": query},
             tool_calls=[_tool_call_summary(result)],
             source_refs=result.get("source_refs") or [],
             search_results=items,
+            internal_failure=failed or {"status": result.get("status"), "error": result.get("error")},
             safety={"mode": "reference_only", "writes_fact_store": False, "places_orders": False},
         )
 
@@ -1448,7 +1514,7 @@ async def _web_reference_search_reply(tenant_id: str, prompt: str, query: str) -
         lines.append(f"已读取首条：{read_summary.get('title') or '网页资料'}")
         lines.append(str(read_summary["summary"])[:500])
     lines.append("")
-    lines.append("以上只是 reference_only 研究资料，不会改动持仓或下单。")
+    lines.append("以上只是参考资料，不会改动持仓或下单。")
     return _reply(
         "web_reference_search",
         "\n".join(lines),
@@ -1472,24 +1538,24 @@ async def _web_reference_reply(tenant_id: str, prompt: str, url: str) -> dict[st
     persistence = data.get("persistence") if isinstance(data.get("persistence"), dict) else {}
     if not result.get("ok"):
         failed = result.get("failed") if isinstance(result.get("failed"), dict) else {}
-        reason = failed.get("message") or failed.get("reason") or result.get("status") or "unknown error"
         return _reply(
             "web_reference_error",
-            f"这个链接暂时读不到：{reason}。\n我没有改动持仓，也不会把它当作交易事实。",
+            "这个链接暂时读不到。\n我没有改动持仓，也不会把它当作交易事实。",
             intent={"name": "web_reference_read", "url": url},
             tool_calls=[_tool_call_summary(result)],
             source_refs=result.get("source_refs") or [],
             reference_summary=summary,
             persistence=persistence,
+            internal_failure=failed or {"status": result.get("status"), "error": result.get("error")},
             safety={"mode": "reference_only", "writes_fact_store": persistence.get("status") == "saved", "places_orders": False},
         )
 
     title = summary.get("title") or "网页资料"
     body = summary.get("summary") or "已读取网页，但正文摘要为空。"
-    saved_text = "已保存引用快照。" if persistence.get("status") == "saved" else f"快照未入库：{persistence.get('reason') or persistence.get('status') or 'not_saved'}。"
+    saved_text = "已保存引用快照。" if persistence.get("status") == "saved" else "引用快照暂未保存。"
     return _reply(
         "web_reference",
-        f"{title}\n\n{body}\n\n来源：{summary.get('url') or url}\n{saved_text}\n这只是 reference_only 研究资料，不会改动持仓或下单。",
+        f"{title}\n\n{body}\n\n来源：{summary.get('url') or url}\n{saved_text}\n这只是参考资料，不会改动持仓或下单。",
         intent={"name": "web_reference_read", "url": url},
         tool_calls=[_tool_call_summary(result)],
         source_refs=result.get("source_refs") or [],
@@ -1518,11 +1584,9 @@ async def _stock_analysis_with_search_reference_reply(symbol: str, tenant_id: st
     analysis["reference_summary"] = news_context
     analysis["source_refs"] = [*(analysis.get("source_refs") or []), *(search_result.get("source_refs") or [])]
     if search_result.get("ok"):
-        analysis["reply_text"] = f"{analysis['reply_text']}\n\n已把搜索到的公开网页资料作为 reference_only 上下文纳入分析：{query}"
+        analysis["reply_text"] = f"{analysis['reply_text']}\n\n已把搜索到的公开网页资料作为参考资料上下文纳入分析：{query}"
     else:
-        failed = search_result.get("failed") if isinstance(search_result.get("failed"), dict) else {}
-        reason = failed.get("message") or failed.get("reason") or search_result.get("status") or "unknown error"
-        analysis["reply_text"] = f"{analysis['reply_text']}\n\n搜索资料暂时不可用，未作为事实依据：{reason}"
+        analysis["reply_text"] = f"{analysis['reply_text']}\n\n搜索资料暂时不可用，未作为事实依据。"
     return analysis
 
 
@@ -1538,11 +1602,34 @@ async def _stock_analysis_with_web_reference_reply(symbol: str, tenant_id: str, 
     analysis["reference_summary"] = news_context
     analysis["source_refs"] = [*(analysis.get("source_refs") or []), *(reference_result.get("source_refs") or [])]
     if reference_result.get("ok"):
-        analysis["reply_text"] = f"{analysis['reply_text']}\n\n已把链接内容作为 reference_only 资料纳入分析：{url}"
+        analysis["reply_text"] = f"{analysis['reply_text']}\n\n已把链接内容作为参考资料纳入分析：{url}"
     else:
-        failed = reference_result.get("failed") if isinstance(reference_result.get("failed"), dict) else {}
-        reason = failed.get("message") or failed.get("reason") or reference_result.get("status") or "unknown error"
-        analysis["reply_text"] = f"{analysis['reply_text']}\n\n链接资料暂时读不到，未作为事实依据：{reason}"
+        analysis["reply_text"] = f"{analysis['reply_text']}\n\n链接资料暂时读不到，未作为事实依据。"
+    return analysis
+
+
+async def _stock_analysis_with_social_context_reply(symbol: str, tenant_id: str, prompt: str) -> dict[str, Any]:
+    social_result = await _invoke_tool(
+        "sentiment.social.snapshot",
+        {
+            "symbol": symbol,
+            "tenant_id": tenant_id,
+            "prompt": prompt,
+            "entry_surface": "wechat",
+            "window": "72h",
+            "limit": 20,
+        },
+        tenant_id=tenant_id,
+    )
+    social_context = _social_context_from_snapshot(social_result, symbol)
+    analysis = await _stock_analysis_reply(symbol, tenant_id, prompt, social_context=social_context)
+    analysis["reference_tool_calls"] = [_tool_call_summary(social_result)]
+    analysis["social_summary"] = social_context
+    analysis["source_refs"] = [*(analysis.get("source_refs") or []), *(social_result.get("source_refs") or [])]
+    if social_result.get("ok"):
+        analysis["reply_text"] = f"{analysis['reply_text']}\n\n已把有限账号清单里的社媒样本作为弱信号纳入分析。"
+    else:
+        analysis["reply_text"] = f"{analysis['reply_text']}\n\n社媒账号清单或读取源暂未配置，未纳入社区情绪。"
     return analysis
 
 
@@ -1552,10 +1639,13 @@ async def _stock_analysis_reply(
     prompt: str,
     *,
     news_context: dict[str, Any] | None = None,
+    social_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     arguments: dict[str, Any] = {"symbol": symbol, "tenant_id": tenant_id, "prompt": prompt, "entry_surface": "wechat"}
     if news_context:
         arguments["news_context"] = news_context
+    if social_context:
+        arguments["social_context"] = social_context
     result = await _invoke_tool(
         "stock.analysis",
         arguments,
@@ -1627,13 +1717,13 @@ async def _invoke_tool(tool: str, arguments: dict[str, Any], *, tenant_id: str) 
 
 
 def _tool_error_reply(result_type: str, prefix: str, result: dict[str, Any], *, intent: dict[str, Any]) -> dict[str, Any]:
-    error = result.get("error") or result.get("status") or "unknown error"
     return _reply(
         result_type,
-        f"{prefix}：{error}。我没有改动持仓，也不会自动下单。",
+        f"{prefix}，请稍后重试。我没有改动持仓，也不会自动下单。",
         intent=intent,
         tool_calls=[_tool_call_summary(result)],
         source_refs=result.get("source_refs") or [],
+        internal_failure={"status": result.get("status"), "error": result.get("error")},
         safety={"mode": "read_only", "writes_fact_store": False, "places_orders": False},
     )
 
@@ -1697,6 +1787,24 @@ def _news_context_from_search_reference(search_result: dict[str, Any], symbol: s
         "items": context_items,
         "source_refs": search_result.get("source_refs") or [],
         "failed": search_result.get("failed"),
+    }
+
+
+def _social_context_from_snapshot(social_result: dict[str, Any], symbol: str) -> dict[str, Any]:
+    data = social_result.get("data") if isinstance(social_result.get("data"), dict) else {}
+    context = data.get("social_context") if isinstance(data.get("social_context"), dict) else {}
+    if context:
+        return {**context, "symbol": context.get("symbol") or symbol}
+    return {
+        "schema_version": "social_sentiment_snapshot_v1",
+        "status": "not_configured",
+        "reason": social_result.get("status") or "social_source_not_configured",
+        "symbol": symbol,
+        "items": [],
+        "accounts": [],
+        "themes": [],
+        "risk_flags": [],
+        "source_refs": social_result.get("source_refs") or [],
     }
 
 
@@ -2040,6 +2148,26 @@ def _looks_like_watchlist_query(text: str) -> bool:
     return has_list and has_query
 
 
+def _looks_like_social_signal_query(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    social_keywords = (
+        "社媒",
+        "社区",
+        "舆情",
+        "大家怎么看",
+        "散户怎么看",
+        "雪球",
+        "小红书",
+        "reddit",
+        "twitter",
+        "x 上",
+        "推特",
+    )
+    return any(keyword in lowered or keyword in text for keyword in social_keywords)
+
+
 def _extract_archive_watch_symbol(text: str) -> str | None:
     if not text:
         return None
@@ -2225,21 +2353,21 @@ def _money_text(value: Any, currency: str = "") -> str:
 
 def _freshness_summary(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
-        return {"status": "unknown", "text": "freshness=unknown"}
+        return {"status": "unknown", "text": "新鲜度未知"}
     status = str(value.get("status") or "unknown")
     as_of = value.get("as_of")
     as_of_age = value.get("as_of_age_seconds")
     received_age = value.get("received_age_seconds")
     missing = value.get("missing_fields") if isinstance(value.get("missing_fields"), list) else []
-    bits = [f"freshness={status}"]
+    bits = [f"新鲜度{_freshness_label(status)}"]
     if as_of:
-        bits.append(f"as_of={as_of}")
+        bits.append(f"数据时间 {as_of}")
     if as_of_age is not None:
-        bits.append(f"as_of_age={as_of_age}s")
+        bits.append(f"距数据时间约 {_duration_label(as_of_age)}")
     if received_age is not None:
-        bits.append(f"received_age={received_age}s")
+        bits.append(f"距接收时间约 {_duration_label(received_age)}")
     if missing:
-        bits.append(f"missing={','.join(str(item) for item in missing[:5])}")
+        bits.append(f"缺少字段 {', '.join(str(item) for item in missing[:5])}")
     return {
         "status": status,
         "as_of": as_of,
@@ -2297,9 +2425,44 @@ def _portfolio_risk_lines(
         else:
             risks.append(f"现金/持仓市值约 {round(cash_ratio * 100, 1)}%")
     if freshness.get("status") not in {"fresh", "ok", "complete"}:
-        risks.append(f"数据新鲜度为 {freshness.get('status')}")
+        risks.append(f"数据新鲜度为{_freshness_label(freshness.get('status'))}")
     if source_quality not in {"broker_verified", "user_confirmed"}:
-        risks.append(f"来源质量为 {source_quality}，行动前需复核")
+        risks.append(f"来源质量为{_source_quality_label(source_quality)}，行动前需复核")
     if not risks:
         risks.append("未发现需要立刻处理的组合级风险")
     return risks[:5]
+
+
+def _source_quality_label(value: Any) -> str:
+    labels = {
+        "broker_verified": "券商已验证",
+        "user_confirmed": "用户已确认",
+        "manual": "手工录入",
+        "public_fallback": "公开数据兜底",
+        "stale": "可能过期",
+        "unknown": "未知",
+    }
+    return labels.get(str(value or "unknown"), str(value or "未知"))
+
+
+def _freshness_label(value: Any) -> str:
+    labels = {
+        "fresh": "新鲜",
+        "ok": "可用",
+        "complete": "完整",
+        "partial": "部分可用",
+        "stale": "可能过期",
+        "unknown": "未知",
+    }
+    return labels.get(str(value or "unknown"), str(value or "未知"))
+
+
+def _duration_label(value: Any) -> str:
+    seconds = _number(value)
+    if seconds is None:
+        return "未知"
+    if seconds < 60:
+        return f"{int(seconds)} 秒"
+    if seconds < 3600:
+        return f"{round(seconds / 60, 1)} 分钟"
+    return f"{round(seconds / 3600, 1)} 小时"

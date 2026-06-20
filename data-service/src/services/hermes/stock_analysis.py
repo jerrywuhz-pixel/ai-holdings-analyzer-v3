@@ -20,6 +20,7 @@ AsyncHistoryReader = Callable[[str, str], Awaitable[JsonDict]]
 AsyncSectorContextReader = Callable[[str, str, str, Optional[str], Optional[str]], Awaitable[JsonDict]]
 AsyncMarketRegimeReader = Callable[[str, str], Awaitable[JsonDict]]
 AsyncNewsContextReader = Callable[[str, str, str, Optional[str], Optional[str]], Awaitable[JsonDict]]
+AsyncSocialContextReader = Callable[[str, str, str, Optional[str], Optional[str]], Awaitable[JsonDict]]
 
 CHINA_ADR_SYMBOLS = {
     "BABA",
@@ -648,6 +649,7 @@ class HermesStockAnalysisService:
         sector_context_reader: AsyncSectorContextReader | None = None,
         market_regime_reader: AsyncMarketRegimeReader | None = None,
         news_context_reader: AsyncNewsContextReader | None = None,
+        social_context_reader: AsyncSocialContextReader | None = None,
         persistence: StockAnalysisPersistence | None = None,
     ) -> None:
         self._quote_reader = quote_reader
@@ -656,6 +658,7 @@ class HermesStockAnalysisService:
         self._sector_context_reader = sector_context_reader
         self._market_regime_reader = market_regime_reader
         self._news_context_reader = news_context_reader
+        self._social_context_reader = social_context_reader
         self._persistence = persistence or StockAnalysisPersistence.from_env()
 
     async def analyze(
@@ -703,6 +706,16 @@ class HermesStockAnalysisService:
                 sector,
                 industry,
             )
+        social_context_payload: JsonDict = {}
+        if self._social_context_reader is not None:
+            social_context_payload = await _safe_call(
+                self._social_context_reader,
+                tenant_id,
+                normalized_symbol,
+                market,
+                sector,
+                industry,
+            )
         enrichment = await _load_context_enrichment(
             tenant_id=tenant_id,
             symbol=normalized_symbol,
@@ -712,6 +725,7 @@ class HermesStockAnalysisService:
             sector_context_payload=sector_context_payload,
             market_regime_payload=market_regime_payload,
             news_context_payload=news_context_payload,
+            social_context_payload=social_context_payload,
         )
         context = _build_context(
             tenant_id=tenant_id,
@@ -783,11 +797,14 @@ def _build_analysis(
     market_regime = context.get("market_regime") if isinstance(context.get("market_regime"), dict) else {}
     historical_decisions = context.get("historical_decisions") if isinstance(context.get("historical_decisions"), dict) else {}
     news_context = context.get("news_context") if isinstance(context.get("news_context"), dict) else _empty_news_context()
+    social_context = context.get("social_context") if isinstance(context.get("social_context"), dict) else _empty_social_context()
     active_rules = rules_context.get("active_rules") if isinstance(rules_context.get("active_rules"), list) else []
     trading_rules = rules_context.get("trading_rules") if isinstance(rules_context.get("trading_rules"), list) else []
     previous_signals = historical_decisions.get("items") if isinstance(historical_decisions.get("items"), list) else []
     news_items = news_context.get("items") if isinstance(news_context.get("items"), list) else []
     catalysts = news_context.get("catalysts") if isinstance(news_context.get("catalysts"), list) else []
+    social_items = social_context.get("items") if isinstance(social_context.get("items"), list) else []
+    social_accounts = social_context.get("accounts") if isinstance(social_context.get("accounts"), list) else []
     pnl_pct = _first_number(held_position or {}, "unrealized_pnl_pct", "pnl_percent")
     quantity = _first_number(held_position or {}, "quantity", "shares")
     average_cost = _first_number(held_position or {}, "average_cost", "avg_buy_price")
@@ -813,6 +830,11 @@ def _build_analysis(
         risk_flags.append(f"已有 {len(active_rules)} 条观察/纪律规则，需要避免重复承诺")
     if market_regime.get("regime") == "risk_off":
         risk_flags.append("市场状态偏 risk_off，建议降低追高和杠杆动作")
+    for flag in social_context.get("risk_flags") or []:
+        if isinstance(flag, dict):
+            label = _first_text(flag, "description", "label", "type")
+            if label:
+                risk_flags.append(f"社媒信号：{label}")
 
     action = "watch"
     action_label = "观察"
@@ -875,6 +897,7 @@ def _build_analysis(
     why_changed = _why_changed_summary(
         history_compare=history_compare,
         news_context=news_context,
+        social_context=social_context,
         market_regime=market_regime,
         sector_context=sector_context,
         trend=trend,
@@ -902,6 +925,11 @@ def _build_analysis(
         "news_status": news_context.get("status") or "missing",
         "news_items_count": len(news_items),
         "catalysts_count": len(catalysts),
+        "social_status": social_context.get("status") or "missing",
+        "social_items_count": len(social_items),
+        "social_accounts_count": len(social_accounts),
+        "social_providers_attempted": social_context.get("providers_attempted") if isinstance(social_context.get("providers_attempted"), list) else [],
+        "social_data_quality": social_context.get("data_quality") if isinstance(social_context.get("data_quality"), dict) else {},
         "why_changed_status": why_changed.get("status"),
     }
     quality_display = _stock_quality_display(
@@ -930,6 +958,7 @@ def _build_analysis(
         ),
         "history_compare": _clip_module(_history_compare_text(history_compare)),
         "events": _clip_module(_news_context_text(news_context)),
+        "social": _clip_module(_social_context_text(social_context)),
         "why_changed": _clip_module(_why_changed_text(why_changed)),
         "risk": _clip_module("；".join(risk_flags) if risk_flags else "暂未发现硬性阻断，但仍需结合财报、事件窗口和组合集中度复核。"),
         "discipline": _clip_module(_discipline_text(discipline_result)),
@@ -966,6 +995,7 @@ def _build_analysis(
         "discipline_result": discipline_result,
         "history_compare": history_compare,
         "news_context": news_context,
+        "social_context": social_context,
         "why_changed": why_changed,
         "context_pack": {
             "schema_version": context.get("schema_version") or ANALYSIS_CONTEXT_SCHEMA_VERSION,
@@ -1016,6 +1046,7 @@ def _build_context(
     sector_context = enrichment.get("sector_context") if isinstance(enrichment.get("sector_context"), dict) else _empty_sector_context(sector, industry)
     market_regime = enrichment.get("market_regime") if isinstance(enrichment.get("market_regime"), dict) else _empty_market_regime(market)
     news_context = enrichment.get("news_context") if isinstance(enrichment.get("news_context"), dict) else _empty_news_context()
+    social_context = enrichment.get("social_context") if isinstance(enrichment.get("social_context"), dict) else _empty_social_context()
     data_quality = _context_data_quality(
         quote_payload=quote_payload,
         positions_payload=positions_payload,
@@ -1026,6 +1057,7 @@ def _build_context(
         rules_context=rules_context,
         historical_decisions=historical_decisions,
         news_context=news_context,
+        social_context=social_context,
     )
     source_refs = [
         {"source": "hermes-data-service", "ref": f"/api/quote/{symbol}"},
@@ -1059,6 +1091,7 @@ def _build_context(
         "rules_context": rules_context,
         "historical_decisions": historical_decisions,
         "news_context": news_context,
+        "social_context": social_context,
         "data_quality": data_quality,
         "summary": {
             "held": bool(held_position),
@@ -1070,6 +1103,7 @@ def _build_context(
             "market_regime": market_regime.get("regime"),
             "sector_context_status": sector_context.get("status"),
             "news_status": news_context.get("status"),
+            "social_status": social_context.get("status"),
         },
         "source_refs": source_refs,
         "built_at": datetime.now(timezone.utc).isoformat(),
@@ -1103,6 +1137,7 @@ async def _load_context_enrichment(
     sector_context_payload: JsonDict | None = None,
     market_regime_payload: JsonDict | None = None,
     news_context_payload: JsonDict | None = None,
+    social_context_payload: JsonDict | None = None,
 ) -> JsonDict:
     database_url = os.getenv("DATABASE_URL", "").strip()
     sector = _first_text(quote, "sector", "industry_sector") or _first_text(held_position or {}, "sector")
@@ -1110,10 +1145,12 @@ async def _load_context_enrichment(
     preferred_sector_context = _sector_context_from_tool_payload(sector_context_payload, sector, industry)
     preferred_market_regime = _market_regime_from_tool_payload(market_regime_payload, market)
     preferred_news_context = _news_context_from_payload_or_quote(news_context_payload, symbol, market, quote)
+    preferred_social_context = _social_context_from_payload(social_context_payload, symbol, market)
     preferred_source_refs = [
         *_source_refs_from_tool_payload(sector_context_payload),
         *_source_refs_from_tool_payload(market_regime_payload),
         *_source_refs_from_tool_payload(news_context_payload),
+        *_source_refs_from_tool_payload(social_context_payload),
     ]
     if not database_url or not _is_uuid(tenant_id):
         return {
@@ -1122,6 +1159,7 @@ async def _load_context_enrichment(
             "rules_context": _empty_rules_context("database_not_configured" if not database_url else "tenant_id_is_not_uuid"),
             "historical_decisions": _empty_historical_decisions("database_not_configured" if not database_url else "tenant_id_is_not_uuid"),
             "news_context": preferred_news_context or _empty_news_context(),
+            "social_context": preferred_social_context or _empty_social_context(),
             "source_refs": preferred_source_refs,
         }
     return await asyncio.to_thread(
@@ -1135,6 +1173,7 @@ async def _load_context_enrichment(
         preferred_sector_context=preferred_sector_context,
         preferred_market_regime=preferred_market_regime,
         preferred_news_context=preferred_news_context,
+        preferred_social_context=preferred_social_context,
         preferred_source_refs=preferred_source_refs,
     )
 
@@ -1150,6 +1189,7 @@ def _load_context_enrichment_sync(
     preferred_sector_context: JsonDict | None = None,
     preferred_market_regime: JsonDict | None = None,
     preferred_news_context: JsonDict | None = None,
+    preferred_social_context: JsonDict | None = None,
     preferred_source_refs: list[JsonDict] | None = None,
 ) -> JsonDict:
     try:
@@ -1162,6 +1202,7 @@ def _load_context_enrichment_sync(
             "rules_context": _empty_rules_context(f"psycopg_not_installed: {exc}"),
             "historical_decisions": _empty_historical_decisions(f"psycopg_not_installed: {exc}"),
             "news_context": preferred_news_context or _empty_news_context(),
+            "social_context": preferred_social_context or _empty_social_context(),
             "source_refs": preferred_source_refs or [],
         }
 
@@ -1261,6 +1302,7 @@ def _load_context_enrichment_sync(
             "rules_context": _empty_rules_context(reason),
             "historical_decisions": _empty_historical_decisions(reason),
             "news_context": preferred_news_context or _empty_news_context(),
+            "social_context": preferred_social_context or _empty_social_context(),
             "source_refs": preferred_source_refs or [],
         }
 
@@ -1278,6 +1320,7 @@ def _load_context_enrichment_sync(
             "items": [_compact_decision_context(dict(row)) for row in previous_signals],
         },
         "news_context": preferred_news_context or _empty_news_context(),
+        "social_context": preferred_social_context or _empty_social_context(),
         "source_refs": [
             {"source": "postgres", "ref": "decision_signals"},
             {"source": "postgres", "ref": "alert_rules"},
@@ -1448,6 +1491,7 @@ def _context_data_quality(
     rules_context: JsonDict,
     historical_decisions: JsonDict,
     news_context: JsonDict,
+    social_context: JsonDict,
 ) -> JsonDict:
     missing: list[str] = []
     if not _payload_data(quote_payload):
@@ -1462,6 +1506,8 @@ def _context_data_quality(
         missing.append("market_regime")
     if news_context.get("status") != "available":
         missing.append("news")
+    if social_context.get("status") != "available":
+        missing.append("social")
     coverage = {
         "quote": bool(_payload_data(quote_payload)),
         "positions": bool(_payload_data(positions_payload)),
@@ -1472,6 +1518,7 @@ def _context_data_quality(
         "active_rules": rules_context.get("status") == "available",
         "historical_decisions": historical_decisions.get("status") == "available",
         "news": news_context.get("status") == "available",
+        "social": social_context.get("status") == "available",
     }
     if "quote" in missing:
         actionability_floor = "blocked"
@@ -1659,6 +1706,21 @@ def _empty_news_context(reason: str = "news_reader_not_configured") -> JsonDict:
     return {"status": "not_configured", "reason": reason, "items": [], "catalysts": [], "summary": "未配置新闻/事件源"}
 
 
+def _empty_social_context(reason: str = "social_reader_not_configured") -> JsonDict:
+    return {
+        "schema_version": "social_sentiment_snapshot_v1",
+        "status": "not_configured",
+        "reason": reason,
+        "items": [],
+        "accounts": [],
+        "providers_attempted": [],
+        "data_quality": {},
+        "themes": [],
+        "risk_flags": [],
+        "summary": "未配置社媒账号清单或社媒信号源",
+    }
+
+
 def _sector_context_tool_payload(context: JsonDict, *, source_refs: list[JsonDict]) -> JsonDict:
     return {
         "ok": context.get("status") == "available",
@@ -1710,6 +1772,53 @@ def _news_context_from_payload_or_quote(payload: JsonDict | None, symbol: str, m
 
     derived = _news_context_from_quote(quote, symbol=symbol, market=market)
     return derived
+
+
+def _social_context_from_payload(payload: JsonDict | None, symbol: str, market: str) -> JsonDict | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    context = data.get("social_context") if isinstance(data, dict) else None
+    if isinstance(context, dict):
+        return _normalize_social_context(context, symbol=symbol, market=market)
+    if isinstance(data, dict) and data.get("schema_version") == "social_sentiment_snapshot_v1":
+        return _normalize_social_context(data, symbol=symbol, market=market)
+    return None
+
+
+def _normalize_social_context(context: JsonDict, *, symbol: str, market: str) -> JsonDict:
+    items = _compact_social_items(context.get("items") or context.get("posts"))
+    accounts = _compact_social_accounts(context.get("accounts") or context.get("watch_accounts"))
+    themes = _compact_social_themes(context.get("themes"))
+    risk_flags = _compact_social_risk_flags(context.get("risk_flags"))
+    sentiment = context.get("sentiment") if isinstance(context.get("sentiment"), dict) else {}
+    providers_attempted = context.get("providers_attempted") if isinstance(context.get("providers_attempted"), list) else []
+    data_quality = context.get("data_quality") if isinstance(context.get("data_quality"), dict) else {}
+    summary = _first_text(context, "summary", "brief", "overview")
+    status = str(context.get("status") or "").strip() or ("available" if items or themes or summary else "not_configured")
+    if status != "available" and (items or themes or summary):
+        status = "available"
+    return {
+        "schema_version": "social_sentiment_snapshot_v1",
+        "status": status,
+        "reason": _first_text(context, "reason", "error") or ("ok" if status == "available" else "social_reader_not_configured"),
+        "symbol": str(context.get("symbol") or symbol),
+        "market": str(context.get("market") or market),
+        "window": _first_text(context, "window") or "unspecified",
+        "sentiment": {
+            "label": _first_text(sentiment, "label") or _first_text(context, "sentiment_label") or "unknown",
+            "score": _json_number(sentiment.get("score") if isinstance(sentiment, dict) else context.get("sentiment_score")),
+            "confidence": _first_text(sentiment, "confidence") or _first_text(context, "confidence") or "low",
+        },
+        "summary": summary or ("未配置社媒账号清单或社媒信号源" if status != "available" else "已有社媒账号清单信号"),
+        "items": items,
+        "accounts": accounts,
+        "providers_attempted": providers_attempted[:10],
+        "data_quality": data_quality,
+        "themes": themes,
+        "risk_flags": risk_flags,
+        "as_of": _iso(context.get("as_of") or context.get("updated_at")),
+    }
 
 
 def _normalize_news_context(context: JsonDict, *, symbol: str, market: str) -> JsonDict:
@@ -1797,6 +1906,96 @@ def _compact_news_items(value: Any) -> list[JsonDict]:
             }
         )
     return items[:10]
+
+
+def _compact_social_items(value: Any) -> list[JsonDict]:
+    rows = value if isinstance(value, list) else []
+    items: list[JsonDict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        text = _first_text(row, "text", "content", "summary", "body")
+        if not text:
+            continue
+        items.append(
+            {
+                "platform": _first_text(row, "platform", "source") or "unknown",
+                "account_id": _first_text(row, "account_id", "handle", "author_id", "author"),
+                "account_name": _first_text(row, "account_name", "display_name", "author_name", "author"),
+                "url": _first_text(row, "url", "link"),
+                "published_at": _iso(row.get("published_at") or row.get("time") or row.get("created_at")),
+                "text": text[:1000],
+                "sentiment": _first_text(row, "sentiment", "tone"),
+                "symbols": row.get("symbols") if isinstance(row.get("symbols"), list) else [],
+                "engagement": row.get("engagement") if isinstance(row.get("engagement"), dict) else {},
+            }
+        )
+    return items[:30]
+
+
+def _compact_social_accounts(value: Any) -> list[JsonDict]:
+    rows = value if isinstance(value, list) else []
+    accounts: list[JsonDict] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        platform = (_first_text(row, "platform") or "").lower()
+        handle = _first_text(row, "handle", "account_id", "user_id", "id")
+        if not platform or not handle:
+            continue
+        key = (platform, handle.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        accounts.append(
+            {
+                "platform": platform,
+                "handle": handle,
+                "display_name": _first_text(row, "display_name", "name"),
+                "url": _first_text(row, "url", "profile_url"),
+                "symbols": row.get("symbols") if isinstance(row.get("symbols"), list) else [],
+            }
+        )
+    return accounts[:50]
+
+
+def _compact_social_themes(value: Any) -> list[JsonDict]:
+    rows = value if isinstance(value, list) else []
+    themes: list[JsonDict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = _first_text(row, "label", "theme", "name")
+        if not label:
+            continue
+        themes.append(
+            {
+                "label": label,
+                "stance": _first_text(row, "stance", "sentiment") or "unknown",
+                "evidence_count": int(_json_number(row.get("evidence_count") or row.get("count")) or 0),
+            }
+        )
+    return themes[:12]
+
+
+def _compact_social_risk_flags(value: Any) -> list[JsonDict]:
+    rows = value if isinstance(value, list) else []
+    flags: list[JsonDict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = _first_text(row, "description", "label", "type")
+        if not label:
+            continue
+        flags.append(
+            {
+                "type": _first_text(row, "type") or "social_signal",
+                "severity": _first_text(row, "severity") or "watch",
+                "description": label,
+            }
+        )
+    return flags[:10]
 
 
 def _compact_catalysts(value: Any) -> list[JsonDict]:
@@ -2586,10 +2785,38 @@ def _news_context_text(news_context: JsonDict) -> str:
     return "新闻/催化剂：" + ("；".join(parts) if parts else "已接入来源，但暂无高置信新闻或事件。")
 
 
+def _social_context_text(social_context: JsonDict) -> str:
+    if social_context.get("status") != "available":
+        return "社媒信号：未配置有限账号清单或社媒读取源，不纳入社区情绪判断。"
+    items = social_context.get("items") if isinstance(social_context.get("items"), list) else []
+    themes = social_context.get("themes") if isinstance(social_context.get("themes"), list) else []
+    sentiment = social_context.get("sentiment") if isinstance(social_context.get("sentiment"), dict) else {}
+    parts: list[str] = []
+    label = _first_text(sentiment, "label")
+    confidence = _first_text(sentiment, "confidence")
+    if label and label != "unknown":
+        parts.append(f"情绪 {label}{'（' + confidence + '）' if confidence else ''}")
+    if themes:
+        theme = themes[0] if isinstance(themes[0], dict) else {}
+        theme_label = _first_text(theme, "label")
+        stance = _first_text(theme, "stance")
+        if theme_label:
+            parts.append(f"主题：{theme_label}{'/' + stance if stance else ''}")
+    if items and not parts:
+        text = _first_text(items[0], "text")
+        if text:
+            parts.append(f"样本：{text[:80]}")
+    summary = str(social_context.get("summary") or "").strip()
+    if summary and not parts:
+        parts.append(summary)
+    return "社媒信号：" + ("；".join(parts) if parts else "有限账号清单已接入，但暂无高置信社区信号。")
+
+
 def _why_changed_summary(
     *,
     history_compare: JsonDict,
     news_context: JsonDict,
+    social_context: JsonDict,
     market_regime: JsonDict,
     sector_context: JsonDict,
     trend: JsonDict,
@@ -2616,12 +2843,20 @@ def _why_changed_summary(
             drivers.append(f"新增消息 {len(items)} 条")
         if catalysts:
             drivers.append(f"催化剂 {len(catalysts)} 个")
+    if social_context.get("status") == "available":
+        items = social_context.get("items") if isinstance(social_context.get("items"), list) else []
+        sentiment = social_context.get("sentiment") if isinstance(social_context.get("sentiment"), dict) else {}
+        sentiment_label = _first_text(sentiment, "label")
+        if items:
+            drivers.append(f"有限账号社媒样本 {len(items)} 条")
+        if sentiment_label and sentiment_label != "unknown":
+            drivers.append(f"社媒情绪 {sentiment_label}")
 
     if not drivers:
         return {
             "status": "insufficient_context",
             "drivers": [],
-            "summary": "为什么变了：缺少可解释的历史、新闻或市场上下文，先按数据质量降级处理。",
+            "summary": "为什么变了：缺少可解释的历史、新闻、社媒或市场上下文，先按数据质量降级处理。",
         }
     status = "changed_explained" if history_compare.get("status") == "changed" else "context_explained"
     return {

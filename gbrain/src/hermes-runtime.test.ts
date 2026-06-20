@@ -160,6 +160,27 @@ describe("ModelAdapter", () => {
     );
   });
 
+  test("can route deep Hermes jobs through the GLM provider", async () => {
+    await withEnv(
+      {
+        HERMES_DEEP_PROVIDER: "glm",
+        HERMES_DEEP_MODEL: undefined,
+        HERMES_GLM_MODEL: undefined,
+        GLM_API_KEY: undefined,
+        ZHIPUAI_API_KEY: undefined,
+        HERMES_GLM_API_KEY: undefined,
+        GBRAIN_LIVE_MODELS_ENABLED: undefined,
+      },
+      () => {
+        const deepPolicy = createDefaultHermesModelPolicy(30 * 60 * 1000, "deep");
+
+        assert.equal(deepPolicy.primary.provider, "glm");
+        assert.equal(deepPolicy.primary.model, "glm-5.2");
+        assert.equal(deepPolicy.primary.mode, "stub");
+      },
+    );
+  });
+
   test("falls back to stub output when live mode is requested without provider credentials", async () => {
     await withEnv(
       {
@@ -399,6 +420,59 @@ describe("ModelAdapter", () => {
           assert.equal(calls[0].headers.get("x-hermes-auth-profile"), "system-pro");
           assert.equal(calls[0].headers.has("authorization"), false);
           assert.equal(calls[0].body.model, "openai-codex/gpt-5.5");
+        },
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("uses the configured GLM OpenAI-compatible provider", async () => {
+    const previousFetch = globalThis.fetch;
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body ?? "{}")),
+      });
+      return new Response(
+        JSON.stringify({
+          id: "glm-resp-1",
+          choices: [{ message: { content: "GLM opportunity critique" } }],
+          usage: { prompt_tokens: 12, completion_tokens: 4 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await withEnv(
+        {
+          GBRAIN_LIVE_MODELS_ENABLED: "true",
+          GLM_API_KEY: "test-glm-key",
+          GLM_BASE_URL: "https://glm.example/api/paas/v4",
+        },
+        async () => {
+          const adapter = buildDefaultModelAdapter();
+          const response = await adapter.generate(
+            {
+              primary: { provider: "glm", model: "glm-5.2", mode: "live" },
+              fallbacks: [],
+            },
+            {
+              objective: "high risk review",
+              systemPrompt: "Be strict.",
+              prompt: "Critique a hard-tech opportunity.",
+            },
+          );
+
+          assert.equal(response.stub, false);
+          assert.equal(response.provider, "glm");
+          assert.equal(response.text, "GLM opportunity critique");
+          assert.equal(calls[0].url, "https://glm.example/api/paas/v4/chat/completions");
+          assert.equal(calls[0].headers.get("authorization"), "Bearer test-glm-key");
+          assert.equal(calls[0].body.model, "glm-5.2");
         },
       );
     } finally {

@@ -124,7 +124,7 @@ function buildHealthStatus() {
     (process.env.MODEL_AUTH_MODE === "openai_codex" || process.env.MODEL_AUTH_MODE === "hermes_auth_profile"
       ? "openai-codex"
       : process.env.MODEL_ADAPTER_FALLBACK_PROVIDER || "openai");
-  const normalizedDeepProvider = ["openai", "openai-codex", "minimax"].includes(deepProvider) ? deepProvider : "openai";
+  const normalizedDeepProvider = ["openai", "openai-codex", "minimax", "glm"].includes(deepProvider) ? deepProvider : "openai";
   const openaiCodexAuthProfileConfigured = Boolean(
     process.env.OPENAI_CODEX_AUTH_PROFILE || process.env.HERMES_AUTH_PROFILE_ID || process.env.OPENCLAW_AUTH_PROFILE
   );
@@ -141,13 +141,16 @@ function buildHealthStatus() {
           (process.env.HERMES_MINIMAX_CLI_ENABLED || process.env.OPENCLAW_MINIMAX_CLI_ENABLED || "").toLowerCase(),
         )),
   );
+  const glmConfigured = Boolean(process.env.GLM_API_KEY || process.env.ZHIPUAI_API_KEY || process.env.HERMES_GLM_API_KEY);
   const liveModelsEnabled = (process.env.GBRAIN_LIVE_MODELS_ENABLED || "false").toLowerCase() === "true";
   const providerReady =
     normalizedDeepProvider === "openai"
       ? openaiConfigured
       : normalizedDeepProvider === "openai-codex"
         ? openaiCodexAuthProfileConfigured && openaiCodexBridgeConfigured
-        : minimaxConfigured;
+        : normalizedDeepProvider === "glm"
+          ? glmConfigured
+          : minimaxConfigured;
 
   return {
     ok: true,
@@ -165,6 +168,8 @@ function buildHealthStatus() {
     openai_codex_auth_profile_configured: openaiCodexAuthProfileConfigured,
     openai_codex_bridge_configured: openaiCodexBridgeConfigured,
     openai_codex_configured: openaiCodexAuthProfileConfigured && openaiCodexBridgeConfigured,
+    glm_configured: glmConfigured,
+    glm_base_url: process.env.GLM_BASE_URL || process.env.ZHIPUAI_BASE_URL || process.env.HERMES_GLM_BASE_URL || "https://open.bigmodel.cn/api/paas/v4",
     minimax_configured: minimaxConfigured,
     minimax_api_format:
       process.env.MINIMAX_API_FORMAT ||
